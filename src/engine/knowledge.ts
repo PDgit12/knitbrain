@@ -17,6 +17,7 @@ export interface Knowledge {
   queryImports(file: string): ImportEdge[] | null;
   queryExports(file: string): string[] | null;
   queryDependents(file: string): string[];
+  listFiles(): string[];
 }
 
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
@@ -142,6 +143,10 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
     queryExports(file) {
       ensure();
       return graph.get(norm(file))?.exports ?? null;
+    },
+    listFiles() {
+      ensure();
+      return [...graph.keys()];
     },
     queryDependents(file) {
       ensure();

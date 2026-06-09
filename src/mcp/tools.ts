@@ -2,6 +2,7 @@ import type { CCRStore } from "../ccr/store.js";
 import type { Memory } from "../engine/memory.js";
 import type { Knowledge } from "../engine/knowledge.js";
 import { classifyTask } from "../engine/workflow.js";
+import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { compress } from "../optimizer/router.js";
 import { VERSION } from "../version.js";
 
@@ -212,6 +213,42 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args) => {
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
       return JSON.stringify(classifyTask(str(args, "description"), files), null, 2);
+    },
+  },
+  {
+    name: "knitbrain_propose_agents",
+    description: "Auto-detect project-specific agent proposals from the knowledge graph (domains + guardrails). Review/edit, then create with knitbrain_create_agent.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "data",
+    run: (_args, ctx) => JSON.stringify(proposeAgents(ctx.knowledge.listFiles()), null, 2),
+  },
+  {
+    name: "knitbrain_create_agent",
+    description: "Generate a project-specific subagent (.claude/agents/<name>.md) with 4 guardrails: file scope, allowed-tools, optional review gate, context budget.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        description: { type: "string" },
+        scope: { type: "string" },
+        tools: { type: "array", items: { type: "string" } },
+        reviewGate: { type: "boolean" },
+        contextBudget: { type: "number" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args) => {
+      const path = writeAgent(process.cwd(), {
+        name: str(args, "name"),
+        ...(typeof args["description"] === "string" ? { description: args["description"] } : {}),
+        ...(typeof args["scope"] === "string" ? { scope: args["scope"] } : {}),
+        ...(Array.isArray(args["tools"]) ? { tools: args["tools"] as string[] } : {}),
+        ...(typeof args["reviewGate"] === "boolean" ? { reviewGate: args["reviewGate"] } : {}),
+        ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
+      });
+      return `created agent at ${path}`;
     },
   },
 ];
