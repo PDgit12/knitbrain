@@ -8,8 +8,27 @@
     "knitbrain": "dist/index.js",
     "knitbrain-proxy": "dist/proxy/index.js"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "token-optimization",
+    "context-compression",
+    "llm",
+    "ai-agents",
+    "claude",
+    "memory",
+    "local-first"
+  ],
+  "author": "Piyush Dua",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PDgit12/knitbrain.git"
+  },
+  "homepage": "https://github.com/PDgit12/knitbrain#readme",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"

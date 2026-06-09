@@ -74,7 +74,7 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 | `setup` writes project `.mcp.json` + prints env, but **doesn't verify the host picks it up** | low | conservative on purpose (no global config clobber) |
 | Memory search is **BM25-lite** (keyword overlap), not full BM25 | low | adequate for headlines; can upgrade |
 | No **coverage %** enforced | low | tests pass; coverage not measured/gated |
-| No **LICENSE** file; package.json metadata thin (`private:true`) | ship-blocker | required before any publish |
+| ~~No LICENSE / thin package.json~~ | ✅ FIXED | MIT LICENSE added; keywords/author/repository/homepage set; `files` ships dist+README+LICENSE. `private:true` kept as an accidental-publish guard (flip at ship). |
 | **Not published** to GitHub/npm | by design | local-only until explicit OK |
 
 ## 6. Production-readiness verdict
