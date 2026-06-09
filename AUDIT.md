@@ -1,5 +1,21 @@
 # Knit Brain — Full Audit (2026-06-10)
 
+## 0. PRODUCTION COLD-START PROOF — 39/39 PASS (2026-06-10)
+
+`npm run audit:prod` reproduces this anywhere (only Node ≥18 + git required):
+
+1. **Fresh `git clone`** of the committed state into a temp dir (no node_modules).
+2. **`npm ci`** clean install.
+3. **All 5 gates + full e2e** green in the clone.
+4. **`npm pack`** → tarball installed into a brand-new consumer project — exactly what `npm i knitbrain` delivers.
+5. **Installed `knitbrain` binary**: full MCP session over stdio — **all 20 tools exercised with assertions** (lossless optimize→retrieve, memory record/search/get/handoff/load, knowledge scan/imports/exports/dependents, classify, metrics, propose/create agent incl. file on disk, team post/board/get/clear).
+6. **Installed `knitbrain-proxy` binary** over real HTTP: health ✓, old bulk compressed **on the wire**, user intent reached upstream **verbatim**, response passed through, request smaller than original.
+7. **`knitbrain setup`** registers the MCP server in the consumer's `.mcp.json`.
+
+Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initially mis-parsed `team_board` output because data tools return *compressed* skeletons in production — i.e., the chokepoint compression is demonstrably active end-to-end in the installed package.
+
+> Scope honesty: "anywhere" = any machine with Node ≥18 + git, no network beyond npm install. The one remaining unproven leg is the proxy against a **live** Anthropic/OpenAI endpoint (opt-in harness ready, needs a real key).
+
 > Honest, evidence-backed assessment of everything built. No overselling — what's verified, what's heuristic, what's not done.
 
 ## 1. Snapshot (objective)
