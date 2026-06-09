@@ -1,52 +1,88 @@
 /**
  * bench:tokens — the compression-ratio + accuracy gate.
  *
- * Rung 1: proves the tokenizer + measurement harness can count real payloads
- * honestly. optimized === original here (no compressor yet → 0% saved). From
- * rung 2 this asserts compression ratio AND byte-for-byte CCR recovery, and
- * fails the build on regression.
+ * Rung 2: compresses real payloads through the JSON optimizer, reports the
+ * compression ratio, and ASSERTS byte-for-byte CCR recovery. Fails the build
+ * if anything doesn't round-trip, or if a payload fails to shrink.
  */
-import { countTokens, activeTokenizerName } from "../src/tokenizer.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { activeTokenizerName } from "../src/tokenizer.js";
 import { measure, summarize, type Measurement } from "../src/measure.js";
+import { createFileCCRStore } from "../src/ccr/store.js";
+import { compressJson } from "../src/optimizer/json.js";
 
-const SAMPLES: ReadonlyArray<{ label: string; text: string }> = [
-  { label: "empty", text: "" },
-  { label: "prose", text: "The quick brown fox jumps over the lazy dog. ".repeat(20) },
+function importsPayload(n: number): string {
+  const imports = Array.from({ length: n }, (_, i) => ({
+    name: `symbol_${i}`,
+    from: `../engine/module_${i}`,
+    line: i + 1,
+    usedBy: [`handler_${i}`, `helper_${i}`],
+    doc: "This symbol does something important. ".repeat(5),
+  }));
+  return JSON.stringify({ file: "src/mcp/handlers.ts", imports }, null, 2);
+}
+
+const PAYLOADS: ReadonlyArray<{ label: string; json: string }> = [
+  { label: "imports-40", json: importsPayload(40) },
+  { label: "imports-120", json: importsPayload(120) },
   {
-    label: "json",
-    text: JSON.stringify(
-      { id: 42, name: "knitbrain", tags: ["a", "b", "c"], blob: "x".repeat(500) },
+    label: "config",
+    json: JSON.stringify(
+      { id: 42, name: "knitbrain", tags: ["a", "b", "c"], blob: "x".repeat(800) },
       null,
       2,
     ),
   },
-  {
-    label: "code",
-    text: `export function add(a: number, b: number): number {\n  return a + b;\n}\n`.repeat(10),
-  },
 ];
+
+const root = mkdtempSync(join(tmpdir(), "knitbrain-bench-"));
+const ccr = createFileCCRStore(root);
 
 let ok = true;
 const results: Measurement[] = [];
 
 console.log(`[bench] tokenizer = ${activeTokenizerName()}`);
-for (const s of SAMPLES) {
-  const tokens = countTokens(s.text);
-  if (s.text.length > 0 && tokens <= 0) {
-    console.error(`[bench] FAIL — non-empty payload "${s.label}" counted 0 tokens`);
-    ok = false;
+try {
+  for (const p of PAYLOADS) {
+    const { skeleton, handle } = compressJson(p.json, ccr);
+
+    // ACCURACY GATE: the original must come back byte-for-byte.
+    const recovered = ccr.get(handle);
+    const lossless = recovered === p.json;
+    if (!lossless) {
+      console.error(`[bench] FAIL — ${p.label} did not round-trip losslessly`);
+      ok = false;
+    }
+
+    const m = measure(p.label, p.json, skeleton);
+    results.push(m);
+
+    // RATIO GATE: redundant payloads must actually shrink.
+    if (m.savedPct <= 0) {
+      console.error(`[bench] FAIL — ${p.label} did not shrink (${m.savedPct}%)`);
+      ok = false;
+    }
+
+    console.log(
+      `[bench] ${p.label.padEnd(11)} ${String(m.originalTokens).padStart(5)} → ${String(
+        m.optimizedTokens,
+      ).padStart(4)} tokens  saved=${m.savedPct}%  lossless=${lossless ? "✓" : "✗"}`,
+    );
   }
-  // Rung 1: no optimizer yet → optimized === original.
-  const m = measure(s.label, s.text, s.text);
-  results.push(m);
+
+  const total = summarize(results);
   console.log(
-    `[bench] ${s.label.padEnd(6)} tokens=${String(m.originalTokens).padStart(4)} saved=${m.savedPct}%`,
+    `[bench] TOTAL ${total.totalOriginal} → ${total.totalOptimized} tokens  saved=${total.savedPct}%`,
   );
+} finally {
+  rmSync(root, { recursive: true, force: true });
 }
 
-const total = summarize(results);
 console.log(
-  `[bench] TOTAL original=${total.totalOriginal} optimized=${total.totalOptimized} saved=${total.savedPct}%`,
+  ok
+    ? "[bench] PASS — payloads shrink AND recover byte-for-byte"
+    : "[bench] FAIL",
 );
-console.log(ok ? "[bench] PASS — tokenizer measures payloads honestly" : "[bench] FAIL");
 process.exit(ok ? 0 : 1);
