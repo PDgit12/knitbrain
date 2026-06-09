@@ -71,27 +71,48 @@ export function optimizeRequest(
   const handles: string[] = [];
   let blocksCompressed = 0;
 
+  const keep = (handle: string): void => {
+    blocksCompressed += 1;
+    handles.push(handle);
+  };
+
+  // OLD turns: compress the whole block (it already served its purpose).
   const compressString = (text: string): string => {
     if (text.length < opts.minBlockChars) return text;
     const r = compress(text, ccr);
     if (!r.compressed) return text;
-    blocksCompressed += 1;
-    handles.push(r.handle);
+    keep(r.handle);
     return r.skeleton;
   };
 
-  const compressContent = (content: MessageContent): MessageContent => {
-    if (typeof content === "string") return compressString(content);
-    return content.map((b) =>
-      typeof b.text === "string" ? { ...b, text: compressString(b.text) } : b,
-    );
+  // PROTECTED turns (incl. current intent): keep the directive verbatim, but
+  // compress EMBEDDED BULK — fenced code/data blocks pasted into the message.
+  const FENCE = /```([A-Za-z0-9_+.-]*)\n([\s\S]*?)```/g;
+  const splitCompress = (text: string): string =>
+    text.replace(FENCE, (whole: string, lang: string, inner: string) => {
+      if (inner.length < opts.minBlockChars) return whole;
+      const r = compress(inner, ccr);
+      if (!r.compressed) return whole;
+      keep(r.handle);
+      return "```" + lang + "\n" + r.skeleton + "\n```";
+    });
+
+  const applyToContent = (
+    content: MessageContent,
+    fn: (t: string) => string,
+  ): MessageContent => {
+    if (typeof content === "string") return fn(content);
+    return content.map((b) => (typeof b.text === "string" ? { ...b, text: fn(b.text) } : b));
   };
 
   const msgs = body.messages;
-  // Rolling window: indexes >= protectFrom are recent → kept full.
+  // Rolling window: recent turns are protected (intent verbatim, bulk split);
+  // older turns are fully compressed.
   const protectFrom = Math.max(0, msgs.length - opts.keepLastTurns);
   const messages = msgs.map((m, i) =>
-    i >= protectFrom ? m : { ...m, content: compressContent(m.content) },
+    i >= protectFrom
+      ? { ...m, content: applyToContent(m.content, splitCompress) }
+      : { ...m, content: applyToContent(m.content, compressString) },
   );
 
   // CacheAligner: whitespace-normalize the system prefix (meaning-preserving).

@@ -62,10 +62,24 @@ describe("optimizeRequest (rung 7)", () => {
     expect(ccr.get(stats.handles[0]!)).toBe(oldData);
   });
 
-  it("never compresses the final turn even if large", () => {
+  it("never compresses an unstructured final turn", () => {
     const body = { messages: [{ role: "user", content: bigJson("a") }] };
     const { body: out } = optimizeRequest(body, ccr, { keepLastTurns: 2 });
-    expect(out.messages[0]!.content).toBe(bigJson("a")); // protected by rolling window
+    expect(out.messages[0]!.content).toBe(bigJson("a")); // no fenced bulk → untouched
+  });
+
+  it("intent-vs-payload split: keeps directive verbatim, compresses fenced bulk", () => {
+    const instruction = "Please fix the flaky test below and explain why:";
+    const closing = "Thanks — keep the public API stable.";
+    const fenced = "```json\n" + bigJson("paste") + "\n```";
+    const body = { messages: [{ role: "user", content: `${instruction}\n${fenced}\n${closing}` }] };
+    const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 1 });
+    const content = out.messages[0]!.content as string;
+    expect(content).toContain(instruction); // directive kept verbatim
+    expect(content).toContain(closing); // closing kept verbatim
+    expect(content).toContain("⟨ccr:"); // embedded bulk compressed
+    expect(stats.blocksCompressed).toBe(1);
+    expect(content.length).toBeLessThan(`${instruction}\n${fenced}\n${closing}`.length);
   });
 
   it("compresses large text blocks inside content arrays", () => {
@@ -138,5 +152,43 @@ describe("proxy server integration (rung 7)", () => {
     const forwarded = JSON.parse(received[0]!);
     expect(forwarded.messages[0].content).toContain("⟨ccr:"); // old block compressed on the wire
     expect(forwarded.messages[2].content).toBe("do it"); // intent intact
+  });
+});
+
+describe("proxy SSE streaming passthrough (rung 9)", () => {
+  let root: string;
+  let ccr: CCRStore;
+  let upstream: Server;
+  let proxy: Server;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-sse-"));
+    ccr = createFileCCRStore(root);
+    upstream = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write('event: message\ndata: {"delta":"hello"}\n\n');
+      res.write("event: done\ndata: [DONE]\n\n");
+      res.end();
+    });
+    const upstreamPort = await listen(upstream);
+    proxy = createProxyServer({ ccr, upstream: `http://127.0.0.1:${upstreamPort}` });
+  });
+  afterEach(async () => {
+    await close(proxy);
+    await close(upstream);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("streams an SSE response through unchanged", async () => {
+    const port = await listen(proxy);
+    const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ stream: true, messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const body = await res.text();
+    expect(body).toContain("hello");
+    expect(body).toContain("[DONE]");
   });
 });
