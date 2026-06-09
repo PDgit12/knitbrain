@@ -6,7 +6,8 @@ import {
 import { createFileCCRStore, type CCRStore } from "./ccr/store.js";
 import { createMemory, type Memory } from "./engine/memory.js";
 import { createKnowledge, type Knowledge } from "./engine/knowledge.js";
-import { ccrRoot, knowledgeRoot, memoryRoot } from "./paths.js";
+import { createFeedback, type Feedback } from "./engine/feedback.js";
+import { ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { SERVER_NAME, VERSION } from "./version.js";
 
@@ -24,12 +25,13 @@ export function buildServer(
   ccr: CCRStore = createFileCCRStore(ccrRoot()),
   memory: Memory = createMemory(memoryRoot()),
   knowledge: Knowledge = createKnowledge(process.cwd(), knowledgeRoot()),
+  feedback: Feedback = createFeedback(feedbackRoot()),
 ): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
     { capabilities: { tools: {} } },
   );
-  const ctx: ToolContext = { ccr, memory, knowledge };
+  const ctx: ToolContext = { ccr, memory, knowledge, feedback };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({

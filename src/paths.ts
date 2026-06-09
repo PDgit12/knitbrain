@@ -26,3 +26,8 @@ export function memoryRoot(): string {
 export function knowledgeRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "knowledge");
 }
+
+/** Per-project TOIN feedback directory (compression self-tuning). */
+export function feedbackRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "feedback");
+}

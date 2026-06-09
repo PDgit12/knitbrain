@@ -1,9 +1,10 @@
 import type { CCRStore } from "../ccr/store.js";
 import type { Memory } from "../engine/memory.js";
 import type { Knowledge } from "../engine/knowledge.js";
+import type { Feedback } from "../engine/feedback.js";
 import { classifyTask } from "../engine/workflow.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
-import { compress } from "../optimizer/router.js";
+import { compress, detect } from "../optimizer/router.js";
 import { VERSION } from "../version.js";
 
 /** Runtime context handed to every tool. */
@@ -11,6 +12,7 @@ export interface ToolContext {
   ccr: CCRStore;
   memory: Memory;
   knowledge: Knowledge;
+  feedback: Feedback;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -60,9 +62,9 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const text = typeof args["text"] === "string" ? args["text"] : "";
       const r = compress(text, ctx.ccr);
-      return r.compressed
-        ? `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨ccr:…⟩ handle for the exact original]`
-        : text;
+      if (!r.compressed) return text;
+      ctx.feedback.onCompress(r.contentType, r.handle);
+      return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨ccr:…⟩ handle for the exact original]`;
     },
   },
   {
@@ -76,7 +78,12 @@ export const TOOLS: readonly ToolDef[] = [
       additionalProperties: false,
     },
     output: "verbatim",
-    run: (args, ctx) => ctx.ccr.get(normalizeHandle(str(args, "handle"))),
+    run: (args, ctx) => {
+      const handle = normalizeHandle(str(args, "handle"));
+      const original = ctx.ccr.get(handle);
+      ctx.feedback.onRetrieve(handle); // a vote that the skeleton wasn't enough
+      return original;
+    },
   },
   {
     name: "knitbrain_record_learning",
@@ -216,6 +223,14 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
+    name: "knitbrain_metrics",
+    description: "Compression telemetry: CCR tier counts + per-kind retrieval rates (TOIN self-tuning).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "verbatim",
+    run: (_args, ctx) =>
+      JSON.stringify({ ccr: ctx.ccr.stats(), feedback: ctx.feedback.stats() }, null, 2),
+  },
+  {
     name: "knitbrain_propose_agents",
     description: "Auto-detect project-specific agent proposals from the knowledge graph (domains + guardrails). Review/edit, then create with knitbrain_create_agent.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -265,6 +280,10 @@ export function dispatch(
 ): string {
   const raw = tool.run(args, ctx);
   if (tool.output === "verbatim") return raw;
+  // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
+  if (ctx.feedback.shouldSkip(detect(raw))) return raw;
   const r = compress(raw, ctx.ccr);
-  return r.compressed ? r.skeleton : raw;
+  if (!r.compressed) return raw;
+  ctx.feedback.onCompress(r.contentType, r.handle);
+  return r.skeleton;
 }

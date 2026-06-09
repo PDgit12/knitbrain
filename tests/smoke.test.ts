@@ -6,6 +6,7 @@ import { buildServer, VERSION, SERVER_NAME } from "../src/server.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
 import { createKnowledge } from "../src/engine/knowledge.js";
+import { createFeedback } from "../src/engine/feedback.js";
 
 describe("knitbrain server (rung 0/6)", () => {
   let root: string;
@@ -22,6 +23,7 @@ describe("knitbrain server (rung 0/6)", () => {
       createFileCCRStore(root),
       createMemory(join(root, "mem")),
       createKnowledge(root, join(root, "kn")),
+      createFeedback(join(root, "fb")),
     );
     expect(server).toBeDefined();
   });
