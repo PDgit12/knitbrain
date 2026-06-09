@@ -262,6 +262,6 @@ console.log("\n[audit] ──────────── PRODUCTION AUDIT REP
 for (const r of results) console.log(`[audit] ${r}`);
 console.log(`[audit] ${results.length} checks · ${results.length - failures} passed · ${failures} failed`);
 console.log(failures === 0
-  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 20 tools + proxy work."
+  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 21 tools + proxy work."
   : "[audit] VERDICT: FAIL");
 process.exit(failures === 0 ? 0 : 1);
