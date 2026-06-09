@@ -2,11 +2,15 @@ import type { CCRStore } from "../ccr/store.js";
 import type { CompressResult } from "./types.js";
 
 /** Strings longer than this are elided to a placeholder. */
-const MAX_STRING = 80;
+const MAX_STRING = 64;
 /** Arrays longer than this keep a sample + a count, rest deferred to CCR. */
-const MAX_ARRAY = 8;
+const MAX_ARRAY = 6;
 /** How many leading items to keep as a sample for long arrays. */
-const ARRAY_SAMPLE = 2;
+const ARRAY_SAMPLE = 1;
+/** Objects (maps) with more entries than this keep a sample of keys + a count. */
+const MAX_OBJECT_KEYS = 24;
+/** How many leading entries to keep as a sample for large objects. */
+const OBJECT_SAMPLE = 6;
 
 /** Structural test: does this text parse as a JSON object/array? */
 export function isJson(text: string): boolean {
@@ -37,10 +41,15 @@ function skeletonize(value: unknown): unknown {
     return value.map(skeletonize);
   }
   if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value);
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = skeletonize(v);
+    if (entries.length > MAX_OBJECT_KEYS) {
+      // Large map (e.g. a dependency tree): keep the shape via a key sample.
+      for (const [k, v] of entries.slice(0, OBJECT_SAMPLE)) out[k] = skeletonize(v);
+      out[`⟨…${entries.length - OBJECT_SAMPLE} more keys⟩`] = null;
+      return out;
     }
+    for (const [k, v] of entries) out[k] = skeletonize(v);
     return out;
   }
   // number | boolean | null — kept verbatim (short, structural)
