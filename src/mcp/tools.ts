@@ -2,6 +2,7 @@ import type { CCRStore } from "../ccr/store.js";
 import type { Memory } from "../engine/memory.js";
 import type { Knowledge } from "../engine/knowledge.js";
 import type { Feedback } from "../engine/feedback.js";
+import type { TeamBoard } from "../engine/teams.js";
 import { classifyTask } from "../engine/workflow.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { compress, detect } from "../optimizer/router.js";
@@ -13,6 +14,7 @@ export interface ToolContext {
   memory: Memory;
   knowledge: Knowledge;
   feedback: Feedback;
+  team: TeamBoard;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -264,6 +266,50 @@ export const TOOLS: readonly ToolDef[] = [
         ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
       });
       return `created agent at ${path}`;
+    },
+  },
+  {
+    name: "knitbrain_team_post",
+    description: "Post a finding to the shared team board (stored compressed; full original recoverable).",
+    inputSchema: {
+      type: "object",
+      properties: { author: { type: "string" }, content: { type: "string" } },
+      required: ["author", "content"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const e = ctx.team.post(str(args, "author"), str(args, "content"));
+      return `posted ${e.id} by ${e.author}`;
+    },
+  },
+  {
+    name: "knitbrain_team_board",
+    description: "Read the shared team board — compressed skeletons of every posting (cheap to scan; fetch full with knitbrain_team_get).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "data",
+    run: (_args, ctx) => JSON.stringify(ctx.team.board(), null, 2),
+  },
+  {
+    name: "knitbrain_team_get",
+    description: "Fetch the full original of a board posting by id.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => ctx.team.get(str(args, "id")) ?? `no board entry with id ${str(args, "id")}`,
+  },
+  {
+    name: "knitbrain_team_clear",
+    description: "Clear the shared team board (CCR originals are retained until tiered out).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "verbatim",
+    run: (_args, ctx) => {
+      ctx.team.clear();
+      return "board cleared";
     },
   },
 ];

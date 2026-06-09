@@ -122,6 +122,13 @@ async function mcpSession() {
       arguments: { file: "src/version.ts" },
     });
     ok(text(exp).includes("VERSION"), "query_exports(src/version.ts) → includes VERSION");
+
+    // Team board (rung 13): post → board reflects it.
+    const teamContent = JSON.stringify({ items: Array.from({ length: 40 }, (_, i) => ({ i, blob: "q".repeat(50) })) });
+    const post = await rpc("tools/call", { name: "knitbrain_team_post", arguments: { author: "e2e", content: teamContent } });
+    ok(text(post).includes("posted"), "team_post → acknowledged");
+    const board = await rpc("tools/call", { name: "knitbrain_team_board", arguments: {} });
+    ok(text(board).includes("e2e"), "team_board → shows the posting by author");
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

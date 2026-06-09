@@ -31,3 +31,8 @@ export function knowledgeRoot(): string {
 export function feedbackRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "feedback");
 }
+
+/** Per-project team board directory (shared compressed context). */
+export function teamRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "team");
+}
