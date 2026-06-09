@@ -101,6 +101,15 @@ async function mcpSession() {
 
     const ret = await rpc("tools/call", { name: "knitbrain_retrieve", arguments: { handle } });
     ok(text(ret) === payload, "retrieve(handle) → recovers the exact original over stdio");
+
+    // Memory loop (rung 8): record → load_session reflects it.
+    const rec = await rpc("tools/call", {
+      name: "knitbrain_record_learning",
+      arguments: { summary: "e2e proof learning", lesson: "the memory loop works over stdio", tags: ["e2e"] },
+    });
+    ok(text(rec).includes("recorded") || text(rec).includes("duplicate"), "record_learning → acknowledged");
+    const session = await rpc("tools/call", { name: "knitbrain_load_session", arguments: {} });
+    ok(text(session).includes("e2e proof learning"), "load_session → reflects the recorded learning");
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

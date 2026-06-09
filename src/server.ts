@@ -4,7 +4,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createFileCCRStore, type CCRStore } from "./ccr/store.js";
-import { ccrRoot } from "./paths.js";
+import { createMemory, type Memory } from "./engine/memory.js";
+import { ccrRoot, memoryRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { SERVER_NAME, VERSION } from "./version.js";
 
@@ -18,12 +19,15 @@ export { VERSION, SERVER_NAME } from "./version.js";
  * @param ccr injectable store (tests pass a temp store; default is the
  *            local-first store under ~/.knitbrain/ccr).
  */
-export function buildServer(ccr: CCRStore = createFileCCRStore(ccrRoot())): Server {
+export function buildServer(
+  ccr: CCRStore = createFileCCRStore(ccrRoot()),
+  memory: Memory = createMemory(memoryRoot()),
+): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
     { capabilities: { tools: {} } },
   );
-  const ctx: ToolContext = { ccr };
+  const ctx: ToolContext = { ccr, memory };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({
