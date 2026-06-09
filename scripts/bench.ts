@@ -12,6 +12,7 @@ import { activeTokenizerName } from "../src/tokenizer.js";
 import { measure, summarize, type Measurement } from "../src/measure.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { compressJson } from "../src/optimizer/json.js";
+import { compressCode } from "../src/optimizer/code.js";
 
 function importsPayload(n: number): string {
   const imports = Array.from({ length: n }, (_, i) => ({
@@ -65,6 +66,45 @@ try {
       ok = false;
     }
 
+    console.log(
+      `[bench] ${p.label.padEnd(11)} ${String(m.originalTokens).padStart(5)} → ${String(
+        m.optimizedTokens,
+      ).padStart(4)} tokens  saved=${m.savedPct}%  lossless=${lossless ? "✓" : "✗"}`,
+    );
+  }
+
+  // Code payloads through the AST/structural handler.
+  const codeFn = `export async function handle_NN(p: Params): Promise<Result> {
+  const prior = await brain.latest();
+  const learnings = await brain.top(5);
+  const merged = { ...prior, learnings };
+  const validated = validate(merged);
+  if (!validated.ok) throw new Error("bad state");
+  return finalize(validated, p);
+}
+`;
+  const codePayloads: ReadonlyArray<{ label: string; src: string }> = [
+    {
+      label: "code-20fns",
+      src:
+        `import { Brain } from "./brain";\nimport type { Params, Result } from "./types";\n\n` +
+        Array.from({ length: 20 }, (_, i) => codeFn.replace(/_NN/g, `_${i}`)).join("\n"),
+    },
+  ];
+  for (const p of codePayloads) {
+    const { skeleton, handle } = compressCode(p.src, ccr);
+    const recovered = ccr.get(handle);
+    const lossless = recovered === p.src;
+    if (!lossless) {
+      console.error(`[bench] FAIL — ${p.label} did not round-trip losslessly`);
+      ok = false;
+    }
+    const m = measure(p.label, p.src, skeleton);
+    results.push(m);
+    if (m.savedPct <= 0) {
+      console.error(`[bench] FAIL — ${p.label} did not shrink (${m.savedPct}%)`);
+      ok = false;
+    }
     console.log(
       `[bench] ${p.label.padEnd(11)} ${String(m.originalTokens).padStart(5)} → ${String(
         m.optimizedTokens,

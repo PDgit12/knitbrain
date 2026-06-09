@@ -1,14 +1,5 @@
 import type { CCRStore } from "../ccr/store.js";
-
-/** Output of compressing one payload: the skeleton view + its CCR handle. */
-export interface CompressResult {
-  /** The compressed, still-readable skeleton (carries the ⟨ccr:…⟩ handle). */
-  readonly skeleton: string;
-  /** Full CCR handle for byte-for-byte recovery of the original. */
-  readonly handle: string;
-  /** Detected content type. */
-  readonly contentType: "json";
-}
+import type { CompressResult } from "./types.js";
 
 /** Strings longer than this are elided to a placeholder. */
 const MAX_STRING = 80;
