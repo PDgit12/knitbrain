@@ -18,7 +18,7 @@ Coding agents burn context on bulk they rarely re-read in full — large files, 
 
 **One brain, two doors, one lossless store:**
 
-- **MCP server** (`knitbrain`) — 20 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification, project-specific agent generation, a shared team board, and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly (JSON keeps its schema, code keeps its signatures) and tagged with a `⟨ccr:hash⟩` handle.
+- **MCP server** (`knitbrain`) — 21 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification, project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly (JSON keeps its schema, code keeps its signatures) and tagged with a `⟨ccr:hash⟩` handle.
 - **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
 - **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
 - **Self-tuning** — a feedback loop watches which compressed payloads actually get retrieved and backs off per content-kind. A wrong tuning only costs efficiency, never correctness.
@@ -29,11 +29,20 @@ Coding agents burn context on bulk they rarely re-read in full — large files, 
 npm install -g knitbrain
 
 # in your project:
-knitbrain setup        # detects your platform, registers the MCP server in .mcp.json
+knitbrain setup        # detects your platform (Claude Code / Cursor / VS Code / Codex)
+                       # and writes its NATIVE integration: .mcp.json, slash commands,
+                       # rules files — non-clobbering
 
-# optional — route LLM requests through the optimizer:
+knitbrain dashboard    # live local dashboard (127.0.0.1:8790): context meter,
+                       # tokens saved, CCR tiers, self-tuning stats, team board
+
+# optional — route LLM requests through the optimizer (API-key setups):
 knitbrain-proxy        # listens on 127.0.0.1:8788
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8788
+
+# teams — shared optimized sessions (one URL + one token):
+knitbrain hub                              # start the team hub (host runs this once)
+knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror automatically
 ```
 
 ## Guarantees (enforced by gated tests, not promises)
@@ -49,10 +58,10 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8788
 npm install
 npm run verify       # typecheck → lint → test → build → bench (all must pass)
 npm run e2e          # built-artifact E2E: stdio session + real-file compression
-npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 20 tools
+npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 21 tools
 ```
 
-Current proof status: **88 tests passing**, and the production audit (`audit:prod`) passes **39/39** — fresh clone, clean install, packed tarball installed into a new project, all 20 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+Current proof status: **106 tests passing**, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 21 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 

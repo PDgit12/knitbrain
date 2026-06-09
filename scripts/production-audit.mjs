@@ -156,7 +156,7 @@ async function fullMcpSession(bin, cwd) {
 
     const list = await rpc("tools/list", {});
     const names = (list.result?.tools ?? []).map((t) => t.name);
-    ok(names.length === 20, `tools/list advertises exactly 20 tools (got ${names.length})`);
+    ok(names.length === 21, `tools/list advertises exactly 21 tools (got ${names.length})`);
 
     const call = (name, args = {}) => rpc("tools/call", { name, arguments: args });
 
@@ -188,6 +188,9 @@ async function fullMcpSession(bin, cwd) {
     // 14 metrics
     const metrics = JSON.parse(text(await call("knitbrain_metrics")));
     ok(typeof metrics.ccr?.total === "number" && Array.isArray(metrics.feedback), "metrics (CCR + TOIN telemetry)");
+    // 14b context meter
+    const meterReading = JSON.parse(text(await call("knitbrain_context_meter")));
+    ok(typeof meterReading.usedPct === "number" && typeof meterReading.advice === "string", "context_meter (window % + advice)");
     // 15-16 agents
     ok(text(await call("knitbrain_propose_agents")).includes("src"), "propose_agents from knowledge graph");
     ok(text(await call("knitbrain_create_agent", { name: "app-domain", scope: "src/**" })).includes("created agent"), "create_agent writes guardrailed agent");

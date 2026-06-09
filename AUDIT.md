@@ -8,7 +8,7 @@
 2. **`npm ci`** clean install.
 3. **All 5 gates + full e2e** green in the clone.
 4. **`npm pack`** → tarball installed into a brand-new consumer project — exactly what `npm i knitbrain` delivers.
-5. **Installed `knitbrain` binary**: full MCP session over stdio — **all 20 tools exercised with assertions** (lossless optimize→retrieve, memory record/search/get/handoff/load, knowledge scan/imports/exports/dependents, classify, metrics, propose/create agent incl. file on disk, team post/board/get/clear).
+5. **Installed `knitbrain` binary**: full MCP session over stdio — **all 21 tools exercised with assertions** (lossless optimize→retrieve, memory record/search/get/handoff/load, knowledge scan/imports/exports/dependents, classify, metrics, propose/create agent incl. file on disk, team post/board/get/clear).
 6. **Installed `knitbrain-proxy` binary** over real HTTP: health ✓, old bulk compressed **on the wire**, user intent reached upstream **verbatim**, response passed through, request smaller than original.
 7. **`knitbrain setup`** registers the MCP server in the consumer's `.mcp.json`.
 
@@ -22,14 +22,14 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 
 | Metric | Value |
 |---|---|
-| Commits | 20 (rungs 0–14 + proof + ship-prep, each gated) |
-| Source | 24 files · 2,210 LOC (pure TypeScript) |
-| Tests | 17 files · **88 passing + 1 opt-in skipped** |
-| Tools | **20** MCP tools |
+| Commits | 25+ (rungs 0–18 + proofs + ship-prep, each gated) |
+| Source | 30 files (pure TypeScript) |
+| Tests | 21 files · **106 passing + 1 opt-in skipped** |
+| Tools | **21** MCP tools · CLI: setup / dashboard / hub / join + 2 binaries |
 | Runtime deps | 2 (`@modelcontextprotocol/sdk`, `gpt-tokenizer`) — no Python, no native |
-| Gates | typecheck ✅ · lint ✅ · test ✅ · build ✅ · bench ✅ · e2e ✅ · audit:prod 39/39 ✅ |
-| Tarball | 42.3 kB packed / 160.9 kB unpacked · ships dist + README + LICENSE only |
-| Publish safety | `prepack` builds; `prepublishOnly` runs all gates; `private:true` guard until ship |
+| Gates | typecheck ✅ · lint ✅ · test ✅ · build ✅ · bench ✅ · e2e ✅ · audit:prod ✅ |
+| Tarball | ships dist + README + LICENSE only |
+| Publish safety | `prepack` builds; `prepublishOnly` runs all gates; v0.1.0 |
 
 ## 2. What's DONE (verified green)
 
@@ -38,7 +38,7 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 | **Tokenizer** | ✅ | gpt-tokenizer o200k_base, swappable interface |
 | **Optimizer** | ✅ | JSON (schema-preserve), code (signature-preserve), prose; ContentRouter; **never-expand guard** |
 | **CCR** | ✅ | content-addressed, integrity-checked, atomic, **tiered** (hot→cold gzip→purge), lossless round-trip is a release gate |
-| **MCP server (Lever A)** | ✅ | 20 tools, dispatch chokepoint (data→compress, governance→verbatim) |
+| **MCP server (Lever A)** | ✅ | 21 tools, dispatch chokepoint (data→compress, governance→verbatim) |
 | **Proxy (Lever B)** | ✅ core | request compression, rolling window, intent-vs-payload split, provider auto-detect, SSE passthrough |
 | **Memory** | ✅ | per-project learnings (record/search/get, dedup) + handoff save/load |
 | **Knowledge** | ✅ | import/export graph + dependents, per-project cache |
@@ -72,7 +72,8 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 | Code compressor is a **heuristic brace scanner**, not a real AST | low | edge cases possible; **lossless-safe via CCR** so never incorrect, only sub-optimal |
 | Knowledge graph is **regex-based** (no tree-sitter) | low | misses some dynamic/re-export edges; dependents resolution best-effort |
 | `create_agent` writes Claude Code subagent format **unverified against a live host** | low | format assumption; not loaded/run by an actual platform yet |
-| Teams = **local board only**; networked multi-user hub NOT built | by design | deferred decision (build on top later) |
+| ~~Teams = local board only~~ | ✅ FIXED (rung 18) | `knitbrain hub` (token-auth) + `join` + fire-and-forget mirror + dashboard merged view |
+| ~~No meter / dashboard / platform adapters~~ | ✅ FIXED (rungs 15–17) | context meter w/ autonomic handoff advice; local dashboard; native artifacts per platform |
 | `setup` writes project `.mcp.json` + prints env, but **doesn't verify the host picks it up** | low | conservative on purpose (no global config clobber) |
 | Memory search is **BM25-lite** (keyword overlap), not full BM25 | low | adequate for headlines; can upgrade |
 | No **coverage %** enforced | low | tests pass; coverage not measured/gated |

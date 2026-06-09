@@ -1,7 +1,7 @@
 {
   "name": "knitbrain",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  
   "description": "Local-first MCP server: per-project memory + workflow intelligence with always-on, lossless token/context optimization.",
   "type": "module",
   "bin": {
