@@ -18,7 +18,7 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "bench": "node scripts/bench.mjs",
+    "bench": "tsx scripts/bench.ts",
     "dev": "tsx src/index.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run bench"
   },
