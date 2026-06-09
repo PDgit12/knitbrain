@@ -5,7 +5,8 @@
   "description": "Local-first MCP server: per-project memory + workflow intelligence with always-on, lossless token/context optimization.",
   "type": "module",
   "bin": {
-    "knitbrain": "dist/index.js"
+    "knitbrain": "dist/index.js",
+    "knitbrain-proxy": "dist/proxy/index.js"
   },
   "files": [
     "dist"
@@ -21,6 +22,7 @@
     "bench": "tsx scripts/bench.ts",
     "e2e": "npm run build && node scripts/e2e.mjs",
     "dev": "tsx src/index.ts",
+    "proxy": "tsx src/proxy/index.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run bench"
   },
   "license": "MIT",
