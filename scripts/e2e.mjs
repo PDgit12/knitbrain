@@ -110,6 +110,18 @@ async function mcpSession() {
     ok(text(rec).includes("recorded") || text(rec).includes("duplicate"), "record_learning → acknowledged");
     const session = await rpc("tools/call", { name: "knitbrain_load_session", arguments: {} });
     ok(text(session).includes("e2e proof learning"), "load_session → reflects the recorded learning");
+
+    // Workflow + knowledge (rung 10).
+    const cls = await rpc("tools/call", {
+      name: "knitbrain_classify_task",
+      arguments: { description: "refactor the architecture of the proxy" },
+    });
+    ok(text(cls).includes("complex"), "classify_task → complex for an architecture refactor");
+    const exp = await rpc("tools/call", {
+      name: "knitbrain_query_exports",
+      arguments: { file: "src/version.ts" },
+    });
+    ok(text(exp).includes("VERSION"), "query_exports(src/version.ts) → includes VERSION");
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

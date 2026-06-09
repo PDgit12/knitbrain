@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { buildServer, VERSION, SERVER_NAME } from "../src/server.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
+import { createKnowledge } from "../src/engine/knowledge.js";
 
 describe("knitbrain server (rung 0/6)", () => {
   let root: string;
@@ -17,7 +18,11 @@ describe("knitbrain server (rung 0/6)", () => {
   });
 
   it("builds an MCP server without throwing", () => {
-    const server = buildServer(createFileCCRStore(root), createMemory(join(root, "mem")));
+    const server = buildServer(
+      createFileCCRStore(root),
+      createMemory(join(root, "mem")),
+      createKnowledge(root, join(root, "kn")),
+    );
     expect(server).toBeDefined();
   });
 

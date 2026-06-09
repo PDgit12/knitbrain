@@ -1,5 +1,7 @@
 import type { CCRStore } from "../ccr/store.js";
 import type { Memory } from "../engine/memory.js";
+import type { Knowledge } from "../engine/knowledge.js";
+import { classifyTask } from "../engine/workflow.js";
 import { compress } from "../optimizer/router.js";
 import { VERSION } from "../version.js";
 
@@ -7,6 +9,7 @@ import { VERSION } from "../version.js";
 export interface ToolContext {
   ccr: CCRStore;
   memory: Memory;
+  knowledge: Knowledge;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -149,6 +152,67 @@ export const TOOLS: readonly ToolDef[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "data",
     run: (_args, ctx) => JSON.stringify(ctx.memory.loadSession(), null, 2),
+  },
+  {
+    name: "knitbrain_scan",
+    description: "Scan the project and (re)build the import/export knowledge graph.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "verbatim",
+    run: (_args, ctx) => `scanned ${ctx.knowledge.scan().files} files`,
+  },
+  {
+    name: "knitbrain_query_imports",
+    description: "What a file imports (module specifiers + names).",
+    inputSchema: {
+      type: "object",
+      properties: { file: { type: "string" } },
+      required: ["file"],
+      additionalProperties: false,
+    },
+    output: "data",
+    run: (args, ctx) => JSON.stringify(ctx.knowledge.queryImports(str(args, "file")) ?? [], null, 2),
+  },
+  {
+    name: "knitbrain_query_exports",
+    description: "What a file exports.",
+    inputSchema: {
+      type: "object",
+      properties: { file: { type: "string" } },
+      required: ["file"],
+      additionalProperties: false,
+    },
+    output: "data",
+    run: (args, ctx) => JSON.stringify(ctx.knowledge.queryExports(str(args, "file")) ?? [], null, 2),
+  },
+  {
+    name: "knitbrain_query_dependents",
+    description: "Which files import the given file (blast radius before editing).",
+    inputSchema: {
+      type: "object",
+      properties: { file: { type: "string" } },
+      required: ["file"],
+      additionalProperties: false,
+    },
+    output: "data",
+    run: (args, ctx) => JSON.stringify(ctx.knowledge.queryDependents(str(args, "file")), null, 2),
+  },
+  {
+    name: "knitbrain_classify_task",
+    description: "Classify a task into a tier (inquiry/trivial/standard/complex) with phases + plan-mode signal. Follow the returned plan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string" },
+        files: { type: "array", items: { type: "string" } },
+      },
+      required: ["description"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args) => {
+      const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
+      return JSON.stringify(classifyTask(str(args, "description"), files), null, 2);
+    },
   },
 ];
 

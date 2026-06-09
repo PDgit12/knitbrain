@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
+import { createKnowledge } from "../src/engine/knowledge.js";
 import { TOOLS, dispatch, type ToolDef, type ToolContext } from "../src/mcp/tools.js";
 import { countTokens } from "../src/tokenizer.js";
 
@@ -22,7 +23,11 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "knitbrain-dispatch-"));
     ccr = createFileCCRStore(root);
-    ctx = { ccr, memory: createMemory(join(root, "mem")) };
+    ctx = {
+      ccr,
+      memory: createMemory(join(root, "mem")),
+      knowledge: createKnowledge(root, join(root, "kn")),
+    };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 

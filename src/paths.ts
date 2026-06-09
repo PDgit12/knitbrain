@@ -21,3 +21,8 @@ export function projectId(): string {
 export function memoryRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "memory");
 }
+
+/** Per-project knowledge-graph cache directory. */
+export function knowledgeRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "knowledge");
+}
