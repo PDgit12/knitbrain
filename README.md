@@ -2,43 +2,58 @@
 
 > Local-first MCP server that gives any AI coding agent **per-project memory**, **workflow intelligence**, and **always-on, lossless token & context optimization** — entirely on your machine, zero cloud.
 
-Knit Brain is the **Governor + Optimizer** for AI coding agents:
-
-- **Governor** — per-project memory across sessions, a knowledge graph (imports/exports/tests), a tier-routed workflow protocol, and a self-correcting classifier.
-- **Optimizer** — every payload the agent sends or receives is compressed structure-preservingly (JSON schemas kept, code signatures kept, bodies/values elided) with the **pristine original always recoverable** from a local content-addressed store. You pay for skeletons; you page in originals only when needed.
-
-One pure-TypeScript process. No Python. No native binaries. No network.
-
----
+Pure TypeScript. Two runtime dependencies. No Python, no native binaries, no network beyond `npm install`.
 
 ## Why
 
-Coding agents burn context on bulk they rarely re-read in full — large files, logs, JSON, stale tool output, old turns. Knit Brain shrinks that bulk to a navigable skeleton while keeping the exact original one lookup away, so:
+Coding agents burn context on bulk they rarely re-read in full — large files, logs, JSON, stale tool output, old turns. Knit Brain shrinks that bulk to a navigable **skeleton** while keeping the exact original one lookup away:
 
 - your context window lasts dramatically longer,
-- nothing is ever lost (compression is **lossless via CCR**),
-- and your governance/instructions are **never** touched (protected verbatim).
+- **nothing is ever lost** — compression is reversible via a local content-addressed store (CCR),
+- your instructions and governance text are **never** touched (protected verbatim).
 
-## Architecture (at a glance)
+**Measured on real mixed files: 106,268 → 15,316 tokens (85.6% saved), every byte recoverable.** Savings are workload-dependent; redundant JSON/code compresses hardest, declaration-only files pass through untouched (output is never larger than input — enforced).
 
-- **Two doors, one substrate.** An **MCP server** optimizes everything Knit controls (memory, knowledge, tool outputs); a **local proxy** transparently compresses the full LLM request (prompts + history). Both feed one lossless, content-addressed **CCR** store.
-- **Reversible by design.** Compressed payloads carry a `⟨ccr:hash⟩` handle; the agent retrieves the exact original on demand. A round-trip test (`retrieve == original`, byte-for-byte) gates every release.
-- **Self-correcting.** A feedback loop watches retrieval rates and tunes compression aggressiveness per content kind — over-compress and the worst case is *slower*, never *wrong*.
+## How it works
 
-## Status
+**One brain, two doors, one lossless store:**
 
-🚧 **Early development.** Building smallest → biggest, one gated rung at a time. Currently: **Rung 0 — scaffold** (MCP server skeleton + the five quality gates).
+- **MCP server** (`knitbrain`) — 20 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification, project-specific agent generation, a shared team board, and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly (JSON keeps its schema, code keeps its signatures) and tagged with a `⟨ccr:hash⟩` handle.
+- **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
+- **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
+- **Self-tuning** — a feedback loop watches which compressed payloads actually get retrieved and backs off per content-kind. A wrong tuning only costs efficiency, never correctness.
+
+## Quickstart
+
+```bash
+npm install -g knitbrain
+
+# in your project:
+knitbrain setup        # detects your platform, registers the MCP server in .mcp.json
+
+# optional — route LLM requests through the optimizer:
+knitbrain-proxy        # listens on 127.0.0.1:8788
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8788
+```
+
+## Guarantees (enforced by gated tests, not promises)
+
+- **Lossless** — every compressed payload recovers byte-for-byte from CCR; the round-trip test gates the build.
+- **Never-expand** — output tokens ≤ input tokens, always.
+- **Governance verbatim** — protocol/classification text is never skeletonized.
+- **Local-first** — proxy binds `127.0.0.1` only; nothing leaves your machine.
 
 ## Development
 
 ```bash
 npm install
-npm run verify   # typecheck → lint → test → build → bench (all must pass)
-npm run dev      # run the MCP server locally over stdio
+npm run verify       # typecheck → lint → test → build → bench (all must pass)
+npm run e2e          # built-artifact E2E: stdio session + real-file compression
+npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 20 tools
 ```
 
-All five gates must be green before any commit.
+Current proof status: **88 tests passing**, and the production audit (`audit:prod`) passes **39/39** — fresh clone, clean install, packed tarball installed into a new project, all 20 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 
-MIT
+MIT © Piyush Dua

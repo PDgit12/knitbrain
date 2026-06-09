@@ -22,12 +22,14 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 
 | Metric | Value |
 |---|---|
-| Commits | 14 (rungs 0–13, each gated) |
-| Source | 24 files · 2,201 LOC (pure TypeScript) |
+| Commits | 20 (rungs 0–14 + proof + ship-prep, each gated) |
+| Source | 24 files · 2,210 LOC (pure TypeScript) |
 | Tests | 17 files · **88 passing + 1 opt-in skipped** |
 | Tools | **20** MCP tools |
 | Runtime deps | 2 (`@modelcontextprotocol/sdk`, `gpt-tokenizer`) — no Python, no native |
-| Gates | typecheck ✅ · lint ✅ · test ✅ · build ✅ · bench ✅ · e2e ✅ |
+| Gates | typecheck ✅ · lint ✅ · test ✅ · build ✅ · bench ✅ · e2e ✅ · audit:prod 39/39 ✅ |
+| Tarball | 42.3 kB packed / 160.9 kB unpacked · ships dist + README + LICENSE only |
+| Publish safety | `prepack` builds; `prepublishOnly` runs all gates; `private:true` guard until ship |
 
 ## 2. What's DONE (verified green)
 
@@ -48,11 +50,11 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 
 ## 3. Measured savings (real numbers, honest framing)
 
-- **Synthetic bench (favorable, homogeneous):** total 15,444 → 815 tokens (**94.7%**), all lossless. Best case.
-- **Real files (mixed, via built artifact):** 106,268 → 43,623 tokens (**59%**), every file lossless + never-expanded. The realistic figure.
+- **Synthetic bench (favorable, homogeneous):** total 15,444 → 729 tokens (**95.3%**), all lossless. Best case.
+- **Real files (mixed, via built artifact):** 106,268 → 15,316 tokens (**85.6%**, re-verified 2026-06-10 after rung-14 large-object sampling; was 59%), every file lossless + never-expanded.
 - Declaration-only files correctly **pass through at 0%** (never larger).
 
-> The headline number is workload-dependent. 59% on real mixed files is the honest expectation; 90%+ only on highly redundant payloads.
+> The headline number is workload-dependent. 85.6% held on this real mixed set (code-heavy + lockfiles); prose-heavy workloads will save less. Output is never larger than input — enforced.
 
 ## 4. Invariants held (structurally enforced)
 
