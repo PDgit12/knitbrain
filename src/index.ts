@@ -7,6 +7,37 @@ async function main(): Promise<void> {
   if (process.argv[2] === "setup") {
     process.exit(runSetup());
   }
+  if (process.argv[2] === "hub") {
+    const [{ createHub }, { knitbrainHome }, { join }] = await Promise.all([
+      import("./hub/server.js"),
+      import("./paths.js"),
+      import("node:path"),
+    ]);
+    const { server, token } = createHub(join(knitbrainHome(), "hub"));
+    const port = Number(process.env["KNITBRAIN_HUB_PORT"] ?? 8791);
+    const host = process.env["KNITBRAIN_HUB_HOST"] ?? "127.0.0.1";
+    server.listen(port, host, () => {
+      console.log(`knitbrain hub → http://${host}:${port}`);
+      console.log(`team token: ${token}`);
+      console.log(`teammates join with:  knitbrain join http://<this-host>:${port} ${token} <name>`);
+      if (host === "127.0.0.1") {
+        console.log("(loopback only — set KNITBRAIN_HUB_HOST=0.0.0.0 to allow your team to reach it)");
+      }
+    });
+    return;
+  }
+  if (process.argv[2] === "join") {
+    const [url, token, member] = [process.argv[3], process.argv[4], process.argv[5] ?? "me"];
+    if (!url || !token) {
+      console.error("usage: knitbrain join <hub-url> <token> [member-name]");
+      process.exit(1);
+    }
+    const { saveHubConfig } = await import("./hub/client.js");
+    const path = saveHubConfig({ url, token, member });
+    console.log(`joined hub ${url} as "${member}" (config: ${path})`);
+    console.log("from now on, team_post mirrors to the hub automatically.");
+    process.exit(0);
+  }
   if (process.argv[2] === "dashboard") {
     const [{ createDashboardServer }, { createFileCCRStore }, { createMemory }, { createFeedback }, { createTeamBoard }, { createMeter }, paths] =
       await Promise.all([

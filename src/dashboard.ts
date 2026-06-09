@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { fetchHubBoard, loadHubConfig } from "./hub/client.js";
 import type { CCRStore } from "./ccr/store.js";
 import type { Memory } from "./engine/memory.js";
 import type { Feedback } from "./engine/feedback.js";
@@ -79,8 +80,22 @@ tick(); setInterval(tick, 2000);
 export function createDashboardServer(deps: DashboardDeps): Server {
   return createServer((req, res) => {
     if (req.url === "/api/state") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(dashboardState(deps)));
+      void (async () => {
+        const state = dashboardState(deps);
+        // COMMON view: merge the team hub's board (best-effort, never blocks long).
+        const hub = loadHubConfig();
+        if (hub) {
+          const remote = await fetchHubBoard(hub);
+          const local = state["board"] as Array<{ id: string }>;
+          const seen = new Set(local.map((e) => e.id));
+          state["board"] = [
+            ...local,
+            ...remote.filter((e) => !seen.has(e.id)).map((e) => ({ ...e, author: `${e.author} (hub)` })),
+          ];
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(state));
+      })();
       return;
     }
     if (req.url === "/" || req.url === "/index.html") {

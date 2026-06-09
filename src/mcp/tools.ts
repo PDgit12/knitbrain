@@ -6,6 +6,7 @@ import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import { classifyTask } from "../engine/workflow.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
+import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
@@ -292,8 +293,13 @@ export const TOOLS: readonly ToolDef[] = [
     },
     output: "verbatim",
     run: (args, ctx) => {
-      const e = ctx.team.post(str(args, "author"), str(args, "content"));
-      return `posted ${e.id} by ${e.author}`;
+      const content = str(args, "content");
+      const e = ctx.team.post(str(args, "author"), content);
+      // Shared sessions: mirror to the team hub when joined — fire-and-forget,
+      // a dead hub never blocks local work.
+      const hub = loadHubConfig();
+      if (hub) mirrorToHub(hub, { author: e.author, summary: e.summary, original: content });
+      return `posted ${e.id} by ${e.author}${hub ? " (mirrored to hub)" : ""}`;
     },
   },
   {
