@@ -3,48 +3,53 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { createFileCCRStore, type CCRStore } from "./ccr/store.js";
+import { ccrRoot } from "./paths.js";
+import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
+import { SERVER_NAME, VERSION } from "./version.js";
 
-/** Single source of truth for the server version. */
-export const VERSION = "0.0.0";
-
-/** Server identity advertised at the MCP handshake. */
-export const SERVER_NAME = "knitbrain";
+export { VERSION, SERVER_NAME } from "./version.js";
 
 /**
- * Build the Knit Brain MCP server.
+ * Build the Knit Brain MCP server. Every tool result flows through the ONE
+ * dispatch chokepoint, where data outputs are compressed (original preserved
+ * in CCR) and governance/verbatim outputs pass through untouched.
  *
- * Rung 0 (scaffold): exposes a single `knitbrain_ping` health-check tool so the
- * MCP wiring is exercised end-to-end. Real tools land at later rungs.
+ * @param ccr injectable store (tests pass a temp store; default is the
+ *            local-first store under ~/.knitbrain/ccr).
  */
-export function buildServer(): Server {
+export function buildServer(ccr: CCRStore = createFileCCRStore(ccrRoot())): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
     { capabilities: { tools: {} } },
   );
+  const ctx: ToolContext = { ccr };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: [
-      {
-        name: "knitbrain_ping",
-        description: "Health check — returns pong and the server version.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-      },
-    ],
+    tools: TOOLS.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    })),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, (req) => {
-    if (req.params.name === "knitbrain_ping") {
+    const tool = TOOLS.find((t) => t.name === req.params.name);
+    if (!tool) {
       return {
-        content: [
-          { type: "text", text: `pong · ${SERVER_NAME} v${VERSION}` },
-        ],
+        content: [{ type: "text", text: `Unknown tool: ${req.params.name}` }],
+        isError: true,
       };
     }
-    throw new Error(`Unknown tool: ${req.params.name}`);
+    try {
+      const text = dispatch(tool, req.params.arguments ?? {}, ctx);
+      return { content: [{ type: "text", text }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
   });
 
   return server;

@@ -1,9 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildServer, VERSION, SERVER_NAME } from "../src/server.js";
+import { createFileCCRStore } from "../src/ccr/store.js";
 
-describe("knitbrain scaffold (rung 0)", () => {
+describe("knitbrain server (rung 0/6)", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-smoke-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("builds an MCP server without throwing", () => {
-    const server = buildServer();
+    const server = buildServer(createFileCCRStore(root));
     expect(server).toBeDefined();
   });
 

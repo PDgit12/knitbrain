@@ -1,9 +1,10 @@
 /**
  * End-to-end check of the BUILT artifact (dist/):
- *   1. spawn the MCP server, drive a real stdio handshake (initialize →
- *      tools/list → tools/call), assert correct responses.
- *   2. run the compression pipeline on REAL files, asserting byte-for-byte
- *      CCR recovery and reporting real token savings.
+ *   1. spawn the MCP server, drive a real stdio session: initialize →
+ *      tools/list → ping → optimize → retrieve (the reverse loop), asserting
+ *      a lossless round-trip over the wire.
+ *   2. run the unified compress() on REAL files, asserting never-expand +
+ *      byte-for-byte CCR recovery, reporting real token savings.
  *
  * Run after `npm run build`. Exits non-zero on any failure.
  */
@@ -22,36 +23,90 @@ const ok = (cond, msg) => {
   if (!cond) failures += 1;
 };
 
-// ───────────────────────── Part 1: live MCP server ─────────────────────────
-async function mcpHandshake() {
-  console.log("[e2e] Part 1 — live MCP server over stdio");
+function makeClient(proc) {
+  let buf = "";
+  const pending = new Map();
+  proc.stdout.on("data", (d) => {
+    buf += d.toString();
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx);
+      buf = buf.slice(idx + 1);
+      if (!line.trim()) continue;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (msg.id != null && pending.has(msg.id)) {
+        pending.get(msg.id)(msg);
+        pending.delete(msg.id);
+      }
+    }
+  });
+  let id = 0;
+  const rpc = (method, params) =>
+    new Promise((resolve) => {
+      const myId = ++id;
+      pending.set(myId, resolve);
+      proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: myId, method, params }) + "\n");
+    });
+  const notify = (method, params) =>
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
+  return { rpc, notify };
+}
+
+const text = (resp) => resp?.result?.content?.[0]?.text ?? "";
+
+async function mcpSession() {
+  console.log("[e2e] Part 1 — live MCP server session (optimize → retrieve)");
   const server = join(ROOT, "dist", "index.js");
   ok(existsSync(server), "built server artifact exists (dist/index.js)");
 
-  const proc = spawn("node", [server], { stdio: ["pipe", "pipe", "pipe"] });
-  let out = "";
-  proc.stdout.on("data", (d) => (out += d.toString()));
+  const home = mkdtempSync(join(tmpdir(), "knitbrain-home-"));
+  const proc = spawn("node", [server], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, KNITBRAIN_HOME: home },
+  });
+  try {
+    const { rpc, notify } = makeClient(proc);
 
-  const send = (obj) => proc.stdin.write(JSON.stringify(obj) + "\n");
-  send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e", version: "0" } } });
-  send({ jsonrpc: "2.0", method: "notifications/initialized" });
-  send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-  send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "knitbrain_ping", arguments: {} } });
+    const init = await rpc("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "e2e", version: "0" },
+    });
+    ok(init.result?.serverInfo?.name === "knitbrain", "initialize → serverInfo.name = knitbrain");
+    notify("notifications/initialized");
 
-  await new Promise((r) => setTimeout(r, 600));
-  proc.stdin.end();
-  proc.kill();
+    const list = await rpc("tools/list", {});
+    const names = (list.result?.tools ?? []).map((t) => t.name);
+    ok(names.includes("knitbrain_optimize"), "tools/list advertises knitbrain_optimize");
+    ok(names.includes("knitbrain_retrieve"), "tools/list advertises knitbrain_retrieve");
 
-  const lines = out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  const byId = (id) => lines.find((m) => m.id === id);
-  ok(byId(1)?.result?.serverInfo?.name === "knitbrain", "initialize returns serverInfo.name = knitbrain");
-  ok(Array.isArray(byId(2)?.result?.tools), "tools/list returns a tools array");
-  ok(byId(2)?.result?.tools?.some((t) => t.name === "knitbrain_ping"), "knitbrain_ping is advertised");
-  const callText = byId(3)?.result?.content?.[0]?.text ?? "";
-  ok(callText.includes("pong"), `tools/call knitbrain_ping returns pong (got: "${callText}")`);
+    const pong = await rpc("tools/call", { name: "knitbrain_ping", arguments: {} });
+    ok(text(pong).includes("pong"), "ping → pong");
+
+    const payload = JSON.stringify(
+      { items: Array.from({ length: 40 }, (_, i) => ({ i, blob: "z".repeat(60) })) },
+      null,
+      2,
+    );
+    const opt = await rpc("tools/call", { name: "knitbrain_optimize", arguments: { text: payload } });
+    const optText = text(opt);
+    ok(optText.length < payload.length, "optimize → skeleton smaller than original");
+    const handle = optText.match(/⟨ccr:([0-9a-f]{64})⟩/)?.[1];
+    ok(Boolean(handle), "optimize → returns a ⟨ccr:hash⟩ handle");
+
+    const ret = await rpc("tools/call", { name: "knitbrain_retrieve", arguments: { handle } });
+    ok(text(ret) === payload, "retrieve(handle) → recovers the exact original over stdio");
+  } finally {
+    proc.kill();
+    rmSync(home, { recursive: true, force: true });
+  }
 }
 
-// ──────────────────── Part 2: pipeline on REAL files ───────────────────────
 async function pipelineOnRealFiles() {
   console.log("[e2e] Part 2 — unified compress() on real files (via dist)");
   const { createFileCCRStore } = await import(distUrl("ccr/store.js"));
@@ -62,11 +117,9 @@ async function pipelineOnRealFiles() {
 
   const E = "/Users/piyushdua/engram";
   const targets = [
-    // Always-present repo-local files (portable):
     `${ROOT}/package-lock.json`,
     `${ROOT}/src/optimizer/code.ts`,
     `${ROOT}/src/optimizer/types.ts`,
-    // Real-world engram files when available on this machine:
     `${E}/src/mcp/handlers.ts`,
     `${E}/src/engine/types.ts`,
     `${E}/package.json`,
@@ -78,12 +131,8 @@ async function pipelineOnRealFiles() {
     for (const path of targets) {
       const original = readFileSync(path, "utf8");
       const r = compress(original, ccr);
-
-      // INVARIANT 1: never expand.
       const neverExpands = r.skeletonTokens <= r.originalTokens;
-      // INVARIANT 2: lossless — when compressed, recover byte-for-byte.
       const lossless = r.compressed ? ccr.get(r.handle) === original : r.skeleton === original;
-
       totalBefore += r.originalTokens;
       totalAfter += r.skeletonTokens;
       const name = path.replace(E, "engram").replace(ROOT, "knit-brain");
@@ -97,7 +146,7 @@ async function pipelineOnRealFiles() {
   }
 }
 
-await mcpHandshake();
+await mcpSession();
 await pipelineOnRealFiles();
 
 console.log(failures === 0 ? "\n[e2e] PASS — built artifact works end-to-end on real input" : `\n[e2e] FAIL — ${failures} check(s) failed`);
