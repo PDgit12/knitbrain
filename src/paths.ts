@@ -36,3 +36,8 @@ export function feedbackRoot(): string {
 export function teamRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "team");
 }
+
+/** Per-project context-meter directory (token-window tracking). */
+export function meterRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "meter");
+}

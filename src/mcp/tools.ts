@@ -3,9 +3,11 @@ import type { Memory } from "../engine/memory.js";
 import type { Knowledge } from "../engine/knowledge.js";
 import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
+import type { Meter } from "../engine/meter.js";
 import { classifyTask } from "../engine/workflow.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { compress, detect } from "../optimizer/router.js";
+import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
 
 /** Runtime context handed to every tool. */
@@ -15,6 +17,7 @@ export interface ToolContext {
   knowledge: Knowledge;
   feedback: Feedback;
   team: TeamBoard;
+  meter: Meter;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -158,10 +161,20 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "knitbrain_load_session",
-    description: "Load the prior handoff + top recent learnings to resume work.",
+    description: "Load the prior handoff + top recent learnings to resume work. Resets the context meter for the new session.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "data",
-    run: (_args, ctx) => JSON.stringify(ctx.memory.loadSession(), null, 2),
+    run: (_args, ctx) => {
+      ctx.meter.reset(); // new session starts a fresh window
+      return JSON.stringify(ctx.memory.loadSession(), null, 2);
+    },
+  },
+  {
+    name: "knitbrain_context_meter",
+    description: "Token-window meter: how full the context is, tokens saved by optimization, and whether it's time to save a handoff and clear the session.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "verbatim",
+    run: (_args, ctx) => JSON.stringify(ctx.meter.read(), null, 2),
   },
   {
     name: "knitbrain_scan",
@@ -325,11 +338,23 @@ export function dispatch(
   ctx: ToolContext,
 ): string {
   const raw = tool.run(args, ctx);
-  if (tool.output === "verbatim") return raw;
-  // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
-  if (ctx.feedback.shouldSkip(detect(raw))) return raw;
-  const r = compress(raw, ctx.ccr);
-  if (!r.compressed) return raw;
-  ctx.feedback.onCompress(r.contentType, r.handle);
-  return r.skeleton;
+  let out = raw;
+  if (tool.output === "data") {
+    // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
+    if (!ctx.feedback.shouldSkip(detect(raw))) {
+      const r = compress(raw, ctx.ccr);
+      if (r.compressed) {
+        ctx.feedback.onCompress(r.contentType, r.handle);
+        out = r.skeleton;
+      }
+    }
+  }
+  // Context meter: account what we emit; when the window runs hot, tell the
+  // agent to save a handoff and clear — automatically, on any tool response.
+  ctx.meter.onToolOutput(countTokens(out));
+  const reading = ctx.meter.read();
+  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter") {
+    out += `\n\n[knitbrain context-meter] ${reading.advice}`;
+  }
+  return out;
 }

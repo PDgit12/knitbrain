@@ -7,6 +7,7 @@ import { createMemory } from "../src/engine/memory.js";
 import { createKnowledge } from "../src/engine/knowledge.js";
 import { createFeedback } from "../src/engine/feedback.js";
 import { createTeamBoard } from "../src/engine/teams.js";
+import { createMeter } from "../src/engine/meter.js";
 import { TOOLS, dispatch, type ToolDef, type ToolContext } from "../src/mcp/tools.js";
 import { countTokens } from "../src/tokenizer.js";
 
@@ -31,6 +32,7 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
       knowledge: createKnowledge(root, join(root, "kn")),
       feedback: createFeedback(join(root, "fb")),
       team: createTeamBoard(join(root, "team"), ccr),
+      meter: createMeter(join(root, "meter")),
     };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));

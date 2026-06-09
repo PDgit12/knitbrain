@@ -8,6 +8,7 @@ import { createMemory } from "../src/engine/memory.js";
 import { createKnowledge } from "../src/engine/knowledge.js";
 import { createFeedback } from "../src/engine/feedback.js";
 import { createTeamBoard } from "../src/engine/teams.js";
+import { createMeter } from "../src/engine/meter.js";
 
 describe("knitbrain server (rung 0/6)", () => {
   let root: string;
@@ -26,6 +27,7 @@ describe("knitbrain server (rung 0/6)", () => {
       createKnowledge(root, join(root, "kn")),
       createFeedback(join(root, "fb")),
       createTeamBoard(join(root, "team"), createFileCCRStore(root)),
+      createMeter(join(root, "meter")),
     );
     expect(server).toBeDefined();
   });
