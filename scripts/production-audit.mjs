@@ -102,7 +102,7 @@ try {
   // ───────────── Stage 7: setup CLI ─────────────
   stage(7, "knitbrain setup in the consumer project");
   const setupOut = sh(`"${binServer}" setup`, consumer, { KNITBRAIN_HOME: HOME_ISOLATED });
-  ok(/registered MCP server/.test(setupOut), "setup registers the MCP server");
+  ok(/wrote \.mcp\.json/.test(setupOut), "setup writes platform artifacts (.mcp.json + extras)");
   const mcpJson = JSON.parse(readFileSync(join(consumer, ".mcp.json"), "utf8"));
   ok(mcpJson.mcpServers?.knitbrain?.command === "knitbrain", ".mcp.json wired to knitbrain");
 } finally {
