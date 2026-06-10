@@ -2,39 +2,62 @@
 
 > Local-first MCP server that gives any AI coding agent **per-project memory**, **workflow intelligence**, and **always-on, lossless token & context optimization** — entirely on your machine, zero cloud.
 
-Pure TypeScript. Two runtime dependencies. No Python, no native binaries, no network beyond `npm install`.
+Pure TypeScript. No Python, no native binaries, no network beyond `npm install`.
 
-## Why
+```bash
+npx knitbrain profile    # measure what it would save on YOUR real sessions — before installing anything
+```
 
-Coding agents burn context on bulk they rarely re-read in full — large files, logs, JSON, stale tool output, old turns. Knit Brain shrinks that bulk to a navigable **skeleton** while keeping the exact original one lookup away:
+## The honest number
 
-- your context window lasts dramatically longer,
-- **nothing is ever lost** — compression is reversible via a local content-addressed store (CCR),
-- your instructions and governance text are **never** touched (protected verbatim).
+Most tools in this space quote their best workload ("up to 90%!"). We publish the number nobody else does: the **whole-session average** — every tool result from real coding sessions, *including* the blocks that don't compress.
 
-**Measured, not promised:** on 3.03M tokens of tool results from 69 real coding sessions, knitbrain saves **50.2% overall** (logs 68.6% · long output 68.2% · JSON 65.8% · code 55.5% · test runs 43.1%) with **zero lossless failures** — every original recoverable byte-for-byte. On whole files: 88.8%. Short outputs pass through untouched (output is never larger than input — enforced). Reproduce on your own sessions: `node scripts/shape-profile.mjs`.
+**On 3.08M tokens of tool results from 70 real Claude Code sessions: 55.8% saved overall, lossless.** Every original recoverable byte-for-byte.
+
+| shape | % of real burn | saved |
+|---|---|---|
+| code & file reads | 47% | 59.6% |
+| repetitive logs | 18% | 72.3% |
+| short prose (reports, summaries) | 15% | 19.5% |
+| long prose | 8% | 68.7% |
+| test output | 6% | 46.4% |
+| JSON | 5% | 65.8% |
+
+Measured the way others measure — single best-case workloads — we land 60–99% (import graphs 98.9%, whole files 88.8%, body-heavy code 71.6%). But that's not the number you'll feel; the whole-session average is.
+
+**Don't take our word for any of this.** `knitbrain profile` runs the actual optimizer over your own transcripts (`~/.claude/projects` by default) and prints *your* number. Local only — nothing is uploaded.
+
+## Why this and not a point tool
+
+Compression-only layers shrink tokens but remember nothing. Memory-only layers remember but burn your window. Knit Brain is one substrate doing both, plus the workflow layer that makes agents use them:
+
+- **Memory** — per-project learnings, session handoffs, a knowledge graph (imports/exports/blast-radius), on-demand skills that compound across tasks.
+- **Lossless optimization** — structure-preserving skeletons (JSON keeps its schema, code keeps its signatures via tree-sitter AST), cross-turn dedup of re-sent bulk, sentence anchoring for prose — all reversible through a content-addressed store.
+- **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves, with guardrailed agent generation and a shared team board.
+- **Self-healing, not self-confident** — two feedback loops run continuously: TOIN backs off any compression kind that gets over-retrieved, and the classifier shifts its own thresholds after 3 wrong-verdict votes (`knitbrain_record_false_positive`). Wrong tuning costs efficiency, never correctness.
 
 ## How it works
 
 **One brain, two doors, one lossless store:**
 
-- **MCP server** (`knitbrain`) — 25 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine, project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly (JSON keeps its schema, code keeps its signatures) and tagged with a `⟨ccr:hash⟩` handle.
-- **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
+- **MCP server** (`knitbrain`) — 25 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine, project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
+- **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, exact repeats across turns collapsed to a marker, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
 - **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
-- **Self-tuning** — a feedback loop watches which compressed payloads actually get retrieved and backs off per content-kind. A wrong tuning only costs efficiency, never correctness.
+- **Live dashboard** — context meter, tokens saved, CCR tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
 
 ## Quickstart
 
 ```bash
 npm install -g knitbrain
 
+knitbrain profile      # your savings, on your transcripts, before you commit to anything
+
 # in your project:
 knitbrain setup        # detects your platform (Claude Code / Cursor / VS Code / Codex)
                        # and writes its NATIVE integration: .mcp.json, slash commands,
                        # rules files — non-clobbering
 
-knitbrain dashboard    # live local dashboard (127.0.0.1:8790): context meter,
-                       # tokens saved, CCR tiers, self-tuning stats, team board
+knitbrain dashboard    # live local dashboard (127.0.0.1:8790)
 
 # optional — route LLM requests through the optimizer (API-key setups):
 knitbrain-proxy        # listens on 127.0.0.1:8788
@@ -49,14 +72,15 @@ knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror auto
 
 - **Lossless** — every compressed payload recovers byte-for-byte from CCR; the round-trip test gates the build.
 - **Never-expand** — output tokens ≤ input tokens, always.
-- **Governance verbatim** — protocol/classification text is never skeletonized.
-- **Local-first** — proxy binds `127.0.0.1` only; nothing leaves your machine.
+- **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.
+- **Local-first** — proxy, hub, and dashboard bind `127.0.0.1` by default; nothing leaves your machine.
+- **Reproducible claims** — every number in this README comes from `knitbrain profile` or `npm run bench`, both of which you can run yourself.
 
 ## Development
 
 ```bash
 npm install
-npm run verify       # typecheck → lint → test → build → bench (all must pass)
+npm run verify       # typecheck → lint → test → build → consistency → bench (all must pass)
 npm run e2e          # built-artifact E2E: stdio session + real-file compression
 npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 25 tools
 ```
