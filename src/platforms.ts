@@ -13,9 +13,25 @@ export interface Artifact {
   /** Path relative to the project root. */
   path: string;
   content: string;
-  /** Merge strategy: json-merge for shared config files, write for ours. */
-  mode: "write" | "json-merge-mcp";
+  /** Merge strategy: json-merges for shared config files, write for ours. */
+  mode: "write" | "json-merge-mcp" | "json-merge-hooks";
 }
+
+/** Hook wiring for Claude Code settings.json (Layer 2 enforcement). */
+export const KNITBRAIN_HOOKS = {
+  PreToolUse: [
+    {
+      matcher: "Read",
+      hooks: [{ type: "command", command: "knitbrain-hook pretooluse" }],
+    },
+  ],
+  PreCompact: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook precompact" }],
+    },
+  ],
+} as const;
 
 const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons. A \`⟨ccr:HASH⟩\` marker means the exact original is stored locally — call the \`knitbrain_retrieve\` tool with that hash to read it byte-for-byte. Check \`knitbrain_context_meter\` periodically; when it says to, save a handoff with \`knitbrain_save_handoff\` and start a fresh session (\`knitbrain_load_session\` restores everything). When the user states a task, call \`knitbrain_run\` first and follow its directive (skill + agents + commands).
 
@@ -43,6 +59,7 @@ Terse: "New object ref each render → re-render. Wrap in useMemo."`;
 export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
   return [
     { path: ".mcp.json", content: "", mode: "json-merge-mcp" },
+    { path: ".claude/settings.json", content: "", mode: "json-merge-hooks" },
     {
       path: ".claude/commands/meter.md",
       mode: "write",
@@ -129,8 +146,7 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
     const full = join(root, a.path);
     mkdirSync(dirname(full), { recursive: true });
     let content = a.content;
-    if (a.mode === "json-merge-mcp") {
-      const key = mcpKeyFor(a.path);
+    if (a.mode === "json-merge-mcp" || a.mode === "json-merge-hooks") {
       let parsed: Record<string, unknown> = {};
       if (existsSync(full)) {
         try {
@@ -139,8 +155,23 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
           parsed = {};
         }
       }
-      const servers = { ...((parsed[key] as Record<string, unknown>) ?? {}), ...cfg.mcpServers };
-      content = JSON.stringify({ ...parsed, [key]: servers }, null, 2) + "\n";
+      if (a.mode === "json-merge-mcp") {
+        const key = mcpKeyFor(a.path);
+        const servers = { ...((parsed[key] as Record<string, unknown>) ?? {}), ...cfg.mcpServers };
+        content = JSON.stringify({ ...parsed, [key]: servers }, null, 2) + "\n";
+      } else {
+        // Merge our hook entries into existing hooks, deduped by command —
+        // never clobber the user's own hooks.
+        const hooks = { ...((parsed["hooks"] as Record<string, unknown[]>) ?? {}) };
+        for (const [event, entries] of Object.entries(KNITBRAIN_HOOKS)) {
+          const existing = (hooks[event] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
+          const ours = entries.filter(
+            (e) => !existing.some((x) => x.hooks?.some((h) => h.command === e.hooks[0].command)),
+          );
+          hooks[event] = [...existing, ...ours];
+        }
+        content = JSON.stringify({ ...parsed, hooks }, null, 2) + "\n";
+      }
     }
     const tmp = `${full}.${process.pid}.tmp`;
     writeFileSync(tmp, content, "utf8");

@@ -195,6 +195,19 @@ async function fullMcpSession(bin, cwd) {
     ok(text(await call("knitbrain_propose_agents")).includes("src"), "propose_agents from knowledge graph");
     ok(text(await call("knitbrain_create_agent", { name: "app-domain", scope: "src/**" })).includes("created agent"), "create_agent writes guardrailed agent");
     ok(existsSync(join(cwd, ".claude", "agents", "app-domain.md")), "agent file exists on disk");
+    // DEEP DIVE: input fuzz — EVERY tool with missing + wrong-typed args.
+    // The server must answer gracefully every time and never crash.
+    let fuzzOk = true;
+    for (const name of names) {
+      const bad = await call(name, {});
+      const badTyped = await call(name, { text: 42, handle: {}, path: ["x"], id: 9, query: null, task: false, name: 1 });
+      if (!bad?.result || !badTyped?.result) fuzzOk = false;
+    }
+    ok(fuzzOk && text(await call("knitbrain_ping")).includes("pong"), `input fuzz: all ${names.length} tools survive missing + wrong-typed args; server alive`);
+    // knitbrain_read deep checks through the installed binary
+    ok(text(await call("knitbrain_read", { path: "src/app.ts" })).includes("main"), "knitbrain_read: small file exact");
+    ok(text(await call("knitbrain_read", { path: "../../etc/passwd" })).includes("refused"), "knitbrain_read: traversal refused (installed binary)");
+
     // 17-20 teams
     ok(text(await call("knitbrain_team_post", { author: "auditor", content: payload })).includes("posted"), "team_post");
     const boardText = text(await call("knitbrain_team_board"));

@@ -6,7 +6,8 @@
   "type": "module",
   "bin": {
     "knitbrain": "dist/index.js",
-    "knitbrain-proxy": "dist/proxy/index.js"
+    "knitbrain-proxy": "dist/proxy/index.js",
+    "knitbrain-hook": "dist/hooks/index.js"
   },
   "keywords": [
     "mcp",
