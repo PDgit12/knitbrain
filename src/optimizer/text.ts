@@ -17,28 +17,41 @@ export function compressText(original: string, ccr: CCRStore): CompressResult {
   const handle = ccr.put(original);
   const lines = original.split("\n");
 
+  // Near-duplicate grouping: logs repeat the same TEMPLATE with volatile
+  // bits (timestamps, counters, ids, hashes). Normalize those away for
+  // grouping; the kept representative is the first real occurrence.
+  const normalize = (l: string): string =>
+    l
+      .replace(/\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?/g, "⟪ts⟫")
+      .replace(/\b[0-9a-f]{7,64}\b/g, "⟪hex⟫")
+      .replace(/\d+/g, "⟪n⟫");
+
   let body: string;
   if (lines.length >= MIN_LINES_FOR_DEDUP) {
     const counts = new Map<string, number>();
+    const firstSeen = new Map<string, string>();
     const order: string[] = [];
     for (const line of lines) {
-      const seen = counts.get(line);
+      const key = normalize(line);
+      const seen = counts.get(key);
       if (seen === undefined) {
-        counts.set(line, 1);
-        order.push(line);
+        counts.set(key, 1);
+        firstSeen.set(key, line);
+        order.push(key);
       } else {
-        counts.set(line, seen + 1);
+        counts.set(key, seen + 1);
       }
     }
-    // Only restructure when repetition is substantial (≥25% duplicate lines).
+    // Only restructure when repetition is substantial (≥25% duplicate templates).
     if (order.length <= lines.length * 0.75) {
       body = order
-        .map((line) => {
-          const n = counts.get(line)!;
-          return n > 1 && line.trim().length > 0 ? `${line}  ⟪×${n}⟫` : line;
+        .map((key) => {
+          const n = counts.get(key)!;
+          const line = firstSeen.get(key)!;
+          return n > 1 && line.trim().length > 0 ? `${line}  ⟪×${n} similar⟫` : line;
         })
         .join("\n");
-      body += `\n⟪${lines.length} lines → ${order.length} unique · exact original: ccr⟫`;
+      body += `\n⟪${lines.length} lines → ${order.length} unique templates · exact original: ccr⟫`;
     } else {
       body = original;
     }

@@ -26,6 +26,37 @@ export interface RouteResult {
  */
 const MIN_SAVING_PCT = 5;
 
+/** Anchor fallback applies to outputs at least this many lines long. */
+const ANCHOR_MIN_LINES = 40;
+/** If structural compression saves less than this %, try the anchor. */
+const ANCHOR_TRIGGER_PCT = 35;
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
+/** Lines worth rescuing from an elided middle (failures live mid-output). */
+const IMPORTANT_LINE = /\b(FAIL|FAILED|✗|Error:|error TS\d+|Exception|Traceback|fatal:|panic:)\b/;
+const MAX_RESCUED = 12;
+
+/**
+ * Anchor elision — the universal fallback for long low-structure output
+ * (build logs, test runs, prose, mixed snippets): keep the head (intro/
+ * context) and tail (summaries/errors land at the end), rescue failure lines
+ * from the middle, elide the rest to a counted marker. Head/tail scale with
+ * length. Profiled on 69 real transcripts: these shapes are ~70% of burn.
+ * Lossless via CCR; TOIN backs off any shape that gets over-retrieved.
+ */
+function anchorSkeleton(text: string, handle: string): string {
+  const lines = text.split("\n");
+  const headN = clamp(Math.round(lines.length * 0.15), 8, 25);
+  const tailN = clamp(Math.round(lines.length * 0.12), 6, 18);
+  const middle = lines.slice(headN, lines.length - tailN);
+  const rescued = middle.filter((l) => IMPORTANT_LINE.test(l)).slice(0, MAX_RESCUED);
+  const head = lines.slice(0, headN).join("\n");
+  const tail = lines.slice(-tailN).join("\n");
+  const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
+  return `${head}\n⟪… ${middle.length - rescued.length} lines elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
+}
+
 /** Deterministic content-type detection (no ML). JSON is strict; code is heuristic. */
 export function detect(text: string): ContentType {
   if (isJson(text)) return "json";
@@ -86,11 +117,28 @@ export function compress(text: string, ccr: CCRStore): RouteResult {
   }
 
   const originalTokens = countTokens(text);
-  const skeletonTokens = countTokens(skeleton);
-  const savedPct =
+  let skeletonTokens = countTokens(skeleton);
+  let savedPct =
     originalTokens === 0
       ? 0
       : Math.round((1 - skeletonTokens / originalTokens) * 1000) / 10;
+
+  // ANCHOR FALLBACK: long output where structure didn't pay → head+tail keep.
+  const lineCount = text.split("\n").length;
+  if (savedPct < ANCHOR_TRIGGER_PCT && lineCount >= ANCHOR_MIN_LINES) {
+    const anchorHandle = handle || ccr.put(text);
+    const anchored = anchorSkeleton(text, anchorHandle);
+    const anchoredTokens = countTokens(anchored);
+    if (anchoredTokens < skeletonTokens) {
+      skeleton = anchored;
+      handle = anchorHandle;
+      skeletonTokens = anchoredTokens;
+      savedPct =
+        originalTokens === 0
+          ? 0
+          : Math.round((1 - skeletonTokens / originalTokens) * 1000) / 10;
+    }
+  }
 
   // NEVER-EXPAND GUARD: if compression isn't meaningfully smaller, pass through.
   if (savedPct < MIN_SAVING_PCT) {
