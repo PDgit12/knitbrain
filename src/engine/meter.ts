@@ -29,6 +29,8 @@ export interface Meter {
   onRequest(originalTokens: number, optimizedTokens: number): void;
   /** MCP-side: a tool emitted `tokens` into the conversation (additive floor). */
   onToolOutput(tokens: number): void;
+  /** MCP-side: the optimizer saved `tokens` on a payload (savings accounting without the proxy). */
+  onSaved(tokens: number): void;
   read(): MeterReading;
   /** New session: reset usage (savings history is kept). */
   reset(): void;
@@ -87,6 +89,11 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
     onToolOutput(tokens) {
       reload();
       state.toolTokens += tokens;
+      save();
+    },
+    onSaved(tokens) {
+      reload();
+      state.savedTokens += Math.max(0, tokens);
       save();
     },
     read() {

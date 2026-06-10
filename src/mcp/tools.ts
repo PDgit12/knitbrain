@@ -79,6 +79,7 @@ export const TOOLS: readonly ToolDef[] = [
       const r = compress(text, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return text;
       ctx.feedback.onCompress(r.contentType, r.handle);
+      ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
       return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨ccr:…⟩ handle for the exact original]`;
     },
   },
@@ -124,6 +125,7 @@ export const TOOLS: readonly ToolDef[] = [
       const r = compress(original, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return original; // small/incompressible → exact content
       ctx.feedback.onCompress(r.contentType, r.handle);
+      ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
       return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨ccr:${r.handle}⟩]`;
     },
   },
@@ -501,6 +503,7 @@ export function dispatch(
       const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (r.compressed) {
         ctx.feedback.onCompress(r.contentType, r.handle);
+        ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
         out = r.skeleton;
       }
     }

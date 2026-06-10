@@ -82,3 +82,14 @@ describe("context meter (rung 15)", () => {
     expect(out).toContain("SAVE A HANDOFF NOW");
   });
 });
+
+describe("MCP-side savings accounting (dashboard tokens-saved tile)", () => {
+  it("onSaved accumulates and survives a new instance", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-meter-saved-"));
+    const a = createMeter(join(root, "m"));
+    a.onSaved(1200);
+    a.onSaved(800);
+    expect(createMeter(join(root, "m")).read().savedTokens).toBe(2000);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
