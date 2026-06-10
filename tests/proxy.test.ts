@@ -82,6 +82,46 @@ describe("optimizeRequest (rung 7)", () => {
     expect(content.length).toBeLessThan(`${instruction}\n${fenced}\n${closing}`.length);
   });
 
+  it("cross-turn dedup: identical repeated blocks collapse to a ⟪same as⟫ marker (lossless)", () => {
+    const repeated = bigJson("dup");
+    const body = {
+      messages: [
+        { role: "user", content: repeated },
+        { role: "assistant", content: "ok" },
+        { role: "user", content: repeated }, // same payload re-sent
+        { role: "assistant", content: "ok again" },
+        { role: "user", content: "now do X" },
+      ],
+    };
+    const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 1 });
+    const first = out.messages[0]!.content as string;
+    const second = out.messages[2]!.content as string;
+    expect(first).toContain("⟨ccr:"); // first occurrence: normal skeleton
+    expect(second).toContain("⟪same as earlier ⟨ccr:");
+    expect(second.length).toBeLessThan(first.length); // marker is tiny
+    expect(stats.blocksDeduped).toBe(1);
+    // lossless: the marker's handle recovers the exact original
+    const handle = /⟨ccr:([0-9a-f]{64})⟩/.exec(second)![1]!;
+    expect(ccr.get(handle)).toBe(repeated);
+  });
+
+  it("cross-turn dedup applies to repeated fenced bulk in protected turns", () => {
+    const fenced = "```json\n" + bigJson("fence-dup") + "\n```";
+    const body = {
+      messages: [
+        { role: "user", content: `Here is the data:\n${fenced}` },
+        { role: "user", content: `Same data again:\n${fenced}\nfix it.` },
+      ],
+    };
+    const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 2 });
+    const first = out.messages[0]!.content as string;
+    const second = out.messages[1]!.content as string;
+    expect(first).toContain("⟨ccr:"); // first paste: normal skeleton
+    expect(second).toContain("Same data again:"); // directive verbatim
+    expect(second).toContain("⟪same as earlier ⟨ccr:");
+    expect(stats.blocksDeduped).toBe(1);
+  });
+
   it("compresses large text blocks inside content arrays", () => {
     const body = {
       messages: [

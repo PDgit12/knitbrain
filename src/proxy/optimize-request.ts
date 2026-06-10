@@ -1,4 +1,5 @@
 import type { CCRStore } from "../ccr/store.js";
+import { sha256 } from "../ccr/store.js";
 import { compress } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { normalizePrefix } from "./cache-aligner.js";
@@ -36,6 +37,8 @@ export interface ProxyStats {
   optimizedTokens: number;
   savedPct: number;
   blocksCompressed: number;
+  /** Blocks collapsed to a ⟪same as …⟫ marker because identical content appeared earlier in the history. */
+  blocksDeduped: number;
   handles: string[];
 }
 
@@ -70,15 +73,35 @@ export function optimizeRequest(
 
   const handles: string[] = [];
   let blocksCompressed = 0;
+  let blocksDeduped = 0;
 
   const keep = (handle: string): void => {
     blocksCompressed += 1;
     handles.push(handle);
   };
 
+  // CROSS-TURN DEDUP: agents re-send the same bulk repeatedly (re-reading a
+  // file, the same tool output pasted twice). The FIRST occurrence keeps its
+  // skeleton; identical repeats collapse to a marker pointing at the same CCR
+  // original (sha256(text) IS the handle — content-addressed). Lossless.
+  const seen = new Set<string>();
+  const dedup = (text: string): string | null => {
+    const hash = sha256(text);
+    if (!seen.has(hash)) {
+      seen.add(hash);
+      return null;
+    }
+    ccr.put(text); // idempotent — guarantees the handle resolves
+    blocksDeduped += 1;
+    handles.push(hash);
+    return `⟪same as earlier ⟨ccr:${hash}⟩⟫`;
+  };
+
   // OLD turns: compress the whole block (it already served its purpose).
   const compressString = (text: string): string => {
     if (text.length < opts.minBlockChars) return text;
+    const repeat = dedup(text);
+    if (repeat !== null) return repeat;
     const r = compress(text, ccr);
     if (!r.compressed) return text;
     keep(r.handle);
@@ -91,6 +114,8 @@ export function optimizeRequest(
   const splitCompress = (text: string): string =>
     text.replace(FENCE, (whole: string, lang: string, inner: string) => {
       if (inner.length < opts.minBlockChars) return whole;
+      const repeat = dedup(inner);
+      if (repeat !== null) return "```" + lang + "\n" + repeat + "\n```";
       const r = compress(inner, ccr);
       if (!r.compressed) return whole;
       keep(r.handle);
@@ -124,5 +149,5 @@ export function optimizeRequest(
 
   const after = countTokens(collectText(optimized));
   const savedPct = before === 0 ? 0 : Math.round((1 - after / before) * 1000) / 10;
-  return { body: optimized, stats: { originalTokens: before, optimizedTokens: after, savedPct, blocksCompressed, handles } };
+  return { body: optimized, stats: { originalTokens: before, optimizedTokens: after, savedPct, blocksCompressed, blocksDeduped, handles } };
 }

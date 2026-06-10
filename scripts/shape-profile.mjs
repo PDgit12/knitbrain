@@ -17,8 +17,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const d = (p) => pathToFileURL(join(ROOT, "dist", p)).href;
-const { createFileCCRStore } = await import(d("ccr/store.js"));
+const { createFileCCRStore, sha256 } = await import(d("ccr/store.js"));
 const { compress } = await import(d("optimizer/router.js"));
+const { countTokens } = await import(d("tokenizer.js"));
 
 
 // ── shape classification (deterministic, order matters) ──
@@ -65,7 +66,14 @@ const store = mkdtempSync(join(tmpdir(), "kb-profile-"));
 const ccr = createFileCCRStore(store);
 const buckets = new Map(); // shape → {n, before, after, sample}
 
+let dedupN = 0;
+let dedupSaved = 0;
+
 for (const file of files) {
+  // Cross-turn dedup is per session: every request re-sends the history, so a
+  // block whose exact text already appeared earlier in this transcript would
+  // collapse to a ⟪same as ⟨ccr:hash⟩⟫ marker in the proxy.
+  const seen = new Set();
   const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) {
     let msg;
@@ -79,9 +87,20 @@ for (const file of files) {
       for (const t of texts) {
         if (typeof t !== "string" || t.length < 400) continue;
         const shape = classifyShape(t);
+        const hash = sha256(t);
+        const repeat = seen.has(hash);
+        seen.add(hash);
         const r = compress(t, ccr);
+        let after = r.skeletonTokens;
+        if (repeat) {
+          const marker = countTokens(`⟪same as earlier ⟨ccr:${hash}⟩⟫`);
+          if (marker < after) {
+            dedupN++; dedupSaved += after - marker;
+            after = marker;
+          }
+        }
         const b = buckets.get(shape) ?? { n: 0, before: 0, after: 0 };
-        b.n++; b.before += r.originalTokens; b.after += r.skeletonTokens;
+        b.n++; b.before += r.originalTokens; b.after += after;
         buckets.set(shape, b);
       }
     }
@@ -99,4 +118,5 @@ for (const [shape, v] of rows) {
     `${shape.padEnd(15)} ${String(v.n).padStart(5)} ${String(v.before).padStart(10)} ${String(Math.round((v.before / totB) * 100)).padStart(8)}% ${String(saved).padStart(9)}%`,
   );
 }
+console.log(`\ncross-turn dedup: ${dedupN} repeated blocks, ${dedupSaved} extra tokens saved`);
 console.log(`\nTOTAL ${totB} → ${totA} tokens  overall saved=${Math.round((1 - totA / totB) * 1000) / 10}%`);
