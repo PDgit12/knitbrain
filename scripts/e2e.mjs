@@ -143,14 +143,14 @@ async function pipelineOnRealFiles() {
   const root = mkdtempSync(join(tmpdir(), "knitbrain-e2e-"));
   const ccr = createFileCCRStore(root);
 
-  const E = "/Users/piyushdua/engram";
+  // Optional: set KNITBRAIN_E2E_EXTRA to any local repo to also measure
+  // real-world files from it (portable — no personal paths in the script).
+  const E = process.env.KNITBRAIN_E2E_EXTRA ?? "";
   const targets = [
     `${ROOT}/package-lock.json`,
     `${ROOT}/src/optimizer/code.ts`,
     `${ROOT}/src/optimizer/types.ts`,
-    `${E}/src/mcp/handlers.ts`,
-    `${E}/src/engine/types.ts`,
-    `${E}/package.json`,
+    ...(E ? [`${E}/src/mcp/handlers.ts`, `${E}/src/engine/types.ts`, `${E}/package.json`] : []),
   ].filter((p) => existsSync(p));
 
   let totalBefore = 0;
