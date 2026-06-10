@@ -69,8 +69,9 @@ async function tick() {
     document.getElementById("learnings").textContent = s.learnings;
     document.getElementById("fb").innerHTML = "<tr><th>kind</th><th>compressed</th><th>retrieved</th><th>rate</th><th>state</th></tr>" +
       s.feedback.map(f => \`<tr><td>\${f.kind}</td><td>\${f.compressions}</td><td>\${f.retrievals}</td><td>\${f.rate}</td><td>\${f.skipping ? "backing off" : "active"}</td></tr>\`).join("");
+    const esc = (v) => String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     document.getElementById("board").innerHTML = "<tr><th>who</th><th>when</th><th>finding</th></tr>" +
-      (s.board.length ? s.board.map(b => \`<tr><td>\${b.author}</td><td>\${b.ts.slice(11,19)}</td><td>\${b.summary.replace(/</g,"&lt;")}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
+      (s.board.length ? s.board.map(b => \`<tr><td>\${esc(b.author)}</td><td>\${esc(b.ts.slice(11,19))}</td><td>\${esc(b.summary)}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
   } catch {}
 }
 tick(); setInterval(tick, 2000);

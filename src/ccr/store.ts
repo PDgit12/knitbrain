@@ -109,6 +109,11 @@ export function createFileCCRStore(root: string): CCRStore {
     renameSync(tmp, manifestPath);
   }
 
+  // SECURITY: a handle is ONLY ever a 64-hex SHA-256. Reject anything else
+  // before it touches a filesystem path (prevents traversal + existence probes).
+  const assertHandle = (h: string): void => {
+    if (!HANDLE_RE.test(h)) throw new CCRMissingError(h);
+  };
   const hotPath = (h: string): string => join(root, h);
   const coldPath = (h: string): string => join(coldDir, `${h}.gz`);
   const touch = (h: string): void => {
@@ -153,16 +158,19 @@ export function createFileCCRStore(root: string): CCRStore {
     },
 
     has(handle: string): boolean {
+      if (!HANDLE_RE.test(handle)) return false;
       return existsSync(hotPath(handle)) || existsSync(coldPath(handle));
     },
 
     tierOf(handle: string): "hot" | "cold" | "absent" {
+      if (!HANDLE_RE.test(handle)) return "absent";
       if (existsSync(hotPath(handle))) return "hot";
       if (existsSync(coldPath(handle))) return "cold";
       return "absent";
     },
 
     get(handle: string): string {
+      assertHandle(handle);
       if (existsSync(hotPath(handle))) {
         const data = readFileSync(hotPath(handle), "utf8");
         if (sha256(data) !== handle) throw new CCRIntegrityError(handle);
@@ -181,10 +189,12 @@ export function createFileCCRStore(root: string): CCRStore {
     },
 
     demote(handle: string): void {
+      if (!HANDLE_RE.test(handle)) return;
       if (doDemote(handle)) saveManifest();
     },
 
     promote(handle: string): void {
+      if (!HANDLE_RE.test(handle)) return;
       if (!existsSync(coldPath(handle))) return;
       const data = gunzipSync(readFileSync(coldPath(handle))).toString("utf8");
       writeAtomic(hotPath(handle), data);

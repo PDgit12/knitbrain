@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -62,8 +62,12 @@ export function createHub(root: string): Hub {
     renameSync(tmp, boardPath);
   };
 
-  const authed = (req: IncomingMessage): boolean =>
-    req.headers.authorization === `Bearer ${token}`;
+  // SECURITY: constant-time comparison — no timing oracle on the team token.
+  const expected = createHash("sha256").update(`Bearer ${token}`).digest();
+  const authed = (req: IncomingMessage): boolean => {
+    const got = createHash("sha256").update(req.headers.authorization ?? "").digest();
+    return timingSafeEqual(got, expected);
+  };
 
   const json = (res: ServerResponse, code: number, body: unknown): void => {
     res.writeHead(code, { "content-type": "application/json" });

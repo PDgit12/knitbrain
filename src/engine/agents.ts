@@ -96,9 +96,14 @@ ${gate}- **Context budget:** keep your working context under ~${budget} tokens. 
 
 /** Write a generated agent to the project's .claude/agents directory. */
 export function writeAgent(projectRoot: string, spec: AgentSpec): string {
+  // SECURITY: the name becomes a filename — restrict to a safe slug so it can
+  // never escape .claude/agents (no separators, dots, or empty names).
+  const safeName = spec.name.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "");
+  if (safeName.length === 0) throw new Error(`invalid agent name: ${JSON.stringify(spec.name)}`);
   const dir = join(projectRoot, ".claude", "agents");
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${spec.name}.md`);
+  const path = join(dir, `${safeName}.md`);
+  spec = { ...spec, name: safeName };
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, generateAgentMarkdown(spec), "utf8");
   renameSync(tmp, path);
