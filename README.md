@@ -5,7 +5,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
 
-> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~56% on real sessions, reproducible with one command.
+> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~50% of all tool-result tokens on real sessions, reproducible with one command.
 
 Pure TypeScript. No Python, no native binaries, no network beyond `npm install`.
 
@@ -15,9 +15,9 @@ npx knitbrain profile    # measure what it would save on YOUR real sessions — 
 
 ## The honest number
 
-Most tools in this space quote their best workload ("up to 90%!"). We publish the number nobody else does: the **whole-session average** — every tool result from real coding sessions, *including* the blocks that don't compress.
+Most tools in this space quote their best workload ("up to 90%!"). We publish the number nobody else does: the **all-inclusive average** — every tool-result token from real coding sessions, *including* the small outputs that pass through uncompressed.
 
-**On 3.08M tokens of tool results from 70 real Claude Code sessions: 55.8% saved overall, lossless.** Every original recoverable byte-for-byte.
+**On 3.49M tokens of tool results from 70 real Claude Code sessions: 49.3% saved overall, lossless.** That denominator includes every tool-result token — even the 0.4M tokens of small outputs that pass through untouched (counting only sizable blocks ≥400 chars, the number is 55.8%; per-session median is 56.2%, with the middle half of sessions between 48% and 64%). Every original recoverable byte-for-byte.
 
 | shape | % of real burn | saved |
 |---|---|---|
@@ -28,7 +28,7 @@ Most tools in this space quote their best workload ("up to 90%!"). We publish th
 | test output | 6% | 46.4% |
 | JSON | 5% | 65.8% |
 
-Measured the way others measure — single best-case workloads — we land 60–99% (import graphs 98.9%, whole files 88.8%, body-heavy code 71.6%). But that's not the number you'll feel; the whole-session average is.
+Measured the way others measure — single best-case workloads — we land 60–99% (import graphs 98.9%, whole files 88.8%, body-heavy code 71.6%). But that's not the number you'll feel; the all-inclusive average is.
 
 **Don't take our word for any of this.** `knitbrain profile` runs the actual optimizer over your own transcripts (`~/.claude/projects` by default) and prints *your* number. Local only — nothing is uploaded.
 
@@ -111,7 +111,7 @@ knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror auto
 
 Agent loops re-send the entire conversation on every turn, so input tokens dominate the bill — usually by an order of magnitude over output. That makes context the thing worth optimizing:
 
-- **The proxy shrinks the request itself, on the wire.** ~56% fewer context tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session.
+- **The proxy shrinks the request itself, on the wire.** ~50% fewer tool-result tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session.
 - **It stacks with provider prompt caching.** CacheAligner keeps the system prefix byte-stable across turns, so cache hits (which providers discount heavily) happen more often instead of breaking on whitespace drift.
 - **It can never make a request more expensive.** The never-expand guard is enforced by tests: output tokens ≤ input tokens, always.
 - **On a subscription instead?** Same mechanics, different currency: fewer tokens per turn means the context window fills slower — fewer compactions, fewer lost-context restarts, longer useful sessions.

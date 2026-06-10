@@ -94,6 +94,9 @@ export async function runProfile(args: string[], log: (line: string) => void = c
   const buckets = new Map<string, Bucket>();
   let dedupN = 0;
   let dedupSaved = 0;
+  // Small outputs (<400 chars) pass through untouched — they still count in
+  // the honest denominator. Excluding them would inflate the headline.
+  let smallTokens = 0;
 
   try {
     for (const file of files) {
@@ -119,7 +122,11 @@ export async function runProfile(args: string[], log: (line: string) => void = c
                     .map((c) => c.text)
                 : [];
           for (const t of texts) {
-            if (typeof t !== "string" || t.length < 400) continue;
+            if (typeof t !== "string") continue;
+            if (t.length < 400) {
+              smallTokens += countTokens(t);
+              continue;
+            }
             const shape = classifyShape(t);
             const hash = sha256(t);
             const repeat = seen.has(hash);
@@ -158,8 +165,13 @@ export async function runProfile(args: string[], log: (line: string) => void = c
     );
   }
   log(`\ncross-turn dedup: ${dedupN} repeated blocks, ${dedupSaved} extra tokens saved`);
-  const overall = totB === 0 ? 0 : Math.round((1 - totA / totB) * 1000) / 10;
-  log(`\nTOTAL ${totB} → ${totA} tokens  overall saved=${overall}%`);
+  const sizable = totB === 0 ? 0 : Math.round((1 - totA / totB) * 1000) / 10;
+  log(`\nsizable blocks (≥400 chars): ${totB} → ${totA} tokens  saved=${sizable}%`);
+  log(`small outputs passed through untouched: ${smallTokens} tokens (0% saved, counted in the total)`);
+  const allB = totB + smallTokens;
+  const allA = totA + smallTokens;
+  const overall = allB === 0 ? 0 : Math.round((1 - allA / allB) * 1000) / 10;
+  log(`\nTOTAL (all tool-result tokens) ${allB} → ${allA}  overall saved=${overall}%`);
   log("(lossless: every elision carries a ⟨ccr:hash⟩ that recovers the exact original)");
   return overall;
 }
