@@ -38,13 +38,20 @@ async function main(): Promise<void> {
     console.log("from now on, team_post mirrors to the hub automatically.");
     process.exit(0);
   }
+  if (process.argv[2] === "profile") {
+    const { runProfile } = await import("./profile.js");
+    await runProfile(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "dashboard") {
-    const [{ createDashboardServer }, { createFileCCRStore }, { createMemory }, { createFeedback }, { createTeamBoard }, { createMeter }, paths] =
+    const [{ createDashboardServer }, { createFileCCRStore }, { createKnowledge }, { createMemory }, { createFeedback }, { createSkillsStore }, { createTeamBoard }, { createMeter }, paths] =
       await Promise.all([
         import("./dashboard.js"),
         import("./ccr/store.js"),
+        import("./engine/knowledge.js"),
         import("./engine/memory.js"),
         import("./engine/feedback.js"),
+        import("./engine/skills.js"),
         import("./engine/teams.js"),
         import("./engine/meter.js"),
         import("./paths.js"),
@@ -56,6 +63,9 @@ async function main(): Promise<void> {
       feedback: createFeedback(paths.feedbackRoot()),
       team: createTeamBoard(paths.teamRoot(), ccr),
       meter: createMeter(paths.meterRoot()),
+      // Project scope: the directory the dashboard was started in.
+      knowledge: createKnowledge(process.cwd(), paths.knowledgeRoot()),
+      skills: createSkillsStore(paths.skillsRoot()),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {

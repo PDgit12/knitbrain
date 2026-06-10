@@ -47,13 +47,19 @@ export function createFeedback(root: string, opts: FeedbackOptions = {}): Feedba
   const path = join(root, "feedback.json");
 
   let state: State = { kinds: {}, handleKind: {} };
-  if (existsSync(path)) {
+
+  // Multiple processes share this store (MCP server, proxy, dashboard), so
+  // every public operation re-reads disk first — a constructed-once instance
+  // must never serve stale counters from another process's writes.
+  const reload = (): void => {
+    if (!existsSync(path)) return;
     try {
       state = JSON.parse(readFileSync(path, "utf8")) as State;
     } catch {
-      /* start fresh */
+      /* keep current in-memory state */
     }
-  }
+  };
+  reload();
 
   const bucket = (kind: ContentType): { compressions: number; retrievals: number } => {
     const b = state.kinds[kind] ?? { compressions: 0, retrievals: 0 };
@@ -80,18 +86,24 @@ export function createFeedback(root: string, opts: FeedbackOptions = {}): Feedba
 
   return {
     onCompress(kind, handle) {
+      reload();
       bucket(kind).compressions += 1;
       state.handleKind[handle] = kind;
       save();
     },
     onRetrieve(handle) {
+      reload();
       const kind = state.handleKind[handle];
       if (!kind) return;
       bucket(kind).retrievals += 1;
       save();
     },
-    shouldSkip: skip,
+    shouldSkip(kind) {
+      reload();
+      return skip(kind);
+    },
     stats() {
+      reload();
       return KINDS.map((kind) => {
         const b = state.kinds[kind] ?? { compressions: 0, retrievals: 0 };
         return {

@@ -93,3 +93,46 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
     expect(ping.run({}, ctx)).toContain("pong");
   });
 });
+
+describe("cross-process store freshness + input guards (launch checklist)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-fresh-"));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("feedback: a long-lived instance sees writes made by ANOTHER instance", () => {
+    const a = createFeedback(join(root, "fb"));
+    const b = createFeedback(join(root, "fb")); // dashboard-style long-lived reader
+    expect(b.stats().find((s) => s.kind === "json")!.compressions).toBe(0);
+    a.onCompress("json", "f".repeat(64)); // writer process
+    expect(b.stats().find((s) => s.kind === "json")!.compressions).toBe(1);
+  });
+
+  it("meter: a long-lived instance sees another instance's request accounting", () => {
+    const writer = createMeter(join(root, "meter"));
+    const reader = createMeter(join(root, "meter"));
+    expect(reader.read().usedTokens).toBe(0);
+    writer.onRequest(10_000, 6_000);
+    const r = reader.read();
+    expect(r.usedTokens).toBe(6_000);
+    expect(r.savedTokens).toBe(4_000);
+  });
+
+  it("team_post refuses empty content (SDK does not enforce inputSchema)", () => {
+    const ccr2 = createFileCCRStore(join(root, "ccr"));
+    const ctx2: ToolContext = {
+      ccr: ccr2,
+      memory: createMemory(join(root, "mem")),
+      knowledge: createKnowledge(root, join(root, "kn")),
+      feedback: createFeedback(join(root, "fb2")),
+      team: createTeamBoard(join(root, "team"), ccr2),
+      meter: createMeter(join(root, "meter2")),
+      skills: createSkillsStore(join(root, "skills")),
+    };
+    const post = TOOLS.find((t) => t.name === "knitbrain_team_post")!;
+    const out = dispatch(post, { author: "e2e", summary: "wrong param name" }, ctx2);
+    expect(out).toContain("refused");
+    expect(ctx2.team.board().length).toBe(0); // nothing stored
+  });
+});

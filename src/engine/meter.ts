@@ -57,13 +57,18 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
   const path = join(root, "meter.json");
 
   let state: State = { lastRequestTokens: 0, toolTokens: 0, savedTokens: 0 };
-  if (existsSync(path)) {
+
+  // Proxy, MCP server, and dashboard all share this store across processes —
+  // re-read disk before every public operation so no reader serves stale state.
+  const reload = (): void => {
+    if (!existsSync(path)) return;
     try {
       state = { ...state, ...(JSON.parse(readFileSync(path, "utf8")) as State) };
     } catch {
-      /* fresh */
+      /* keep current in-memory state */
     }
-  }
+  };
+  reload();
   const save = (): void => {
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(state), "utf8");
@@ -72,6 +77,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
 
   return {
     onRequest(originalTokens, optimizedTokens) {
+      reload();
       // The optimized request is the authoritative context size this turn.
       state.lastRequestTokens = optimizedTokens;
       state.toolTokens = 0; // request already contains prior tool outputs
@@ -79,10 +85,12 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       save();
     },
     onToolOutput(tokens) {
+      reload();
       state.toolTokens += tokens;
       save();
     },
     read() {
+      reload();
       const usedTokens = state.lastRequestTokens + state.toolTokens;
       const usedPct = Math.min(100, Math.round((usedTokens / windowTokens) * 1000) / 10);
       const frac = usedTokens / windowTokens;

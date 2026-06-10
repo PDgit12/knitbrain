@@ -1,8 +1,10 @@
 import { createServer, type Server } from "node:http";
 import { fetchHubBoard, loadHubConfig } from "./hub/client.js";
 import type { CCRStore } from "./ccr/store.js";
+import type { Knowledge } from "./engine/knowledge.js";
 import type { Memory } from "./engine/memory.js";
 import type { Feedback } from "./engine/feedback.js";
+import type { SkillsStore } from "./engine/skills.js";
 import type { TeamBoard } from "./engine/teams.js";
 import type { Meter } from "./engine/meter.js";
 
@@ -12,17 +14,38 @@ export interface DashboardDeps {
   feedback: Feedback;
   team: TeamBoard;
   meter: Meter;
+  /** Optional: project knowledge graph (per-project; absent in global mode). */
+  knowledge?: Knowledge;
+  /** Optional: skills store. */
+  skills?: SkillsStore;
+}
+
+/** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
+function knowledgeSummary(k: Knowledge): { files: number; topFanout: Array<{ file: string; dependents: number }> } {
+  const files = k.listFiles();
+  const fanout = files
+    .map((file) => ({ file, dependents: k.queryDependents(file).length }))
+    .filter((f) => f.dependents > 0)
+    .sort((a, b) => b.dependents - a.dependents)
+    .slice(0, 5);
+  return { files: files.length, topFanout: fanout };
 }
 
 /** One JSON snapshot of everything the dashboard shows. */
 export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
   const meter = deps.meter.read();
+  const learnings = deps.memory.listLearnings();
   return {
     meter,
     ccr: deps.ccr.stats(),
     feedback: deps.feedback.stats(),
     board: deps.team.board().map((e) => ({ id: e.id, author: e.author, ts: e.ts, summary: e.summary.slice(0, 200) })),
-    learnings: deps.memory.listLearnings().length,
+    learnings: learnings.length,
+    recentLearnings: learnings.slice(-5).reverse().map((l) => ({ date: l.date, summary: l.summary.slice(0, 160) })),
+    knowledge: deps.knowledge ? knowledgeSummary(deps.knowledge) : null,
+    skills: deps.skills
+      ? deps.skills.list().map((s) => ({ name: s.name, uses: s.uses, triggers: s.triggers.slice(0, 6), updatedAt: s.updatedAt }))
+      : null,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -54,6 +77,9 @@ const PAGE = `<!doctype html>
   <div class="card"><div class="label">Learnings</div><div class="big" id="learnings">–</div></div>
 </div>
 <div class="card"><div class="label">Self-tuning (retrieval rate per kind)</div><table id="fb"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Knowledge graph (top blast radius)</div><div class="advice" id="kfiles"></div><table id="kg"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Skills</div><table id="skills"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Recent learnings</div><table id="recent"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Team board</div><table id="board"></table></div>
 <script>
 async function tick() {
@@ -70,6 +96,17 @@ async function tick() {
     document.getElementById("fb").innerHTML = "<tr><th>kind</th><th>compressed</th><th>retrieved</th><th>rate</th><th>state</th></tr>" +
       s.feedback.map(f => \`<tr><td>\${f.kind}</td><td>\${f.compressions}</td><td>\${f.retrievals}</td><td>\${f.rate}</td><td>\${f.skipping ? "backing off" : "active"}</td></tr>\`).join("");
     const esc = (v) => String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    if (s.knowledge) {
+      document.getElementById("kfiles").textContent = s.knowledge.files + " files indexed";
+      document.getElementById("kg").innerHTML = "<tr><th>file</th><th>dependents</th></tr>" +
+        (s.knowledge.topFanout.length ? s.knowledge.topFanout.map(f => \`<tr><td>\${esc(f.file)}</td><td>\${f.dependents}</td></tr>\`).join("") : "<tr><td colspan=2>— run a scan —</td></tr>");
+    } else {
+      document.getElementById("kfiles").textContent = "no project scope (start the dashboard inside a project)";
+    }
+    document.getElementById("skills").innerHTML = "<tr><th>skill</th><th>uses</th><th>triggers</th><th>updated</th></tr>" +
+      (s.skills && s.skills.length ? s.skills.map(k => \`<tr><td>\${esc(k.name)}</td><td>\${k.uses}</td><td>\${esc(k.triggers.join(", "))}</td><td>\${esc(k.updatedAt.slice(0,10))}</td></tr>\`).join("") : "<tr><td colspan=4>—</td></tr>");
+    document.getElementById("recent").innerHTML = "<tr><th>date</th><th>learning</th></tr>" +
+      (s.recentLearnings.length ? s.recentLearnings.map(l => \`<tr><td>\${esc(l.date)}</td><td>\${esc(l.summary)}</td></tr>\`).join("") : "<tr><td colspan=2>—</td></tr>");
     document.getElementById("board").innerHTML = "<tr><th>who</th><th>when</th><th>finding</th></tr>" +
       (s.board.length ? s.board.map(b => \`<tr><td>\${esc(b.author)}</td><td>\${esc(b.ts.slice(11,19))}</td><td>\${esc(b.summary)}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
   } catch {}

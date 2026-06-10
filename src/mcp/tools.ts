@@ -406,8 +406,14 @@ export const TOOLS: readonly ToolDef[] = [
     },
     output: "verbatim",
     run: (args, ctx) => {
+      // The SDK does not enforce inputSchema server-side — validate here, or a
+      // mis-named param silently posts an empty finding.
       const content = str(args, "content");
-      const e = ctx.team.post(str(args, "author"), content);
+      const author = str(args, "author");
+      if (content.trim() === "" || author.trim() === "") {
+        return "refused: team_post needs non-empty `author` and `content`.";
+      }
+      const e = ctx.team.post(author, content);
       // Shared sessions: mirror to the team hub when joined — fire-and-forget,
       // a dead hub never blocks local work.
       const hub = loadHubConfig();
