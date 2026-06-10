@@ -88,9 +88,22 @@ export function runSetup(cwd: string = process.cwd()): number {
     for (const line of codexSnippet(cfg).split("\n")) console.log(`    ${line}`);
   }
 
+  // Billing-mode detection: an API key in the environment means API /
+  // pay-as-you-go traffic that CAN be proxied; no key usually means a
+  // subscription (Pro/Max) OAuth session that cannot — MCP-side optimization
+  // carries those users (tool outputs are the bulk of context burn).
+  const hasKey = Boolean(process.env["ANTHROPIC_API_KEY"] || process.env["OPENAI_API_KEY"]);
   console.log("");
-  console.log("  Optional — route LLM requests through the optimizer proxy (API-key setups):");
-  console.log("    knitbrain-proxy");
-  for (const [k, v] of Object.entries(cfg.proxyEnv)) console.log(`    export ${k}=${v}`);
+  if (hasKey) {
+    console.log("  API key detected (API / pay-as-you-go) — BOTH optimization doors apply.");
+    console.log("  Route LLM requests through the optimizer proxy:");
+    console.log("    knitbrain-proxy");
+    for (const [k, v] of Object.entries(cfg.proxyEnv)) console.log(`    export ${k}=${v}`);
+  } else {
+    console.log("  No API key in env — likely a subscription plan (Pro/Max/OAuth).");
+    console.log("  The proxy doesn't apply to OAuth traffic; MCP-side optimization is active");
+    console.log("  (tool outputs, memory, meter, skills — the bulk of context burn).");
+    console.log("  If you DO use an API key, export it and re-run setup for proxy wiring.");
+  }
   return 0;
 }
