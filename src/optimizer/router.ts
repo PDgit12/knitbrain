@@ -33,22 +33,60 @@ export function detect(text: string): ContentType {
   return "text";
 }
 
+/** Claude-Code Read format: lines prefixed `   123→content`. */
+const LINE_NUM_RE = /^\s{0,8}\d+→/;
+
+/**
+ * Detect host-Read line numbering (the dominant in-session tool-result shape;
+ * the prefixes defeat code parsing if left in). Returns the stripped content
+ * when ≥60% of lines carry the prefix, else null.
+ */
+export function stripLineNumbers(text: string): string | null {
+  const lines = text.split("\n");
+  if (lines.length < 10) return null;
+  let prefixed = 0;
+  for (const l of lines) if (LINE_NUM_RE.test(l)) prefixed += 1;
+  if (prefixed < lines.length * 0.6) return null;
+  return lines.map((l) => l.replace(LINE_NUM_RE, "")).join("\n");
+}
+
 /**
  * The unified optimizer entry point: detect → route → compress → measure, and
  * pass the original through unchanged unless compression saves meaningfully.
  * Lossless either way (original is recoverable from CCR when compressed).
  */
 export function compress(text: string, ccr: CCRStore): RouteResult {
-  const contentType = detect(text);
-  const result =
-    contentType === "json"
-      ? compressJson(text, ccr)
-      : contentType === "code"
-        ? compressCode(text, ccr)
-        : compressText(text, ccr);
+  // Host-Read line numbering (`  123→…`) defeats structural parsing — strip
+  // it, compress the underlying content, but store the TRUE original (with
+  // numbers) in CCR and point the skeleton's handle at it. Lossless.
+  const stripped = stripLineNumbers(text);
+  let contentType: ContentType;
+  let skeleton: string;
+  let handle: string;
+  if (stripped !== null) {
+    contentType = detect(stripped);
+    const inner =
+      contentType === "json"
+        ? compressJson(stripped, ccr)
+        : contentType === "code"
+          ? compressCode(stripped, ccr)
+          : compressText(stripped, ccr);
+    handle = ccr.put(text);
+    skeleton = inner.skeleton.replace(/⟨ccr:[0-9a-f]{64}⟩/g, `⟨ccr:${handle}⟩`);
+  } else {
+    contentType = detect(text);
+    const result =
+      contentType === "json"
+        ? compressJson(text, ccr)
+        : contentType === "code"
+          ? compressCode(text, ccr)
+          : compressText(text, ccr);
+    skeleton = result.skeleton;
+    handle = result.handle;
+  }
 
   const originalTokens = countTokens(text);
-  const skeletonTokens = countTokens(result.skeleton);
+  const skeletonTokens = countTokens(skeleton);
   const savedPct =
     originalTokens === 0
       ? 0
@@ -67,13 +105,5 @@ export function compress(text: string, ccr: CCRStore): RouteResult {
     };
   }
 
-  return {
-    skeleton: result.skeleton,
-    handle: result.handle,
-    contentType,
-    compressed: true,
-    originalTokens,
-    skeletonTokens,
-    savedPct,
-  };
+  return { skeleton, handle, contentType, compressed: true, originalTokens, skeletonTokens, savedPct };
 }
