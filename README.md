@@ -1,6 +1,11 @@
 # Knit Brain
 
-> Local-first MCP server that gives any AI coding agent **per-project memory**, **workflow intelligence**, and **always-on, lossless token & context optimization** — entirely on your machine, zero cloud.
+[![npm](https://img.shields.io/npm/v/knitbrain)](https://www.npmjs.com/package/knitbrain)
+[![ci](https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml/badge.svg)](https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
+
+> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~56% on real sessions, reproducible with one command.
 
 Pure TypeScript. No Python, no native binaries, no network beyond `npm install`.
 
@@ -36,7 +41,41 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
 - **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves, with guardrailed agent generation and a shared team board.
 - **Self-healing, not self-confident** — two feedback loops run continuously: TOIN backs off any compression kind that gets over-retrieved, and the classifier shifts its own thresholds after 3 wrong-verdict votes (`knitbrain_record_false_positive`). Wrong tuning costs efficiency, never correctness.
 
-## How it works
+## Architecture
+
+```
+ agent (Claude Code / Cursor / Codex)              your app (API key)
+            │                                            │
+            ▼                                            ▼
+ ┌──────────────────────────┐            ┌──────────────────────────────┐
+ │  knitbrain · MCP server  │            │  knitbrain-proxy (loopback)  │
+ │  25 tools                │            │  rolling window — old turns  │
+ │  ├ memory: learnings,    │            │  compressed harder · exact   │
+ │  │ handoffs, sessions    │            │  repeats deduped to markers  │
+ │  ├ knowledge graph       │            │  · your directive verbatim   │
+ │  ├ classifier + FP loop  │            │  · CacheAligner prefix       │
+ │  ├ skills · agents       │            └──────────────┬───────────────┘
+ │  ├ team board · meter    │                           │ smaller request
+ │  └ optimize / retrieve   │                           ▼
+ └────────────┬─────────────┘            LLM provider (Anthropic
+              │ every data payload        /v1/messages · OpenAI
+              ▼                           /v1/chat/completions)
+ ┌──────────────────────────────────────────────┐
+ │ optimizer router                             │
+ │  json  → schema-preserving skeleton          │
+ │  code  → tree-sitter AST body elision        │
+ │  logs  → template dedup + anchor             │
+ │  prose → sentence anchor (TOIN-gated)        │
+ └────────────────────┬─────────────────────────┘
+                      ▼ skeleton + ⟨ccr:hash⟩
+ ┌──────────────────────────────────────────────┐     ┌─────────────────┐
+ │ CCR store — lossless, content-addressed      │◀───▶│ live dashboard  │
+ │ (sha256 = handle) · integrity-checked reads  │     │ 127.0.0.1:8790  │
+ │ hot → cold gzip → budgeted purge             │     └─────────────────┘
+ └──────────────────────────────────────────────┘
+   self-healing: TOIN backs off over-retrieved kinds ·
+   classifier recalibrates after 3 wrong-verdict votes
+```
 
 **One brain, two doors, one lossless store:**
 
@@ -67,6 +106,17 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8788
 knitbrain hub                              # start the team hub (host runs this once)
 knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror automatically
 ```
+
+## If you pay per token
+
+Agent loops re-send the entire conversation on every turn, so input tokens dominate the bill — usually by an order of magnitude over output. That makes context the thing worth optimizing:
+
+- **The proxy shrinks the request itself, on the wire.** ~56% fewer context tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session.
+- **It stacks with provider prompt caching.** CacheAligner keeps the system prefix byte-stable across turns, so cache hits (which providers discount heavily) happen more often instead of breaking on whitespace drift.
+- **It can never make a request more expensive.** The never-expand guard is enforced by tests: output tokens ≤ input tokens, always.
+- **On a subscription instead?** Same mechanics, different currency: fewer tokens per turn means the context window fills slower — fewer compactions, fewer lost-context restarts, longer useful sessions.
+
+Run `knitbrain profile` to see the percentage on your own workload before believing any of this.
 
 ## Guarantees (enforced by gated tests, not promises)
 
