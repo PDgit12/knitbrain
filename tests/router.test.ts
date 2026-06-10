@@ -62,6 +62,36 @@ ${"  const noise = compute();\n".repeat(40)}  return 0;
     expect(ccr.get(r.handle)).toBe(code);
   });
 
+  it("short-prose sentence anchor: keeps opening + closing sentences, elides middle (lossless)", () => {
+    const prose = [
+      "The deployment failed on the third attempt because the registry rejected the manifest.",
+      "We traced the rejection to a stale digest cached by the CI runner from a previous build.",
+      "Clearing the runner cache and re-tagging the image resolved the immediate failure mode.",
+      "The pipeline then progressed to the integration stage without further registry errors.",
+      "However, two integration tests began flaking under the new image due to timezone drift.",
+      "Pinning the container timezone to UTC eliminated the flakes in twenty consecutive runs.",
+      "We also added a digest freshness check to the pre-push hook to prevent recurrence.",
+      "Overall the incident cost roughly four engineer-hours and produced three durable fixes.",
+      "Recommended follow-up: alert on registry rejections so stale digests surface immediately.",
+    ].join(" ");
+    const r = compress(prose, ccr);
+    expect(r.compressed).toBe(true);
+    expect(r.contentType).toBe("prose");
+    expect(r.skeleton).toContain("The deployment failed"); // head kept
+    expect(r.skeleton).toContain("Recommended follow-up"); // tail kept
+    expect(r.skeleton).toContain("sentences elided");
+    expect(r.skeleton).not.toContain("timezone drift"); // middle elided
+    expect(ccr.get(r.handle)).toBe(prose); // byte-for-byte recovery
+  });
+
+  it("allowProse:false (TOIN back-off) disables the sentence anchor", () => {
+    const prose = Array.from({ length: 12 }, (_, i) =>
+      `Sentence number ${i} carries some distinct content about the system under test.`,
+    ).join(" ");
+    const r = compress(prose, ccr, { allowProse: false });
+    expect(r.contentType).not.toBe("prose");
+  });
+
   it("output tokens are always <= input tokens (the core invariant)", () => {
     const inputs = [
       "tiny",

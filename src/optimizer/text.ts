@@ -64,3 +64,31 @@ export function compressText(original: string, ccr: CCRStore): CompressResult {
     normalized === original ? original : `${normalized}\n⟨ccr:${handle}⟩`;
   return { skeleton, handle, contentType: "text" };
 }
+
+/** Sentence boundary: terminator, whitespace, then a plausible sentence opener. */
+const SENTENCE_SPLIT = /(?<=[.!?:])\s+(?=[A-Z0-9⟪`"'*-])/;
+/** Sentence-anchor needs at least this many sentences to be worth it.
+ * The inline 64-hex handle costs ~45 tokens, so the kept set must stay small
+ * for the elision to clear the never-expand guard on typical short blocks. */
+const MIN_SENTENCES = 8;
+const HEAD_SENTENCES = 2;
+const TAIL_SENTENCES = 1;
+
+/**
+ * Short-prose sentence anchor — for prose too short for the line-based anchor
+ * (under ~40 lines) but still sentence-rich: keep the opening (topic/intent)
+ * and closing (conclusion) sentences, elide the middle to a counted marker.
+ * Prose is information-dense, so callers gate this behind TOIN ("prose" kind):
+ * if agents keep paging the originals back, it backs off automatically.
+ * Returns null when there aren't enough sentences to anchor.
+ */
+export function compressShortProse(original: string, ccr: CCRStore): CompressResult | null {
+  const sentences = original.split(SENTENCE_SPLIT);
+  if (sentences.length < MIN_SENTENCES) return null;
+  const head = sentences.slice(0, HEAD_SENTENCES).join(" ");
+  const tail = sentences.slice(-TAIL_SENTENCES).join(" ");
+  const elided = sentences.length - HEAD_SENTENCES - TAIL_SENTENCES;
+  const handle = ccr.put(original);
+  const skeleton = `${head}\n⟪… ${elided} sentences elided · exact original: ⟨ccr:${handle}⟩ …⟫\n${tail}`;
+  return { skeleton, handle, contentType: "prose" };
+}

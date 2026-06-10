@@ -1,5 +1,7 @@
-/** Content categories the router can detect and the handlers produce. */
-export type ContentType = "json" | "code" | "text";
+/** Content categories the router can detect and the handlers produce.
+ * "prose" is produced (not detected): short prose that took the sentence
+ * anchor — its own TOIN kind so over-retrieval backs it off independently. */
+export type ContentType = "json" | "code" | "text" | "prose";
 
 /** Output of compressing one payload: the skeleton view + its CCR handle. */
 export interface CompressResult {

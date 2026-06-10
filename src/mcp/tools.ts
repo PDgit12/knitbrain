@@ -74,7 +74,7 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim", // already produces the optimized form itself
     run: (args, ctx) => {
       const text = typeof args["text"] === "string" ? args["text"] : "";
-      const r = compress(text, ctx.ccr);
+      const r = compress(text, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return text;
       ctx.feedback.onCompress(r.contentType, r.handle);
       return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨ccr:…⟩ handle for the exact original]`;
@@ -119,7 +119,7 @@ export const TOOLS: readonly ToolDef[] = [
       }
       if (!existsSync(full)) return `no such file: ${requested}`;
       const original = readFileSync(full, "utf8");
-      const r = compress(original, ctx.ccr);
+      const r = compress(original, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return original; // small/incompressible → exact content
       ctx.feedback.onCompress(r.contentType, r.handle);
       return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨ccr:${r.handle}⟩]`;
@@ -461,7 +461,7 @@ export function dispatch(
   if (tool.output === "data") {
     // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
     if (!ctx.feedback.shouldSkip(detect(raw))) {
-      const r = compress(raw, ctx.ccr);
+      const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (r.compressed) {
         ctx.feedback.onCompress(r.contentType, r.handle);
         out = r.skeleton;

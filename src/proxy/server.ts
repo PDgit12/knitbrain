@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { IncomingHttpHeaders } from "node:http";
 import { Readable } from "node:stream";
 import type { CCRStore } from "../ccr/store.js";
+import type { Feedback } from "../engine/feedback.js";
 import { optimizeRequest, type OptimizeOptions, type ProxyStats, type RequestBody } from "./optimize-request.js";
 
 /** LLM API protocol, detected from the request path (platform-agnostic). */
@@ -31,6 +32,8 @@ export interface ProxyConfig {
   /** Per-provider upstream base URLs (defaults: Anthropic + OpenAI). */
   upstreams?: Partial<Record<Provider, string>>;
   options?: OptimizeOptions;
+  /** TOIN feedback store: gates short-prose anchoring per request and records compressions. */
+  feedback?: Pick<Feedback, "shouldSkip" | "onCompress">;
   /** Observe optimization stats per request (telemetry hook). */
   onStats?: (stats: ProxyStats) => void;
 }
@@ -91,7 +94,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
       return;
     }
 
-    const { body, stats } = optimizeRequest(parsed, cfg.ccr, cfg.options);
+    const options: OptimizeOptions = { ...cfg.options };
+    if (cfg.feedback && options.allowProse === undefined) {
+      options.allowProse = !cfg.feedback.shouldSkip("prose");
+    }
+    const { body, stats } = optimizeRequest(parsed, cfg.ccr, options);
+    if (cfg.feedback) {
+      for (const [handle, kind] of Object.entries(stats.kinds)) cfg.feedback.onCompress(kind, handle);
+    }
     cfg.onStats?.(stats);
 
     const provider = detectProvider(req.url);

@@ -3,7 +3,7 @@ import type { ContentType } from "./types.js";
 import { isJson, compressJson } from "./json.js";
 import { isCode, compressCode } from "./code.js";
 import { compressCodeAst } from "./ast.js";
-import { compressText } from "./text.js";
+import { compressText, compressShortProse } from "./text.js";
 import type { CompressResult } from "./types.js";
 import { countTokens } from "../tokenizer.js";
 
@@ -88,31 +88,47 @@ export function stripLineNumbers(text: string): string | null {
  * pass the original through unchanged unless compression saves meaningfully.
  * Lossless either way (original is recoverable from CCR when compressed).
  */
-export function compress(text: string, ccr: CCRStore): RouteResult {
+export interface CompressOptions {
+  /**
+   * Whether short-prose sentence anchoring may apply. Callers with a TOIN
+   * feedback store pass `!feedback.shouldSkip("prose")` so over-retrieval
+   * backs the lever off; defaults to true for gate-less contexts (lossless
+   * either way).
+   */
+  allowProse?: boolean;
+}
+
+export function compress(text: string, ccr: CCRStore, options: CompressOptions = {}): RouteResult {
   // Host-Read line numbering (`  123→…`) defeats structural parsing — strip
   // it, compress the underlying content, but store the TRUE original (with
   // numbers) in CCR and point the skeleton's handle at it. Lossless.
   const stripped = stripLineNumbers(text);
   // Code routes through the tree-sitter AST handler when its WASM parsers are
   // warm (lazy background init), else the heuristic brace scanner.
-  const byType = (t: string, type: ContentType): CompressResult =>
-    type === "json"
-      ? compressJson(t, ccr)
-      : type === "code"
-        ? (compressCodeAst(t, ccr) ?? compressCode(t, ccr))
-        : compressText(t, ccr);
+  const allowProse = options.allowProse ?? true;
+  const byType = (t: string, type: ContentType): CompressResult => {
+    if (type === "json") return compressJson(t, ccr);
+    if (type === "code") return compressCodeAst(t, ccr) ?? compressCode(t, ccr);
+    // Short prose (too few lines for the anchor fallback): try the TOIN-gated
+    // sentence anchor; longer or sentence-poor text takes the line handler.
+    if (allowProse && t.split("\n").length < ANCHOR_MIN_LINES) {
+      const prose = compressShortProse(t, ccr);
+      if (prose !== null) return prose;
+    }
+    return compressText(t, ccr);
+  };
 
   let contentType: ContentType;
   let skeleton: string;
   let handle: string;
   if (stripped !== null) {
-    contentType = detect(stripped);
-    const inner = byType(stripped, contentType);
+    const inner = byType(stripped, detect(stripped));
+    contentType = inner.contentType; // handler may refine (e.g., text → prose)
     handle = ccr.put(text);
     skeleton = inner.skeleton.replace(/⟨ccr:[0-9a-f]{64}⟩/g, `⟨ccr:${handle}⟩`);
   } else {
-    contentType = detect(text);
-    const result = byType(text, contentType);
+    const result = byType(text, detect(text));
+    contentType = result.contentType;
     skeleton = result.skeleton;
     handle = result.handle;
   }

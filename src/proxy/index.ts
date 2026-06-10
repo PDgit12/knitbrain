@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { createProxyServer } from "./server.js";
 import { createFileCCRStore } from "../ccr/store.js";
+import { createFeedback } from "../engine/feedback.js";
 import { createMeter } from "../engine/meter.js";
-import { ccrRoot, meterRoot } from "../paths.js";
+import { ccrRoot, feedbackRoot, meterRoot } from "../paths.js";
 
 const port = Number(process.env["KNITBRAIN_PROXY_PORT"] ?? 8788);
 // Provider is auto-detected from the request path; upstreams are overridable.
@@ -20,6 +21,8 @@ const meter = createMeter(meterRoot());
 
 const server = createProxyServer({
   ccr: createFileCCRStore(ccrRoot()),
+  // Shared TOIN store: retrievals voted via MCP back off proxy prose anchoring too.
+  feedback: createFeedback(feedbackRoot()),
   ...(override ? { upstream: override } : {}),
   upstreams,
   onStats: (s) => {

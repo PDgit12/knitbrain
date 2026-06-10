@@ -1,6 +1,7 @@
 import type { CCRStore } from "../ccr/store.js";
 import { sha256 } from "../ccr/store.js";
 import { compress } from "../optimizer/router.js";
+import type { ContentType } from "../optimizer/types.js";
 import { countTokens } from "../tokenizer.js";
 import { normalizePrefix } from "./cache-aligner.js";
 
@@ -30,6 +31,8 @@ export interface OptimizeOptions {
   keepLastTurns?: number;
   /** Only compress text blocks longer than this many characters. */
   minBlockChars?: number;
+  /** Whether short-prose sentence anchoring may apply (TOIN-gated by callers). */
+  allowProse?: boolean;
 }
 
 export interface ProxyStats {
@@ -40,9 +43,11 @@ export interface ProxyStats {
   /** Blocks collapsed to a ⟪same as …⟫ marker because identical content appeared earlier in the history. */
   blocksDeduped: number;
   handles: string[];
+  /** Content kind per compressed handle — lets callers feed TOIN (onCompress). */
+  kinds: Record<string, ContentType>;
 }
 
-const DEFAULTS: Required<OptimizeOptions> = { keepLastTurns: 2, minBlockChars: 200 };
+const DEFAULTS: Required<OptimizeOptions> = { keepLastTurns: 2, minBlockChars: 200, allowProse: true };
 
 /** Concatenate all human-readable text in a request, for honest token accounting. */
 function collectText(body: RequestBody): string {
@@ -72,12 +77,14 @@ export function optimizeRequest(
   const before = countTokens(collectText(body));
 
   const handles: string[] = [];
+  const kinds: Record<string, ContentType> = {};
   let blocksCompressed = 0;
   let blocksDeduped = 0;
 
-  const keep = (handle: string): void => {
+  const keep = (handle: string, kind: ContentType): void => {
     blocksCompressed += 1;
     handles.push(handle);
+    kinds[handle] = kind;
   };
 
   // CROSS-TURN DEDUP: agents re-send the same bulk repeatedly (re-reading a
@@ -102,9 +109,9 @@ export function optimizeRequest(
     if (text.length < opts.minBlockChars) return text;
     const repeat = dedup(text);
     if (repeat !== null) return repeat;
-    const r = compress(text, ccr);
+    const r = compress(text, ccr, { allowProse: opts.allowProse });
     if (!r.compressed) return text;
-    keep(r.handle);
+    keep(r.handle, r.contentType);
     return r.skeleton;
   };
 
@@ -116,9 +123,9 @@ export function optimizeRequest(
       if (inner.length < opts.minBlockChars) return whole;
       const repeat = dedup(inner);
       if (repeat !== null) return "```" + lang + "\n" + repeat + "\n```";
-      const r = compress(inner, ccr);
+      const r = compress(inner, ccr, { allowProse: opts.allowProse });
       if (!r.compressed) return whole;
-      keep(r.handle);
+      keep(r.handle, r.contentType);
       return "```" + lang + "\n" + r.skeleton + "\n```";
     });
 
@@ -149,5 +156,5 @@ export function optimizeRequest(
 
   const after = countTokens(collectText(optimized));
   const savedPct = before === 0 ? 0 : Math.round((1 - after / before) * 1000) / 10;
-  return { body: optimized, stats: { originalTokens: before, optimizedTokens: after, savedPct, blocksCompressed, blocksDeduped, handles } };
+  return { body: optimized, stats: { originalTokens: before, optimizedTokens: after, savedPct, blocksCompressed, blocksDeduped, handles, kinds } };
 }
