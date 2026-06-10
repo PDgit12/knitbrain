@@ -9,6 +9,7 @@ import { createKnowledge } from "../src/engine/knowledge.js";
 import { createFeedback } from "../src/engine/feedback.js";
 import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
+import { createSkillsStore } from "../src/engine/skills.js";
 
 describe("knitbrain server (rung 0/6)", () => {
   let root: string;
@@ -28,6 +29,7 @@ describe("knitbrain server (rung 0/6)", () => {
       createFeedback(join(root, "fb")),
       createTeamBoard(join(root, "team"), createFileCCRStore(root)),
       createMeter(join(root, "meter")),
+      createSkillsStore(join(root, "skills")),
     );
     expect(server).toBeDefined();
   });

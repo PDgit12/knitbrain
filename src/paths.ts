@@ -41,3 +41,8 @@ export function teamRoot(): string {
 export function meterRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "meter");
 }
+
+/** Per-project skills store (find-or-write playbooks). */
+export function skillsRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "skills");
+}

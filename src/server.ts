@@ -9,7 +9,8 @@ import { createKnowledge, type Knowledge } from "./engine/knowledge.js";
 import { createFeedback, type Feedback } from "./engine/feedback.js";
 import { createTeamBoard, type TeamBoard } from "./engine/teams.js";
 import { createMeter, type Meter } from "./engine/meter.js";
-import { ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, teamRoot } from "./paths.js";
+import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
+import { ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { SERVER_NAME, VERSION } from "./version.js";
 
@@ -30,12 +31,13 @@ export function buildServer(
   feedback: Feedback = createFeedback(feedbackRoot()),
   team: TeamBoard = createTeamBoard(teamRoot(), ccr),
   meter: Meter = createMeter(meterRoot()),
+  skills: SkillsStore = createSkillsStore(skillsRoot()),
 ): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
     { capabilities: { tools: {} } },
   );
-  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter };
+  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({

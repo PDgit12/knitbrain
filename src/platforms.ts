@@ -17,7 +17,25 @@ export interface Artifact {
   mode: "write" | "json-merge-mcp";
 }
 
-const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons. A \`⟨ccr:HASH⟩\` marker means the exact original is stored locally — call the \`knitbrain_retrieve\` tool with that hash to read it byte-for-byte. Check \`knitbrain_context_meter\` periodically; when it says to, save a handoff with \`knitbrain_save_handoff\` and start a fresh session (\`knitbrain_load_session\` restores everything).`;
+const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons. A \`⟨ccr:HASH⟩\` marker means the exact original is stored locally — call the \`knitbrain_retrieve\` tool with that hash to read it byte-for-byte. Check \`knitbrain_context_meter\` periodically; when it says to, save a handoff with \`knitbrain_save_handoff\` and start a fresh session (\`knitbrain_load_session\` restores everything). When the user states a task, call \`knitbrain_run\` first and follow its directive (skill + agents + commands).`;
+
+/**
+ * Terse mode — output-side token optimization (the input side is the
+ * optimizer/CCR). Answer telegraphically: same technical content, far fewer
+ * tokens. Levels mirror common practice (lite/full/ultra).
+ */
+const TERSE_MODE = `## Terse mode (output tokens)
+
+Answer terse. Same facts, fewer words:
+- Drop filler, pleasantries, hedging ("I'd be happy to", "it seems that", "you might want to consider").
+- Drop articles where meaning survives. Fragments OK.
+- Tables/bullets over prose. Code over description.
+- Never drop: technical content, numbers, file paths, caveats that change decisions.
+- Levels: lite = drop filler only · full (default) = fragments OK · ultra = bare telegraphic.
+- User says "verbose"/"explain fully" → switch off for that answer.
+
+Example — verbose: "The reason your component re-renders is likely that you're creating a new object reference on each render; consider useMemo."
+Terse: "New object ref each render → re-render. Wrap in useMemo."`;
 
 /** Claude Code: .mcp.json + native slash commands. */
 export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
@@ -36,7 +54,7 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
     {
       path: ".claude/rules/knitbrain.md",
       mode: "write",
-      content: `# Knit Brain\n\n${NOTATION_GUIDE}\n\nProxy (optional, API-key setups): start \`knitbrain-proxy\` and set \`ANTHROPIC_BASE_URL=${cfg.proxyEnv["ANTHROPIC_BASE_URL"]}\`.\n`,
+      content: `# Knit Brain\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n\nProxy (optional, API-key setups): start \`knitbrain-proxy\` and set \`ANTHROPIC_BASE_URL=${cfg.proxyEnv["ANTHROPIC_BASE_URL"]}\`.\n`,
     },
   ];
 }
@@ -48,7 +66,7 @@ export function cursorArtifacts(): Artifact[] {
     {
       path: ".cursor/rules/knitbrain.mdc",
       mode: "write",
-      content: `---\ndescription: Knit Brain memory + token optimization\nalwaysApply: true\n---\n\n${NOTATION_GUIDE}\n`,
+      content: `---\ndescription: Knit Brain memory + token optimization\nalwaysApply: true\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
   ];
 }
@@ -60,7 +78,7 @@ export function vscodeArtifacts(): Artifact[] {
     {
       path: ".github/instructions/knitbrain.instructions.md",
       mode: "write",
-      content: `---\napplyTo: "**"\n---\n\n${NOTATION_GUIDE}\n`,
+      content: `---\napplyTo: "**"\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
   ];
 }
@@ -75,6 +93,26 @@ export function codexSnippet(cfg: SetupConfig): string {
     "# Optional proxy (Codex supports base-URL override):",
     `#   export OPENAI_BASE_URL=${cfg.proxyEnv["OPENAI_BASE_URL"]}`,
   ].join("\n");
+}
+
+/**
+ * Slash-command registry — what the AGENT can run itself on each platform.
+ * Surfaced by knitbrain_run so the loop is autonomous: knitbrain says which
+ * host command to invoke, the agent invokes it.
+ */
+export function slashCommands(platform: string): Array<{ cmd: string; when: string }> {
+  if (platform === "claude-code") {
+    return [
+      { cmd: "/meter", when: "check context window (knitbrain meter)" },
+      { cmd: "/handoff", when: "save session handoff before clearing" },
+      { cmd: "/clear", when: "after handoff saved — start fresh window" },
+      { cmd: "/compact", when: "mid-task when window warn but can't clear yet" },
+    ];
+  }
+  if (platform === "cursor") {
+    return [{ cmd: "@knitbrain rules", when: "re-read knitbrain usage rules" }];
+  }
+  return [];
 }
 
 /** VS Code's mcp.json uses {"servers": …}; everyone else uses {"mcpServers": …}. */

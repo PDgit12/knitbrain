@@ -70,6 +70,14 @@ describe("platform adapter matrix (rung 16)", () => {
     }
   });
 
+  it("rules artifacts carry TERSE MODE (output-token optimization)", () => {
+    const claudeRules = claudeArtifacts(cfg).find((a) => a.path === ".claude/rules/knitbrain.md")!;
+    expect(claudeRules.content).toContain("Terse mode");
+    expect(claudeRules.content).toContain("Never drop: technical content");
+    const cursorRules = cursorArtifacts().find((a) => a.path.endsWith(".mdc"))!;
+    expect(cursorRules.content).toContain("Terse mode");
+  });
+
   it("Codex gets a global-config snippet (we never touch ~/.codex)", () => {
     const snip = codexSnippet(cfg);
     expect(snip).toContain("[mcp_servers.knitbrain]");

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMeter } from "../src/engine/meter.js";
+import { createSkillsStore } from "../src/engine/skills.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
 import { createKnowledge } from "../src/engine/knowledge.js";
@@ -65,6 +66,7 @@ describe("context meter (rung 15)", () => {
       feedback: createFeedback(join(root, "fb")),
       team: createTeamBoard(join(root, "team"), ccr),
       meter: createMeter(join(root, "meter"), { windowTokens: 100, handoffAt: 0.5 }),
+      skills: createSkillsStore(join(root, "skills")),
     };
     const tool: ToolDef = {
       name: "demo",

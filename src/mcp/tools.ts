@@ -4,9 +4,14 @@ import type { Knowledge } from "../engine/knowledge.js";
 import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
+import type { SkillsStore } from "../engine/skills.js";
 import { classifyTask } from "../engine/workflow.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
+import { detectPlatforms } from "../setup.js";
+import { slashCommands } from "../platforms.js";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
@@ -19,6 +24,7 @@ export interface ToolContext {
   feedback: Feedback;
   team: TeamBoard;
   meter: Meter;
+  skills: SkillsStore;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -280,6 +286,85 @@ export const TOOLS: readonly ToolDef[] = [
         ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
       });
       return `created agent at ${path}`;
+    },
+  },
+  {
+    name: "knitbrain_run",
+    description:
+      "THE feedback/orchestrator tool — call FIRST when the user states a task. Classifies it (small→big), finds-or-drafts the SKILL for it, proposes guardrailed agents when multi-domain, lists host slash-commands the agent can run itself, and reports the context meter. Follow the returned directive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "The user's task, verbatim." },
+        files: { type: "array", items: { type: "string" }, description: "Files likely touched, if known." },
+      },
+      required: ["task"],
+      additionalProperties: false,
+    },
+    output: "verbatim", // a directive the agent must read exactly
+    run: (args, ctx) => {
+      const task = str(args, "task");
+      const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
+      const cls = classifyTask(task, files);
+
+      // SKILL: find-or-draft (skills made on-demand, persist, compound).
+      const found = ctx.skills.find(task);
+      const seed = ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
+      const skill = found
+        ? { status: "found", name: found.name, uses: found.uses, body: found.body }
+        : { status: "drafted — refine while working, then knitbrain_skill_save", body: ctx.skills.draft(task, seed) };
+
+      // AGENTS: only when the task is complex/multi-domain (never at start).
+      const agents =
+        cls.tier === "complex"
+          ? proposeAgents(ctx.knowledge.listFiles()).slice(0, 4).map((p) => ({
+              name: p.name,
+              scope: p.scope,
+              tools: p.tools,
+              reviewGate: p.reviewGate,
+              brief: "spawn via your host's sub-agent mechanism; brief it with the SKILL body + its guardrails; post findings to knitbrain_team_post",
+            }))
+          : [];
+
+      // HOST COMMANDS the agent can run itself (autonomous loop).
+      const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
+      const commands = platforms.flatMap((p) => slashCommands(p));
+
+      return JSON.stringify(
+        {
+          classification: cls,
+          skill,
+          agents,
+          host_commands: commands,
+          meter: ctx.meter.read(),
+          directive:
+            cls.tier === "complex"
+              ? "Plan first. Spawn the proposed agents in parallel; each works its scope w/ its skill; consolidate via team board; verify; record learning + skill update."
+              : "Execute with the skill. Verify before claiming done. Record learning + skill update if anything non-obvious surfaced.",
+        },
+        null,
+        2,
+      );
+    },
+  },
+  {
+    name: "knitbrain_skill_save",
+    description: "Persist a refined skill playbook (telegraphic). Same name updates the skill — skills compound across tasks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        body: { type: "string" },
+        triggers: { type: "array", items: { type: "string" } },
+      },
+      required: ["name", "body"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const triggers = Array.isArray(args["triggers"]) ? (args["triggers"] as string[]) : [];
+      const s = ctx.skills.save({ name: str(args, "name"), body: str(args, "body"), triggers });
+      return `skill "${s.name}" saved (uses=${s.uses}, triggers: ${s.triggers.join(", ")})`;
     },
   },
   {
