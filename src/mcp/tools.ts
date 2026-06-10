@@ -10,8 +10,9 @@ import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
 import { slashCommands } from "../platforms.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { relative, resolve, isAbsolute } from "node:path";
 import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
@@ -95,6 +96,33 @@ export const TOOLS: readonly ToolDef[] = [
       const original = ctx.ccr.get(handle);
       ctx.feedback.onRetrieve(handle); // a vote that the skeleton wasn't enough
       return original;
+    },
+  },
+  {
+    name: "knitbrain_read",
+    description:
+      "Read a project file OPTIMIZED: returns a structure-preserving skeleton (signatures/schema kept, bulk elided) + a ⟨ccr:hash⟩ to page in the exact original. Use INSTEAD of the host's raw read for large files — same information shape, ~70-90% fewer tokens. Works on every platform.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string", description: "File path, relative to the project root." } },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    output: "verbatim", // already produces the optimized form itself
+    run: (args, ctx) => {
+      // SECURITY: project-scoped only — no absolute paths, no traversal out.
+      const requested = str(args, "path");
+      const full = resolve(process.cwd(), requested);
+      const rel = relative(process.cwd(), full);
+      if (isAbsolute(rel) || rel.startsWith("..")) {
+        return `refused: path escapes the project root (${requested})`;
+      }
+      if (!existsSync(full)) return `no such file: ${requested}`;
+      const original = readFileSync(full, "utf8");
+      const r = compress(original, ctx.ccr);
+      if (!r.compressed) return original; // small/incompressible → exact content
+      ctx.feedback.onCompress(r.contentType, r.handle);
+      return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨ccr:${r.handle}⟩]`;
     },
   },
   {
