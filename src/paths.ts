@@ -46,3 +46,8 @@ export function meterRoot(): string {
 export function skillsRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "skills");
 }
+
+/** Per-project classifier-calibration directory (false-positive loop). */
+export function calibrationRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "calibration");
+}

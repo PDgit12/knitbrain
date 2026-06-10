@@ -9,6 +9,7 @@ import { createFeedback } from "../src/engine/feedback.js";
 import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
+import { createCalibration } from "../src/engine/calibration.js";
 import { TOOLS, dispatch, type ToolDef, type ToolContext } from "../src/mcp/tools.js";
 import { countTokens } from "../src/tokenizer.js";
 
@@ -35,6 +36,7 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
       team: createTeamBoard(join(root, "team"), ccr),
       meter: createMeter(join(root, "meter")),
       skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
     };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -129,6 +131,7 @@ describe("cross-process store freshness + input guards (launch checklist)", () =
       team: createTeamBoard(join(root, "team"), ccr2),
       meter: createMeter(join(root, "meter2")),
       skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
     };
     const post = TOOLS.find((t) => t.name === "knitbrain_team_post")!;
     const out = dispatch(post, { author: "e2e", summary: "wrong param name" }, ctx2);

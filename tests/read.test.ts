@@ -9,6 +9,7 @@ import { createFeedback } from "../src/engine/feedback.js";
 import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
+import { createCalibration } from "../src/engine/calibration.js";
 import { TOOLS, type ToolContext } from "../src/mcp/tools.js";
 import { countTokens } from "../src/tokenizer.js";
 import { readFileSync } from "node:fs";
@@ -29,6 +30,7 @@ describe("knitbrain_read — universal optimized read (works on every MCP platfo
       team: createTeamBoard(join(root, "team"), ccr),
       meter: createMeter(join(root, "meter")),
       skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
     };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));

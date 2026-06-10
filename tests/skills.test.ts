@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillsStore, type SkillsStore } from "../src/engine/skills.js";
+import { createCalibration } from "../src/engine/calibration.js";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
 import { createKnowledge } from "../src/engine/knowledge.js";
@@ -67,6 +68,7 @@ describe("knitbrain_run orchestrator (rung 20)", () => {
       team: createTeamBoard(join(root, "team"), ccr),
       meter: createMeter(join(root, "meter")),
       skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
     };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));

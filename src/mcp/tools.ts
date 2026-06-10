@@ -5,7 +5,8 @@ import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
-import { classifyTask } from "../engine/workflow.js";
+import { classifyTask, type Tier } from "../engine/workflow.js";
+import type { Calibration } from "../engine/calibration.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
@@ -26,6 +27,7 @@ export interface ToolContext {
   team: TeamBoard;
   meter: Meter;
   skills: SkillsStore;
+  calibration: Calibration;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -267,9 +269,38 @@ export const TOOLS: readonly ToolDef[] = [
       additionalProperties: false,
     },
     output: "verbatim",
-    run: (args) => {
+    run: (args, ctx) => {
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
-      return JSON.stringify(classifyTask(str(args, "description"), files), null, 2);
+      const scopeAdjust = ctx.calibration.get().scopeAdjust;
+      return JSON.stringify(classifyTask(str(args, "description"), files, scopeAdjust), null, 2);
+    },
+  },
+  {
+    name: "knitbrain_record_false_positive",
+    description:
+      "The classifier got it wrong? Record it: claimed tier vs what the task actually was. After 3 same-direction reports the classifier's threshold self-adjusts (per-project, deterministic, bounded).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        claimed_tier: { type: "string", enum: ["inquiry", "trivial", "standard", "complex"], description: "What the classifier said." },
+        actual_tier: { type: "string", enum: ["inquiry", "trivial", "standard", "complex"], description: "What it really was." },
+        reason: { type: "string", description: "One line: why the verdict was wrong." },
+      },
+      required: ["claimed_tier", "actual_tier"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const claimed = str(args, "claimed_tier") as Tier;
+      const actual = str(args, "actual_tier") as Tier;
+      if (claimed === actual || claimed === ("" as Tier) || actual === ("" as Tier)) {
+        return "refused: claimed_tier and actual_tier must be valid tiers and differ.";
+      }
+      const r = ctx.calibration.recordFalsePositive(claimed, actual);
+      const pending = r.fpDirections[`${claimed}-was-${actual}`] ?? 0;
+      return r.shifted
+        ? `recorded — threshold SHIFTED (scopeAdjust=${r.scopeAdjust}); the classifier now requires ${Math.max(2, 4 + r.scopeAdjust)} files for complex.`
+        : `recorded (${pending}/3 toward a shift in direction ${claimed}-was-${actual}; scopeAdjust=${r.scopeAdjust}).`;
     },
   },
   {
@@ -278,7 +309,7 @@ export const TOOLS: readonly ToolDef[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "verbatim",
     run: (_args, ctx) =>
-      JSON.stringify({ ccr: ctx.ccr.stats(), feedback: ctx.feedback.stats() }, null, 2),
+      JSON.stringify({ ccr: ctx.ccr.stats(), feedback: ctx.feedback.stats(), calibration: ctx.calibration.get() }, null, 2),
   },
   {
     name: "knitbrain_propose_agents",
@@ -333,7 +364,7 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const task = str(args, "task");
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
-      const cls = classifyTask(task, files);
+      const cls = classifyTask(task, files, ctx.calibration.get().scopeAdjust);
 
       // SKILL: find-or-draft (skills made on-demand, persist, compound).
       const found = ctx.skills.find(task);
