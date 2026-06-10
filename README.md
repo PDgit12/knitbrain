@@ -61,7 +61,7 @@ npm run e2e          # built-artifact E2E: stdio session + real-file compression
 npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 24 tools
 ```
 
-Current proof status: **122 tests passing**, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 24 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+Current proof status: **136 tests passing**, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 24 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 
