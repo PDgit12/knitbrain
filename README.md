@@ -12,7 +12,7 @@ Coding agents burn context on bulk they rarely re-read in full — large files, 
 - **nothing is ever lost** — compression is reversible via a local content-addressed store (CCR),
 - your instructions and governance text are **never** touched (protected verbatim).
 
-**Measured on real mixed files: 106,268 → 15,316 tokens (85.6% saved), every byte recoverable.** Savings are workload-dependent; redundant JSON/code compresses hardest, declaration-only files pass through untouched (output is never larger than input — enforced).
+**Measured, not promised:** on 3.03M tokens of tool results from 69 real coding sessions, knitbrain saves **50.2% overall** (logs 68.6% · long output 68.2% · JSON 65.8% · code 55.5% · test runs 43.1%) with **zero lossless failures** — every original recoverable byte-for-byte. On whole files: 88.8%. Short outputs pass through untouched (output is never larger than input — enforced). Reproduce on your own sessions: `node scripts/shape-profile.mjs`.
 
 ## How it works
 

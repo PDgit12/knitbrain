@@ -50,6 +50,7 @@ Result: **39 checks · 39 passed · 0 failed.** Notable: the audit itself initia
 
 ## 3. Measured savings (real numbers, honest framing)
 
+- **Real sessions (3.03M tokens of tool results, 69 transcripts, 2026-06-10):** **50.2% overall** — code 55.5%, logs 68.6%, long-prose 68.2%, test-output 43.1%, json 65.8%, diff 61.1%; short-prose deliberately ~2.5% (utility risk); 0 lossless failures. Reproducible: `scripts/shape-profile.mjs`.
 - **Synthetic bench (favorable, homogeneous):** total 15,444 → 729 tokens (**95.3%**), all lossless. Best case.
 - **Real files (mixed, via built artifact):** 106,268 → 15,316 tokens (**85.6%**, re-verified 2026-06-10 after rung-14 large-object sampling; was 59%), every file lossless + never-expanded.
 - Declaration-only files correctly **pass through at 0%** (never larger).
