@@ -1,7 +1,6 @@
 {
   "name": "knitbrain",
   "version": "0.1.0",
-  
   "description": "Local-first MCP server: per-project memory + workflow intelligence with always-on, lossless token/context optimization.",
   "type": "module",
   "bin": {
@@ -52,6 +51,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
     "gpt-tokenizer": "^3.4.0"
   },
   "devDependencies": {

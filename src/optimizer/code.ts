@@ -14,14 +14,17 @@ const CONTROL_KEYWORDS = new Set([
 /** Don't elide bodies smaller than this many source characters. */
 const MIN_BODY_CHARS = 40;
 
-/** Cheap structural test: looks like source code (braces + a code keyword). */
+/** Cheap structural test: looks like source code (braces + a code keyword), or an indentation language (Python). */
 export function isCode(text: string): boolean {
-  return (
+  if (
     /[{};]/.test(text) &&
     /\b(function|const|let|var|class|import|export|def|fn|public|private|interface|type)\b/.test(
       text,
     )
-  );
+  ) {
+    return true;
+  }
+  return /^(def \w+.*:|class \w+(\(.*\))?:|from \S+ import |import \S+$|async def \w+)/m.test(text);
 }
 
 /**

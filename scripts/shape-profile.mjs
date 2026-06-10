@@ -20,6 +20,9 @@ const d = (p) => pathToFileURL(join(ROOT, "dist", p)).href;
 const { createFileCCRStore, sha256 } = await import(d("ccr/store.js"));
 const { compress } = await import(d("optimizer/router.js"));
 const { countTokens } = await import(d("tokenizer.js"));
+const { ensureAst, astReady } = await import(d("optimizer/ast.js"));
+await ensureAst();
+console.log(`[profile] AST parsers: ${astReady() ? "warm" : "FAILED — scanner fallback"}`);
 
 
 // ── shape classification (deterministic, order matters) ──

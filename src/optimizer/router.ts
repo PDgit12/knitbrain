@@ -2,7 +2,9 @@ import type { CCRStore } from "../ccr/store.js";
 import type { ContentType } from "./types.js";
 import { isJson, compressJson } from "./json.js";
 import { isCode, compressCode } from "./code.js";
+import { compressCodeAst } from "./ast.js";
 import { compressText } from "./text.js";
+import type { CompressResult } from "./types.js";
 import { countTokens } from "../tokenizer.js";
 
 /** Result of routing + compressing a payload, with measurement + a safety flag. */
@@ -91,27 +93,26 @@ export function compress(text: string, ccr: CCRStore): RouteResult {
   // it, compress the underlying content, but store the TRUE original (with
   // numbers) in CCR and point the skeleton's handle at it. Lossless.
   const stripped = stripLineNumbers(text);
+  // Code routes through the tree-sitter AST handler when its WASM parsers are
+  // warm (lazy background init), else the heuristic brace scanner.
+  const byType = (t: string, type: ContentType): CompressResult =>
+    type === "json"
+      ? compressJson(t, ccr)
+      : type === "code"
+        ? (compressCodeAst(t, ccr) ?? compressCode(t, ccr))
+        : compressText(t, ccr);
+
   let contentType: ContentType;
   let skeleton: string;
   let handle: string;
   if (stripped !== null) {
     contentType = detect(stripped);
-    const inner =
-      contentType === "json"
-        ? compressJson(stripped, ccr)
-        : contentType === "code"
-          ? compressCode(stripped, ccr)
-          : compressText(stripped, ccr);
+    const inner = byType(stripped, contentType);
     handle = ccr.put(text);
     skeleton = inner.skeleton.replace(/⟨ccr:[0-9a-f]{64}⟩/g, `⟨ccr:${handle}⟩`);
   } else {
     contentType = detect(text);
-    const result =
-      contentType === "json"
-        ? compressJson(text, ccr)
-        : contentType === "code"
-          ? compressCode(text, ccr)
-          : compressText(text, ccr);
+    const result = byType(text, contentType);
     skeleton = result.skeleton;
     handle = result.handle;
   }
