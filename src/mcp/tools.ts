@@ -205,6 +205,8 @@ export const TOOLS: readonly ToolDef[] = [
     output: "data",
     run: (_args, ctx) => {
       ctx.meter.reset(); // new session starts a fresh window
+      // (Knowledge self-heals lazily: the first graph query in a fresh
+      // project triggers a scan automatically — no manual init step.)
       return JSON.stringify(ctx.memory.loadSession(), null, 2);
     },
   },

@@ -1,6 +1,6 @@
 {
   "name": "knitbrain",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression \u2014 measured 48.7% of all tool-result tokens on real sessions, answer-preservation gated, reproducible with one command.",
   "type": "module",
   "main": "dist/lib.js",
@@ -48,6 +48,7 @@
     "test": "vitest run",
     "bench": "tsx scripts/bench.ts",
     "e2e": "npm run build && node scripts/e2e.mjs",
+    "e2e:tools": "npm run build && node scripts/e2e-tools.mjs",
     "audit:prod": "node scripts/production-audit.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm run verify",
