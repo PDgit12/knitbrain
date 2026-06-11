@@ -43,6 +43,11 @@ async function main(): Promise<void> {
     await runProfile(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "learn") {
+    const { runLearn } = await import("./learn.js");
+    await runLearn(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "dashboard") {
     const [{ createDashboardServer }, { createFileCCRStore }, { createKnowledge }, { createMemory }, { createFeedback }, { createSkillsStore }, { createTeamBoard }, { createMeter }, paths] =
       await Promise.all([
