@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
-import { astReady, ensureAst, compressCodeAst } from "../src/optimizer/ast.js";
+import { astReady, ensureAst, compressCodeAst, grammarCandidates } from "../src/optimizer/ast.js";
 import { compress } from "../src/optimizer/router.js";
 import { isCode } from "../src/optimizer/code.js";
 import { countTokens } from "../src/tokenizer.js";
@@ -116,5 +116,170 @@ describe("AST code handler (tree-sitter WASM)", () => {
     expect(r.contentType).toBe("code");
     expect(r.compressed).toBe(true);
     expect(ccr.get(r.handle)).toBe(PY_SRC);
+  });
+
+  const GO_SRC = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func loadConfig(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	out := make(map[string]string)
+	for _, line := range splitLines(string(data)) {
+		k, v, ok := parseLine(line)
+		if ok {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+func (s *Server) Handle(req Request) Response {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.count += 1
+	if s.count > s.limit {
+		return Response{Code: 429}
+	}
+	return Response{Code: 200, Body: process(req)}
+}
+`;
+
+  const RUST_SRC = `use std::collections::HashMap;
+
+pub fn tokenize(input: &str) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '(' => out.push(Token::Open),
+            ')' => out.push(Token::Close),
+            _ => out.push(Token::Char(c)),
+        }
+    }
+    out
+}
+
+impl Parser {
+    pub fn parse(&mut self, tokens: &[Token]) -> Result<Ast, ParseError> {
+        let mut stack = Vec::new();
+        for tok in tokens {
+            self.position += 1;
+            stack.push(self.consume(tok)?);
+        }
+        Ok(Ast::from(stack))
+    }
+}
+`;
+
+  const JAVA_SRC = `package com.example.app;
+
+import java.util.List;
+import java.util.ArrayList;
+
+public class OrderService {
+    private final List<Order> orders = new ArrayList<>();
+
+    public Order place(String sku, int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("quantity must be positive");
+        }
+        Order order = new Order(sku, quantity);
+        orders.add(order);
+        notifyListeners(order);
+        return order;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("OrderService[");
+        for (Order o : orders) {
+            sb.append(o.getSku()).append(",");
+        }
+        return sb.append("]").toString();
+    }
+}
+`;
+
+  const RUBY_SRC = `require "json"
+
+class Importer
+  def initialize(path)
+    @path = path
+    @records = []
+    @errors = []
+    @seen = {}
+  end
+
+  def run
+    File.readlines(@path).each do |line|
+      record = JSON.parse(line)
+      next if @seen[record["id"]]
+      @seen[record["id"]] = true
+      @records << record
+    end
+    @records.length
+  end
+end
+`;
+
+  it("grammarCandidates hints the right grammar first", () => {
+    expect(grammarCandidates(GO_SRC)[0]).toBe("go");
+    expect(grammarCandidates(RUST_SRC)[0]).toBe("rust");
+    expect(grammarCandidates(JAVA_SRC)[0]).toBe("java");
+    expect(grammarCandidates(PY_SRC)[0]).toBe("python");
+    expect(grammarCandidates(TS_SRC)).toContain("typescript");
+    expect(grammarCandidates(GO_SRC).length).toBeLessThanOrEqual(4);
+  });
+
+  it("elides Go function and method bodies, keeps signatures (lossless)", () => {
+    expect(isCode(GO_SRC)).toBe(true);
+    const r = compressCodeAst(GO_SRC, ccr)!;
+    expect(r).not.toBeNull();
+    expect(r.skeleton).toContain("package main");
+    expect(r.skeleton).toContain("func loadConfig(path string) (map[string]string, error) {");
+    expect(r.skeleton).toContain("func (s *Server) Handle(req Request) Response {");
+    expect(r.skeleton).not.toContain("os.ReadFile(path)");
+    expect(r.skeleton).not.toContain("s.mu.Lock()");
+    expect(ccr.get(r.handle)).toBe(GO_SRC);
+    expect(countTokens(r.skeleton)).toBeLessThan(countTokens(GO_SRC));
+  });
+
+  it("elides Rust fn and impl-method bodies (lossless)", () => {
+    expect(isCode(RUST_SRC)).toBe(true);
+    const r = compressCodeAst(RUST_SRC, ccr)!;
+    expect(r).not.toBeNull();
+    expect(r.skeleton).toContain("pub fn tokenize(input: &str) -> Vec<Token> {");
+    expect(r.skeleton).toContain("impl Parser {");
+    expect(r.skeleton).not.toContain("chars.peekable()");
+    expect(r.skeleton).not.toContain("self.position += 1");
+    expect(ccr.get(r.handle)).toBe(RUST_SRC);
+  });
+
+  it("elides Java method bodies, keeps class structure (lossless)", () => {
+    expect(isCode(JAVA_SRC)).toBe(true);
+    const r = compressCodeAst(JAVA_SRC, ccr)!;
+    expect(r).not.toBeNull();
+    expect(r.skeleton).toContain("public class OrderService {");
+    expect(r.skeleton).toContain("public Order place(String sku, int quantity) {");
+    expect(r.skeleton).toContain("@Override");
+    expect(r.skeleton).not.toContain("IllegalArgumentException");
+    expect(ccr.get(r.handle)).toBe(JAVA_SRC);
+  });
+
+  it("elides Ruby def…end bodies — end-delimited, scanner-invisible (lossless)", () => {
+    const r = compressCodeAst(RUBY_SRC, ccr)!;
+    expect(r).not.toBeNull();
+    expect(r.skeleton).toContain("class Importer");
+    expect(r.skeleton).toContain("def run");
+    expect(r.skeleton).not.toContain('JSON.parse(line)');
+    expect(r.skeleton).toContain("# ⟨ccr:"); // hash comment marker
+    expect(ccr.get(r.handle)).toBe(RUBY_SRC);
   });
 });

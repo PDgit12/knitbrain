@@ -18,7 +18,7 @@ const MIN_BODY_CHARS = 40;
 export function isCode(text: string): boolean {
   if (
     /[{};]/.test(text) &&
-    /\b(function|const|let|var|class|import|export|def|fn|public|private|interface|type)\b/.test(
+    /\b(function|const|let|var|class|import|export|def|fn|func|impl|package|namespace|public|private|interface|type)\b/.test(
       text,
     )
   ) {
