@@ -90,7 +90,17 @@ export function cursorArtifacts(): Artifact[] {
   ];
 }
 
-/** VS Code (Copilot): .vscode/mcp.json (uses "servers" key) + instructions. */
+/** Copilot CLI: MCP config is global (~/.copilot) — print a snippet. The
+ * project-side .github/instructions file is shared with VS Code Copilot. */
+export function copilotSnippet(): string {
+  return [
+    "# Add to ~/.copilot/mcp-config.json :",
+    '{ "mcpServers": { "knitbrain": { "type": "local", "command": "knitbrain", "tools": ["*"] } } }',
+  ].join("\n");
+}
+
+/** VS Code (GitHub Copilot agent mode): .vscode/mcp.json (uses "servers"
+ * key) + .github/instructions — the native Copilot instruction surface. */
 export function vscodeArtifacts(): Artifact[] {
   return [
     { path: ".vscode/mcp.json", content: "", mode: "json-merge-mcp" },
@@ -100,6 +110,33 @@ export function vscodeArtifacts(): Artifact[] {
       content: `---\napplyTo: "**"\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
   ];
+}
+
+/** Windsurf: project rules are native; MCP config is global (snippet). */
+export function windsurfArtifacts(): Artifact[] {
+  return [
+    {
+      path: ".windsurf/rules/knitbrain.md",
+      mode: "write",
+      content: `---\ntrigger: always_on\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
+    },
+  ];
+}
+
+/** Windsurf's MCP config lives in ~/.codeium/windsurf — never clobber it. */
+export function windsurfSnippet(): string {
+  return [
+    "# Add to ~/.codeium/windsurf/mcp_config.json :",
+    '{ "mcpServers": { "knitbrain": { "command": "knitbrain" } } }',
+  ].join("\n");
+}
+
+/** Zed: MCP servers live in global settings — print a snippet. */
+export function zedSnippet(): string {
+  return [
+    "# Add to Zed settings.json (cmd-,) :",
+    '"context_servers": { "knitbrain": { "command": { "path": "knitbrain" } } }',
+  ].join("\n");
 }
 
 /** Codex CLI: global config — print a snippet rather than touching ~/.codex. */

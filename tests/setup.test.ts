@@ -9,6 +9,15 @@ describe("setup — platform detection (rung 9)", () => {
     expect(detectPlatforms({ env: { CLAUDECODE: "1" }, exists: none, home })).toContain("claude-code");
   });
 
+  it("detects Windsurf, Zed, and Copilot CLI via home dirs", () => {
+    const exists = (p: string) =>
+      p.endsWith("windsurf") || p.endsWith("zed") || p.endsWith(".copilot");
+    const got = detectPlatforms({ env: {}, exists, home });
+    expect(got).toContain("windsurf");
+    expect(got).toContain("zed");
+    expect(got).toContain("copilot-cli");
+  });
+
   it("detects Cursor and Codex via home dirs", () => {
     const exists = (p: string) => p.endsWith(".cursor") || p.endsWith(".codex");
     const got = detectPlatforms({ env: {}, exists, home });

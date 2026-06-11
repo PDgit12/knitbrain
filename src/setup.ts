@@ -1,9 +1,27 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { applyArtifacts, claudeArtifacts, codexSnippet, cursorArtifacts, vscodeArtifacts } from "./platforms.js";
+import {
+  applyArtifacts,
+  claudeArtifacts,
+  codexSnippet,
+  cursorArtifacts,
+  vscodeArtifacts,
+  windsurfArtifacts,
+  windsurfSnippet,
+  zedSnippet,
+  copilotSnippet,
+} from "./platforms.js";
 
-export type Platform = "claude-code" | "cursor" | "codex" | "vscode" | "unknown";
+export type Platform =
+  | "claude-code"
+  | "cursor"
+  | "codex"
+  | "vscode"
+  | "windsurf"
+  | "zed"
+  | "copilot-cli"
+  | "unknown";
 
 export interface DetectInputs {
   env: NodeJS.ProcessEnv;
@@ -27,6 +45,9 @@ export function detectPlatforms(inp: DetectInputs): Platform[] {
   if (inp.exists(join(inp.home, ".vscode")) || inp.env["TERM_PROGRAM"] === "vscode") {
     found.push("vscode");
   }
+  if (inp.exists(join(inp.home, ".codeium", "windsurf"))) found.push("windsurf");
+  if (inp.exists(join(inp.home, ".config", "zed"))) found.push("zed");
+  if (inp.exists(join(inp.home, ".copilot"))) found.push("copilot-cli");
   return found.length > 0 ? found : ["unknown"];
 }
 
@@ -82,11 +103,30 @@ export function runSetup(cwd: string = process.cwd()): number {
   }
   if (platforms.includes("cursor")) artifacts.push(...cursorArtifacts());
   if (platforms.includes("vscode")) artifacts.push(...vscodeArtifacts());
+  if (platforms.includes("windsurf")) artifacts.push(...windsurfArtifacts());
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
   if (platforms.includes("codex")) {
     console.log("  Codex CLI detected — its MCP config is global; add this yourself:");
     for (const line of codexSnippet(cfg).split("\n")) console.log(`    ${line}`);
   }
+  if (platforms.includes("windsurf")) {
+    console.log("  Windsurf detected — rules written; MCP config is global, add this yourself:");
+    for (const line of windsurfSnippet().split("\n")) console.log(`    ${line}`);
+  }
+  if (platforms.includes("zed")) {
+    console.log("  Zed detected — MCP config is global, add this yourself:");
+    for (const line of zedSnippet().split("\n")) console.log(`    ${line}`);
+  }
+  if (platforms.includes("copilot-cli")) {
+    // VS Code Copilot is covered by the vscode artifacts (.vscode/mcp.json +
+    // .github/instructions); the standalone CLI keeps its config global.
+    console.log("  Copilot CLI detected — its MCP config is global, add this yourself:");
+    for (const line of copilotSnippet().split("\n")) console.log(`    ${line}`);
+  }
+  console.log("");
+  console.log("  The operating protocol itself needs NO setup: it rides the MCP handshake");
+  console.log("  (any MCP client gets it). For platforms without MCP-instructions support,");
+  console.log("  paste the output of:  knitbrain prompt");
 
   // Billing-mode detection: an API key in the environment means API /
   // pay-as-you-go traffic that CAN be proxied; no key usually means a

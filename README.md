@@ -5,41 +5,58 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
 
-> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~50% of all tool-result tokens on real sessions, reproducible with one command.
+> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured 48.7% of all tool-result tokens on real sessions, with answer-preservation gates, reproducible with one command.
 
 Pure TypeScript. No Python, no native binaries, no network beyond `npm install`.
 
 ```bash
 npx knitbrain profile    # measure what it would save on YOUR real sessions — before installing anything
+npx knitbrain evals      # prove the answers survive — same corpus, deterministic judging
 ```
 
 ## The honest number
 
 Most tools in this space quote their best workload ("up to 90%!"). We publish the number nobody else does: the **all-inclusive average** — every tool-result token from real coding sessions, *including* the small outputs that pass through uncompressed.
 
-**On 3.49M tokens of tool results from 70 real Claude Code sessions: 49.3% saved overall, lossless.** That denominator includes every tool-result token — even the 0.4M tokens of small outputs that pass through untouched (counting only sizable blocks ≥400 chars, the number is 55.8%; per-session median is 56.2%, with the middle half of sessions between 48% and 64%). Every original recoverable byte-for-byte.
+**On 3.33M tokens of tool results from 63 real Claude Code sessions: 48.7% saved overall, lossless.** That denominator includes every tool-result token — even the 0.4M tokens of small outputs that pass through untouched (counting only sizable blocks ≥400 chars, the number is 55.4%). Every original recoverable byte-for-byte.
 
 | shape | % of real burn | saved |
 |---|---|---|
-| code & file reads | 47% | 59.6% |
-| repetitive logs | 18% | 72.3% |
-| short prose (reports, summaries) | 15% | 19.5% |
-| long prose | 8% | 68.7% |
-| test output | 6% | 46.4% |
-| JSON | 5% | 65.8% |
+| code & file reads | 47% | 60.3% |
+| repetitive logs | 17% | 70.5% |
+| short prose (reports, summaries) | 16% | 18.0% |
+| long prose | 7% | 69.2% |
+| test output | 6% | 47.4% |
+| JSON | 5% | 65.1% |
+| diffs | 1% | 62.7% |
 
 Measured the way others measure — single best-case workloads — we land 60–99% (import graphs 98.9%, whole files 88.8%, body-heavy code 71.6%). But that's not the number you'll feel; the all-inclusive average is.
 
 **Don't take our word for any of this.** `knitbrain profile` runs the actual optimizer over your own transcripts (`~/.claude/projects` by default) and prints *your* number. Local only — nothing is uploaded.
 
+## Same answers, measured
+
+Saving tokens is worthless if the agent loses the answer. `knitbrain evals` checks — on the same real corpus, with deterministic string-containment judging (no LLM judge to flatter us) — that the facts agents act on survive compression:
+
+| check | result | gate |
+|---|---|---|
+| error-fidelity — every error/failure line survives in the skeleton | **141/141 = 100%** | 100% |
+| summary-fidelity — test/build result totals survive | **189/189 = 100%** | ≥95% |
+| identifier-fidelity — top-level declared names survive | **314/316 = 99.4%** | ≥99% |
+| round-trip — `⟨ccr:hash⟩` recovers the original byte-for-byte | **2,339/2,339 = 100%** | 100% |
+| never-expand — no compressed block got bigger | **4,505/4,505 = 100%** | 100% |
+
+These gates shaped the product: error lines, result summaries, and declarations are *never* elided, by every handler. Holding that line costs about 1 percentage point of savings — we pay it, and publish both numbers. Run `npx knitbrain evals` (exit code 1 on any gate failure) to check on your own transcripts.
+
 ## Why this and not a point tool
 
 Compression-only layers shrink tokens but remember nothing. Memory-only layers remember but burn your window. Knit Brain is one substrate doing both, plus the workflow layer that makes agents use them:
 
-- **Memory** — per-project learnings, session handoffs, a knowledge graph (imports/exports/blast-radius), on-demand skills that compound across tasks.
-- **Lossless optimization** — structure-preserving skeletons (JSON keeps its schema, code keeps its signatures via tree-sitter AST), cross-turn dedup of re-sent bulk, sentence anchoring for prose — all reversible through a content-addressed store.
-- **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves, with guardrailed agent generation and a shared team board.
+- **Memory** — per-project learnings, session handoffs, a knowledge graph (imports/exports/blast-radius), on-demand skills that compound across tasks, and `knitbrain learn` — offline failure mining that writes corrections from your real sessions into CLAUDE.md.
+- **Lossless optimization** — structure-preserving skeletons (JSON keeps its schema; code keeps its signatures via tree-sitter AST across TypeScript/TSX/JS, Python, Go, Rust, Java, C++, C#, Ruby, PHP, Bash), dedicated handlers for search results, build/test logs, and diffs (error lines always survive), cross-turn dedup of re-sent bulk, sentence anchoring for prose — all reversible through a content-addressed store.
+- **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves; complex verdicts carry an explicit ENTER-PLAN-MODE directive the agent follows before touching files; guardrailed agent generation and a shared team board.
 - **Self-healing, not self-confident** — two feedback loops run continuously: TOIN backs off any compression kind that gets over-retrieved, and the classifier shifts its own thresholds after 3 wrong-verdict votes (`knitbrain_record_false_positive`). Wrong tuning costs efficiency, never correctness.
+- **Closed loop, zero config** — the full operating protocol (load session → classify → plan-mode adherence → skills → agents → context discipline → record learning) rides the MCP handshake itself. Any MCP client gets it without a single file of setup; `knitbrain prompt` prints it for platforms that want it in a system prompt.
 
 ## Architecture
 
@@ -62,10 +79,16 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
               ▼                           /v1/chat/completions)
  ┌──────────────────────────────────────────────┐
  │ optimizer router                             │
- │  json  → schema-preserving skeleton          │
- │  code  → tree-sitter AST body elision        │
- │  logs  → template dedup + anchor             │
- │  prose → sentence anchor (TOIN-gated)        │
+ │  json   → schema-preserving skeleton         │
+ │  code   → tree-sitter AST body elision       │
+ │           (TS/JS · Py · Go · Rust · Java ·   │
+ │            C++ · C# · Ruby · PHP · Bash)     │
+ │  search → per-file collapse + counts         │
+ │  logs   → errors+summaries kept, runs        │
+ │           collapsed (races template dedup)   │
+ │  diffs  → headers kept, hunks → ±counts      │
+ │  prose  → sentence anchor (TOIN-gated)       │
+ │  errors / result lines NEVER elided          │
  └────────────────────┬─────────────────────────┘
                       ▼ skeleton + ⟨ccr:hash⟩
  ┌──────────────────────────────────────────────┐     ┌─────────────────┐
@@ -91,12 +114,16 @@ npm install -g knitbrain
 
 knitbrain profile      # your savings, on your transcripts, before you commit to anything
 
-# in your project:
-knitbrain setup        # detects your platform (Claude Code / Cursor / VS Code / Codex)
-                       # and writes its NATIVE integration: .mcp.json, slash commands,
-                       # rules files — non-clobbering
+# in your project — ONE command configures everything (memory, workflow,
+# plan-mode adherence, skills, teams, meter, hooks; non-clobbering):
+knitbrain setup        # native integration per platform: Claude Code, Cursor,
+                       # VS Code + Copilot, Windsurf (+ snippets for Codex,
+                       # Copilot CLI, Zed — their MCP configs are global)
 
 knitbrain dashboard    # live local dashboard (127.0.0.1:8790)
+knitbrain learn        # mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
+knitbrain evals        # answer-preservation gates on your own transcripts
+knitbrain prompt       # full operating prompt, for platforms without MCP-instructions support
 
 # optional — route LLM requests through the optimizer (API-key setups):
 knitbrain-proxy        # listens on 127.0.0.1:8788
@@ -126,8 +153,8 @@ console.log(r.savedPct, r.contentType);        // e.g. 62.4 "json"
 
 Agent loops re-send the entire conversation on every turn, so input tokens dominate the bill — usually by an order of magnitude over output. That makes context the thing worth optimizing:
 
-- **The proxy shrinks the request itself, on the wire.** ~50% fewer tool-result tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session.
-- **It stacks with provider prompt caching.** CacheAligner keeps the system prefix byte-stable across turns, so cache hits (which providers discount heavily) happen more often instead of breaking on whitespace drift.
+- **The proxy shrinks the request itself, on the wire.** ~49% fewer tool-result tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session.
+- **It stacks with provider prompt caching.** CacheAligner keeps the system prefix byte-stable across turns: whitespace normalization, volatile lines ("Today's date is …") moved out of the prefix to a marked tail, and — when your client doesn't manage its own — Anthropic `cache_control` breakpoints inserted at the system prompt and the stable history boundary. Cached input reads are ~90% cheaper on Anthropic; OpenAI prefix caching needs exactly the byte-stability this provides. Compression is deterministic, so optimized history prefixes stay stable turn over turn — the two levers stack.
 - **It can never make a request more expensive.** The never-expand guard is enforced by tests: output tokens ≤ input tokens, always.
 - **On a subscription instead?** Same mechanics, different currency: fewer tokens per turn means the context window fills slower — fewer compactions, fewer lost-context restarts, longer useful sessions.
 
@@ -137,9 +164,10 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 
 - **Lossless** — every compressed payload recovers byte-for-byte from CCR; the round-trip test gates the build.
 - **Never-expand** — output tokens ≤ input tokens, always.
+- **Errors survive** — error/failure lines, result summaries, and top-level declarations are never elided; `knitbrain evals` gates this at 100%/≥95%/≥99% on real transcripts.
 - **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.
 - **Local-first** — proxy, hub, and dashboard bind `127.0.0.1` by default; nothing leaves your machine.
-- **Reproducible claims** — every number in this README comes from `knitbrain profile` or `npm run bench`, both of which you can run yourself.
+- **Reproducible claims** — the headline numbers come from `knitbrain profile` and `knitbrain evals` on real transcripts, both of which you can run on yours. (`npm run bench` is a synthetic regression gate for development — its numbers are best-case fixtures, never quoted as real-world savings.)
 
 ## Development
 
@@ -150,7 +178,7 @@ npm run e2e          # built-artifact E2E: stdio session + real-file compression
 npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 25 tools
 ```
 
-Current proof status: **159 tests passing**, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 25 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+Current proof status: **195 tests passing**, eval gates PASS on 4,505 real blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 25 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 

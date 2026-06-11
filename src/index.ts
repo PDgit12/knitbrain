@@ -43,6 +43,16 @@ async function main(): Promise<void> {
     await runProfile(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "prompt") {
+    const { INSTRUCTIONS } = await import("./mcp/instructions.js");
+    console.log("# knitbrain — full operating prompt (paste into your platform's system prompt / rules)");
+    console.log("");
+    console.log(INSTRUCTIONS);
+    console.log("");
+    console.log("NOTATION: a ⟨ccr:HASH⟩ marker in any output means the exact original is stored locally —");
+    console.log("call knitbrain_retrieve with that hash to read it byte-for-byte. Compression is lossless.");
+    return;
+  }
   if (process.argv[2] === "evals") {
     const { runEvals } = await import("./evals.js");
     const rep = await runEvals(process.argv.slice(3));
