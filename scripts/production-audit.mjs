@@ -105,11 +105,72 @@ try {
   ok(/wrote \.mcp\.json/.test(setupOut), "setup writes platform artifacts (.mcp.json + extras)");
   const mcpJson = JSON.parse(readFileSync(join(consumer, ".mcp.json"), "utf8"));
   ok(mcpJson.mcpServers?.knitbrain?.command === "knitbrain", ".mcp.json wired to knitbrain");
+
+  // ───────────── Stage 8: installed hook binary (enforcement layer) ─────────────
+  stage(8, "installed `knitbrain-hook` binary — PreToolUse enforcement");
+  const binHook = join(consumer, "node_modules", ".bin", "knitbrain-hook");
+  const bigFile = join(consumer, "big-audit-file.txt");
+  writeFileSync(bigFile, "x".repeat(30000));
+  const hookOut = sh(
+    `echo '{"tool_name":"Read","tool_input":{"file_path":"${bigFile}"},"cwd":"${consumer}"}' | "${binHook}" pretooluse`,
+    consumer,
+    { KNITBRAIN_HOME: HOME_ISOLATED },
+  );
+  ok(hookOut.includes('"permissionDecision":"deny"') && hookOut.includes("knitbrain_read"), "hook denies large raw Read, redirects to knitbrain_read");
+  const smallOut = sh(
+    `echo '{"tool_name":"Read","tool_input":{"file_path":"${join(consumer, "package.json")}"},"cwd":"${consumer}"}' | "${binHook}" pretooluse`,
+    consumer,
+    { KNITBRAIN_HOME: HOME_ISOLATED },
+  );
+  ok(!smallOut.includes("deny"), "hook passes small files through untouched");
+
+  // ───────────── Stage 9: dashboard + hub over real HTTP ─────────────
+  stage(9, "dashboard + hub — live HTTP");
+  {
+    const dash = spawn(binServer, ["dashboard"], { cwd: consumer, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, KNITBRAIN_HOME: HOME_ISOLATED, KNITBRAIN_DASHBOARD_PORT: "18790" } });
+    try {
+      await waitFor(async () => (await fetch("http://127.0.0.1:18790/api/state")).ok, 8000);
+      const state = await (await fetch("http://127.0.0.1:18790/api/state")).json();
+      ok(state.meter !== undefined && state.ccr !== undefined && state.feedback !== undefined, "dashboard serves live state (meter, ccr, feedback, …)");
+    } catch (e) {
+      ok(false, `dashboard live: ${e.message}`);
+    } finally {
+      dash.kill();
+    }
+    const hub = spawn(binServer, ["hub"], { cwd: consumer, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, KNITBRAIN_HOME: HOME_ISOLATED, KNITBRAIN_HUB_PORT: "18791" } });
+    try {
+      let hubLog = "";
+      hub.stdout.on("data", (d) => (hubLog += d.toString()));
+      await waitFor(async () => /team token: \S+/.test(hubLog), 8000);
+      const token = /team token: (\S+)/.exec(hubLog)[1];
+      const unauthorized = await fetch("http://127.0.0.1:18791/board");
+      ok(unauthorized.status === 401 || unauthorized.status === 403, "hub rejects requests without the team token");
+      const posted = await (await fetch("http://127.0.0.1:18791/board", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ author: "audit", original: "hub audit posting" }) })).json();
+      ok(typeof posted.id === "string", "hub accepts an authenticated posting");
+      const board = await (await fetch("http://127.0.0.1:18791/board", { headers: { authorization: `Bearer ${token}` } })).json();
+      ok(Array.isArray(board) && board.some((p) => p.author === "audit"), "hub board lists the posting");
+    } catch (e) {
+      ok(false, `hub live: ${e.message}`);
+    } finally {
+      hub.kill();
+    }
+  }
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+async function waitFor(cond, timeoutMs) {
+  const start = Date.now();
+  for (;;) {
+    try {
+      if (await cond()) return;
+    } catch { /* not up yet */ }
+    if (Date.now() - start > timeoutMs) throw new Error("timeout waiting for condition");
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
 
 function makeClient(proc) {
   let buf = "";
@@ -278,6 +339,6 @@ console.log("\n[audit] ──────────── PRODUCTION AUDIT REP
 for (const r of results) console.log(`[audit] ${r}`);
 console.log(`[audit] ${results.length} checks · ${results.length - failures} passed · ${failures} failed`);
 console.log(failures === 0
-  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 25 tools + proxy work."
+  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 25 tools + proxy + hook + dashboard + hub work."
   : "[audit] VERDICT: FAIL");
 process.exit(failures === 0 ? 0 : 1);
