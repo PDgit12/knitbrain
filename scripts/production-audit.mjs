@@ -65,7 +65,7 @@ try {
   } catch (e) {
     ok(false, `verify failed in fresh clone: ${String(e).slice(0, 200)}`);
   }
-  ok(/PASS — payloads shrink/.test(gatesOut), "bench gate proves shrink + lossless in clone");
+  ok(/PASS — real-shape floors held/.test(gatesOut), "bench gate proves real-shape floors + fidelity + lossless in clone");
   try {
     const e2eOut = sh("npm run e2e", clone, { KNITBRAIN_HOME: HOME_ISOLATED });
     ok(/\[e2e\] PASS/.test(e2eOut), "full e2e green in fresh clone");
