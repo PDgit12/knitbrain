@@ -168,6 +168,8 @@ const main = async () => {
     ok(!agents.isError, "propose_agents returns proposals for this project");
     const created = await call("knitbrain_create_agent", { name: "qa-guard", scope: "tests/**", tools: ["Read", "Bash"] });
     ok(!created.isError, "create_agent emits a guardrailed agent definition");
+    const boardAfterAgent = await call("knitbrain_team_board");
+    ok(boardAfterAgent.text.includes("agent created: qa-guard"), "agent creation announced on the team board (hub-visible)");
 
     console.log("[e2e-tools] team board lifecycle");
     const post = await call("knitbrain_team_post", { author: "e2e", content: "search handler verified: errors always survive elision. ".repeat(12) });

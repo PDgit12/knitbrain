@@ -346,7 +346,7 @@ export const TOOLS: readonly ToolDef[] = [
       additionalProperties: false,
     },
     output: "verbatim",
-    run: (args) => {
+    run: (args, ctx) => {
       const path = writeAgent(process.cwd(), {
         name: str(args, "name"),
         ...(typeof args["description"] === "string" ? { description: args["description"] } : {}),
@@ -355,7 +355,10 @@ export const TOOLS: readonly ToolDef[] = [
         ...(typeof args["reviewGate"] === "boolean" ? { reviewGate: args["reviewGate"] } : {}),
         ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
       });
-      return `created agent at ${path}`;
+      const ev = ctx.team.post("knitbrain", `agent created: ${str(args, "name")} · scope ${typeof args["scope"] === "string" ? args["scope"] : "(whole project)"}`);
+      const hubCfg = loadHubConfig();
+      if (hubCfg) mirrorToHub(hubCfg, { author: "knitbrain", summary: ev.summary, original: `agent created at ${path}` });
+      return `created agent at ${path}${hubCfg ? " (announced on hub)" : ""}`;
     },
   },
   {
@@ -400,6 +403,12 @@ export const TOOLS: readonly ToolDef[] = [
                 reviewGate: p.reviewGate,
                 brief: `task: ${task}\n${skill.body}`,
               });
+              // Agent lifecycle is team-visible: the creation event lands on
+              // the board (and mirrors to the hub when joined), so individual
+              // and team views see which agents exist, for what, and where.
+              const ev = ctx.team.post("knitbrain", `agent created: ${p.name} · scope ${p.scope} · task: ${task}`);
+              const hub = loadHubConfig();
+              if (hub) mirrorToHub(hub, { author: "knitbrain", summary: ev.summary, original: `agent created: ${p.name} · scope ${p.scope} · file ${file} · task: ${task}` });
               return {
                 name: p.name,
                 scope: p.scope,
