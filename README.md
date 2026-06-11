@@ -107,6 +107,21 @@ knitbrain hub                              # start the team hub (host runs this 
 knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror automatically
 ```
 
+## Use as a library
+
+The same router that powers the proxy and MCP server is importable directly — no server, no config:
+
+```ts
+import { createOptimizer } from "knitbrain";
+
+const kb = createOptimizer();                 // CCR store under ~/.knitbrain/ccr
+const r = kb.compress(bigToolOutput);          // detect → route → compress
+console.log(r.savedPct, r.contentType);        // e.g. 62.4 "json"
+// r.skeleton → hand to the model; kb.retrieve(r.handle) → exact original, byte-for-byte
+```
+
+`compress()` is lossless (original always recoverable via the CCR handle) and guarded — if compression doesn't save at least 5%, the original passes through untouched.
+
 ## If you pay per token
 
 Agent loops re-send the entire conversation on every turn, so input tokens dominate the bill — usually by an order of magnitude over output. That makes context the thing worth optimizing:
