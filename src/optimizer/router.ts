@@ -4,6 +4,15 @@ import { isJson, compressJson } from "./json.js";
 import { isCode, compressCode } from "./code.js";
 import { compressCodeAst } from "./ast.js";
 import { compressText, compressShortProse } from "./text.js";
+import {
+  isDiff,
+  isSearchResults,
+  isLogOutput,
+  compressDiff,
+  compressSearchResults,
+  compressLog,
+  IMPORTANT_LINE,
+} from "./structured.js";
 import type { CompressResult } from "./types.js";
 import { countTokens } from "../tokenizer.js";
 
@@ -35,8 +44,7 @@ const ANCHOR_TRIGGER_PCT = 35;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-/** Lines worth rescuing from an elided middle (failures live mid-output). */
-const IMPORTANT_LINE = /\b(FAIL|FAILED|✗|Error:|error TS\d+|Exception|Traceback|fatal:|panic:)\b/;
+/** Max failure lines rescued from an elided middle (shared IMPORTANT_LINE). */
 const MAX_RESCUED = 12;
 
 /**
@@ -59,9 +67,14 @@ function anchorSkeleton(text: string, handle: string): string {
   return `${head}\n⟪… ${middle.length - rescued.length} lines elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
 }
 
-/** Deterministic content-type detection (no ML). JSON is strict; code is heuristic. */
+/** Deterministic content-type detection (no ML). JSON is strict; the
+ * structured shapes (diff/search/log) outrank the looser code heuristic —
+ * grep dumps and test logs used to trip isCode and compress poorly. */
 export function detect(text: string): ContentType {
   if (isJson(text)) return "json";
+  if (isDiff(text)) return "diff";
+  if (isSearchResults(text)) return "search";
+  if (isLogOutput(text)) return "log";
   if (isCode(text)) return "code";
   return "text";
 }
@@ -108,6 +121,15 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
   const allowProse = options.allowProse ?? true;
   const byType = (t: string, type: ContentType): CompressResult => {
     if (type === "json") return compressJson(t, ccr);
+    if (type === "diff") return compressDiff(t, ccr);
+    if (type === "search") return compressSearchResults(t, ccr);
+    if (type === "log") {
+      // Race the log skeleton against generic text (line-dedup wins on highly
+      // repetitive logs); keep whichever is smaller. Both are CCR-lossless.
+      const log = compressLog(t, ccr);
+      const text = compressText(t, ccr);
+      return text.skeleton.length < log.skeleton.length ? text : log;
+    }
     if (type === "code") return compressCodeAst(t, ccr) ?? compressCode(t, ccr);
     // Short prose (too few lines for the anchor fallback): try the TOIN-gated
     // sentence anchor; longer or sentence-poor text takes the line handler.

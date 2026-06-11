@@ -34,7 +34,7 @@ export interface FeedbackOptions {
   maxRate?: number;
 }
 
-const KINDS: ContentType[] = ["json", "code", "text", "prose"];
+const KINDS: ContentType[] = ["json", "code", "text", "prose", "search", "log", "diff"];
 
 /**
  * TOIN feedback — deterministic, local self-tuning. Because CCR is lossless, a
