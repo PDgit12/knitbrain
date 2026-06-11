@@ -261,7 +261,10 @@ async function proxyLoop(binProxy, cwd) {
     });
     ok((await res.json()).ok === true, "proxy forwards and returns upstream response");
     const fwd = JSON.parse(received[0]);
-    ok(String(fwd.messages[0].content).includes("⟨ccr:"), "request compressed ON THE WIRE (old bulk → skeleton)");
+    const fwdFirst = fwd.messages[0].content;
+    const fwdFirstText = typeof fwdFirst === "string" ? fwdFirst : fwdFirst.map((b) => b.text ?? "").join("");
+    ok(fwdFirstText.includes("⟨ccr:"), "request compressed ON THE WIRE (old bulk → skeleton)");
+    ok(JSON.stringify(fwd).includes("cache_control"), "CacheAligner inserted a cache_control breakpoint (client had none)");
     ok(fwd.messages[2].content === "fix the bug", "user intent reached upstream VERBATIM");
     ok(JSON.stringify(fwd).length < JSON.stringify({ system: "rules", messages: [{ role: "user", content: oldBulk }] }).length, "forwarded request is smaller than original");
   } finally {
