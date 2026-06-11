@@ -26,6 +26,10 @@ export interface AgentSpec {
   tools?: string[];
   reviewGate?: boolean;
   contextBudget?: number;
+  /** Mission brief for THIS task — telegraphic skill body, not a context dump
+   * (sub-agents start cold; the brief is their whole task-specific context,
+   * so it's optimized prompt-by-prompt like everything else). */
+  brief?: string;
 }
 
 const DEFAULT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"];
@@ -87,10 +91,11 @@ You are the **${spec.name}** agent for this project.
 - **Allowed tools:** ${tools}.
 ${gate}- **Context budget:** keep your working context under ~${budget} tokens. For large payloads, call \`knitbrain_optimize\` and page originals back with \`knitbrain_retrieve\` only when needed.
 
-## How to work
+${spec.brief ? `## Mission brief (telegraphic — full context one retrieve away)\n${spec.brief}\n\n` : ""}## How to work
 1. Ground yourself: \`knitbrain_query_imports\` / \`knitbrain_query_dependents\` before editing.
 2. Make the smallest correct change within scope.
-3. Record non-obvious findings with \`knitbrain_record_learning\`.
+3. Post findings to \`knitbrain_team_post\` so the orchestrator and sibling agents see them.
+4. Record non-obvious findings with \`knitbrain_record_learning\`.
 `;
 }
 

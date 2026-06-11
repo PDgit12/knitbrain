@@ -384,16 +384,31 @@ export const TOOLS: readonly ToolDef[] = [
         ? { status: "found", name: found.name, uses: found.uses, body: found.body }
         : { status: "drafted — refine while working, then knitbrain_skill_save", body: ctx.skills.draft(task, seed) };
 
-      // AGENTS: only when the task is complex/multi-domain (never at start).
+      // AGENTS (puppeteer mode): on complex tasks the agent FILES are
+      // written, not just proposed — same persistence model as skills.
+      // Each .claude/agents/<name>.md carries guardrails + the task's
+      // telegraphic skill body as its mission brief, so a cold sub-agent
+      // starts optimized: scoped tools, scoped files, compressed context,
+      // findings flowing back through the team board.
       const agents =
         cls.tier === "complex"
-          ? proposeAgents(ctx.knowledge.listFiles()).slice(0, 4).map((p) => ({
-              name: p.name,
-              scope: p.scope,
-              tools: p.tools,
-              reviewGate: p.reviewGate,
-              brief: "spawn via your host's sub-agent mechanism; brief it with the SKILL body + its guardrails; post findings to knitbrain_team_post",
-            }))
+          ? proposeAgents(ctx.knowledge.listFiles()).slice(0, 4).map((p) => {
+              const file = writeAgent(process.cwd(), {
+                name: p.name,
+                scope: p.scope,
+                tools: p.tools,
+                reviewGate: p.reviewGate,
+                brief: `task: ${task}\n${skill.body}`,
+              });
+              return {
+                name: p.name,
+                scope: p.scope,
+                tools: p.tools,
+                reviewGate: p.reviewGate,
+                file,
+                spawn: `agent file WRITTEN — spawn via your host's sub-agent mechanism (Claude Code: Task tool with subagent_type "${p.name}"); it is pre-briefed; findings arrive on knitbrain_team_board`,
+              };
+            })
           : [];
 
       // HOST COMMANDS the agent can run itself (autonomous loop).
@@ -409,7 +424,7 @@ export const TOOLS: readonly ToolDef[] = [
           meter: ctx.meter.read(),
           directive:
             cls.tier === "complex"
-              ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Then: spawn the proposed agents in parallel; each works its scope w/ its skill; consolidate via team board; verify; record learning + skill update."
+              ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update."
               : "Execute with the skill. Verify before claiming done. Record learning + skill update if anything non-obvious surfaced.",
         },
         null,

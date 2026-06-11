@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore } from "../src/ccr/store.js";
@@ -66,6 +66,34 @@ describe("adherence: plan-mode directive + handshake protocol", () => {
       }),
     ) as { directive: string };
     expect(out.directive).toContain("ENTER YOUR HOST'S PLAN MODE NOW");
+  });
+
+  it("knitbrain_run: complex task MATERIALIZES agent .md files (puppeteer mode)", () => {
+    // knowledge graph needs ≥2 files per directory for a domain proposal
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "a.ts"), 'import { b } from "./b.js"; export const a = b;');
+    writeFileSync(join(root, "src", "b.ts"), "export const b = 1;");
+    ctx.knowledge.scan();
+    const prevCwd = process.cwd();
+    process.chdir(root); // writeAgent targets cwd
+    try {
+      const out = JSON.parse(
+        call("knitbrain_run", {
+          task: "refactor the storage architecture end to end",
+          files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
+        }),
+      ) as { agents: Array<{ file: string; spawn: string }> };
+      expect(out.agents.length).toBeGreaterThan(0);
+      for (const a of out.agents) {
+        expect(existsSync(a.file)).toBe(true);
+        const body = readFileSync(a.file, "utf8");
+        expect(body).toContain("Mission brief");
+        expect(body).toContain("knitbrain_team_post");
+        expect(a.spawn).toContain("WRITTEN");
+      }
+    } finally {
+      process.chdir(prevCwd);
+    }
   });
 
   it("handshake instructions cover the full closed loop", () => {

@@ -167,7 +167,7 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 - **Errors survive** — error/failure lines, result summaries, and top-level declarations are never elided; `knitbrain evals` gates this at 100%/≥95%/≥99% on real transcripts.
 - **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.
 - **Local-first** — proxy, hub, and dashboard bind `127.0.0.1` by default; nothing leaves your machine.
-- **Reproducible claims** — the headline numbers come from `knitbrain profile` and `knitbrain evals` on real transcripts, both of which you can run on yours. (`npm run bench` is a synthetic regression gate for development — its numbers are best-case fixtures, never quoted as real-world savings.)
+- **Reproducible claims** — the headline numbers come from `knitbrain profile` and `knitbrain evals` on real transcripts, both of which you can run on yours. (`npm run bench` is a CI regression gate: a real-shape suite whose fixture mix mirrors the profiled distribution, with per-shape savings floors and fidelity checks, plus a clearly-labeled best-case suite — fixture numbers are never quoted as real-world savings.)
 
 ## Development
 
