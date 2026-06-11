@@ -3,7 +3,7 @@ import { sha256 } from "../ccr/store.js";
 import { compress } from "../optimizer/router.js";
 import type { ContentType } from "../optimizer/types.js";
 import { countTokens } from "../tokenizer.js";
-import { normalizePrefix } from "./cache-aligner.js";
+import { alignDynamicContent, prefixHash } from "./cache-aligner.js";
 
 /**
  * Minimal Anthropic-style request shapes. We treat the body as mostly opaque
@@ -33,6 +33,10 @@ export interface OptimizeOptions {
   minBlockChars?: number;
   /** Whether short-prose sentence anchoring may apply (TOIN-gated by callers). */
   allowProse?: boolean;
+  /** Wire protocol — enables provider-specific cache strategy (cache_control). */
+  provider?: "anthropic" | "openai";
+  /** CacheAligner master switch (default on). */
+  cacheAlign?: boolean;
 }
 
 export interface ProxyStats {
@@ -45,9 +49,30 @@ export interface ProxyStats {
   handles: string[];
   /** Content kind per compressed handle — lets callers feed TOIN (onCompress). */
   kinds: Record<string, ContentType>;
+  /** Volatile lines CacheAligner moved out of the system prefix. */
+  dynamicMoved: number;
+  /** Anthropic cache_control breakpoints we inserted (0 if client had its own). */
+  cacheBreakpoints: number;
+  /** Hash of the aligned system prefix — equal across turns ⇒ cache-hittable. */
+  prefixHash: string;
 }
 
-const DEFAULTS: Required<OptimizeOptions> = { keepLastTurns: 2, minBlockChars: 200, allowProse: true };
+const DEFAULTS: Required<Omit<OptimizeOptions, "provider">> = {
+  keepLastTurns: 2,
+  minBlockChars: 200,
+  allowProse: true,
+  cacheAlign: true,
+};
+
+/** Does the request already carry client-set cache_control anywhere? */
+function hasClientCacheControl(body: RequestBody): boolean {
+  const blockHas = (b: ContentBlock): boolean => b["cache_control"] !== undefined;
+  if (Array.isArray(body.system) && body.system.some(blockHas)) return true;
+  for (const m of body.messages) {
+    if (Array.isArray(m.content) && m.content.some(blockHas)) return true;
+  }
+  return false;
+}
 
 /** Concatenate all human-readable text in a request, for honest token accounting. */
 function collectText(body: RequestBody): string {
@@ -147,14 +172,90 @@ export function optimizeRequest(
       : { ...m, content: applyToContent(m.content, compressString) },
   );
 
-  // CacheAligner: whitespace-normalize the system prefix (meaning-preserving).
+  // CACHE ALIGNER: stabilize the system prefix. Whitespace-normalize AND move
+  // volatile lines ("Today's date is …") to a marked tail section — content
+  // preserved verbatim, but the leading bytes stop churning between sessions.
+  let dynamicMoved = 0;
   let system = body.system;
-  if (typeof system === "string") system = normalizePrefix(system);
+  if (opts.cacheAlign) {
+    if (typeof system === "string") {
+      const a = alignDynamicContent(system);
+      system = a.text;
+      dynamicMoved += a.moved;
+    } else if (Array.isArray(system)) {
+      system = system.map((b) => {
+        if (typeof b.text !== "string") return b;
+        const a = alignDynamicContent(b.text);
+        dynamicMoved += a.moved;
+        return { ...b, text: a.text };
+      });
+    }
+    // OpenAI protocol: the system prompt is the leading system/developer message.
+    if (options.provider === "openai") {
+      for (let i = 0; i < messages.length && (messages[i]!.role === "system" || messages[i]!.role === "developer"); i += 1) {
+        const m = messages[i]!;
+        if (typeof m.content === "string") {
+          const a = alignDynamicContent(m.content);
+          dynamicMoved += a.moved;
+          messages[i] = { ...m, content: a.text };
+        }
+      }
+    }
+  }
 
   const optimized: RequestBody = { ...body, messages };
   if (system !== undefined) optimized.system = system;
 
+  // PROVIDER CACHE STRATEGY (Anthropic): explicit cache_control breakpoints —
+  // system prompt + the stable history boundary (the last fully-compressed
+  // turn). Inserted ONLY when the client set none of its own: hosts like
+  // Claude Code manage their own breakpoints and we never fight them.
+  let cacheBreakpoints = 0;
+  if (opts.cacheAlign && options.provider === "anthropic" && !hasClientCacheControl(optimized)) {
+    const ephemeral = { type: "ephemeral" };
+    if (typeof optimized.system === "string") {
+      optimized.system = [{ type: "text", text: optimized.system, cache_control: ephemeral }];
+      cacheBreakpoints += 1;
+    } else if (Array.isArray(optimized.system) && optimized.system.length > 0) {
+      const last = optimized.system[optimized.system.length - 1]!;
+      optimized.system[optimized.system.length - 1] = { ...last, cache_control: ephemeral };
+      cacheBreakpoints += 1;
+    }
+    const boundary = protectFrom - 1;
+    if (boundary >= 0) {
+      const m = messages[boundary]!;
+      const blocks: ContentBlock[] =
+        typeof m.content === "string" ? [{ type: "text", text: m.content }] : [...m.content];
+      if (blocks.length > 0) {
+        blocks[blocks.length - 1] = { ...blocks[blocks.length - 1]!, cache_control: ephemeral };
+        messages[boundary] = { ...m, content: blocks };
+        cacheBreakpoints += 1;
+      }
+    }
+  }
+
+  const sysText =
+    typeof optimized.system === "string"
+      ? optimized.system
+      : Array.isArray(optimized.system)
+        ? optimized.system.map((b) => b.text ?? "").join("\n")
+        : "";
+
   const after = countTokens(collectText(optimized));
   const savedPct = before === 0 ? 0 : Math.round((1 - after / before) * 1000) / 10;
-  return { body: optimized, stats: { originalTokens: before, optimizedTokens: after, savedPct, blocksCompressed, blocksDeduped, handles, kinds } };
+  return {
+    body: optimized,
+    stats: {
+      originalTokens: before,
+      optimizedTokens: after,
+      savedPct,
+      blocksCompressed,
+      blocksDeduped,
+      handles,
+      kinds,
+      dynamicMoved,
+      cacheBreakpoints,
+      prefixHash: prefixHash(sysText),
+    },
+  };
 }

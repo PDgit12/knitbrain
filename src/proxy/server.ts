@@ -94,7 +94,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
       return;
     }
 
-    const options: OptimizeOptions = { ...cfg.options };
+    const provider = detectProvider(req.url);
+    const options: OptimizeOptions = { provider, ...cfg.options };
     if (cfg.feedback && options.allowProse === undefined) {
       options.allowProse = !cfg.feedback.shouldSkip("prose");
     }
@@ -104,7 +105,6 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
     }
     cfg.onStats?.(stats);
 
-    const provider = detectProvider(req.url);
     const url = resolveUpstream(cfg, provider).replace(/\/+$/, "") + req.url;
     const upstream = await fetch(url, {
       method: "POST",

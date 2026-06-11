@@ -190,7 +190,11 @@ describe("proxy server integration (rung 7)", () => {
     });
     expect(((await res.json()) as { ok?: boolean }).ok).toBe(true); // upstream response passed through
     const forwarded = JSON.parse(received[0]!);
-    expect(forwarded.messages[0].content).toContain("⟨ccr:"); // old block compressed on the wire
+    // old block compressed on the wire (CacheAligner may have converted the
+    // boundary message to blocks to attach a cache_control breakpoint)
+    const first = forwarded.messages[0].content;
+    const firstText = typeof first === "string" ? first : first.map((b: { text?: string }) => b.text ?? "").join("");
+    expect(firstText).toContain("⟨ccr:");
     expect(forwarded.messages[2].content).toBe("do it"); // intent intact
   });
 });
