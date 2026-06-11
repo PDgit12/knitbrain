@@ -274,7 +274,14 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
       const scopeAdjust = ctx.calibration.get().scopeAdjust;
-      return JSON.stringify(classifyTask(str(args, "description"), files, scopeAdjust), null, 2);
+      const cls = classifyTask(str(args, "description"), files, scopeAdjust);
+      // The JSON alone is too passive — agents follow imperatives, not flags.
+      const directive = cls.autoPlanMode
+        ? "ENTER YOUR HOST'S PLAN MODE NOW — before any file edit. Present the plan, get approval, then execute the phases in order. Wrong verdict? knitbrain_record_false_positive."
+        : cls.tier === "trivial" || cls.tier === "inquiry"
+          ? "Execute directly — no ceremony. Wrong verdict? knitbrain_record_false_positive."
+          : "Execute the phases in order (no plan-mode needed). Wrong verdict? knitbrain_record_false_positive.";
+      return JSON.stringify({ ...cls, directive }, null, 2);
     },
   },
   {
@@ -400,7 +407,7 @@ export const TOOLS: readonly ToolDef[] = [
           meter: ctx.meter.read(),
           directive:
             cls.tier === "complex"
-              ? "Plan first. Spawn the proposed agents in parallel; each works its scope w/ its skill; consolidate via team board; verify; record learning + skill update."
+              ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Then: spawn the proposed agents in parallel; each works its scope w/ its skill; consolidate via team board; verify; record learning + skill update."
               : "Execute with the skill. Verify before claiming done. Record learning + skill update if anything non-obvious surfaced.",
         },
         null,

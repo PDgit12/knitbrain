@@ -13,6 +13,7 @@ import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
 import { calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
+import { INSTRUCTIONS } from "./mcp/instructions.js";
 import { SERVER_NAME, VERSION } from "./version.js";
 
 export { VERSION, SERVER_NAME } from "./version.js";
@@ -37,7 +38,9 @@ export function buildServer(
 ): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
-    { capabilities: { tools: {} } },
+    // instructions ride the MCP handshake: every connected agent gets the
+    // operating protocol with ZERO per-project file setup.
+    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
   const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration };
 
