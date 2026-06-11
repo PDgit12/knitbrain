@@ -1,5 +1,6 @@
 import type { CCRStore } from "../ccr/store.js";
 import type { CompressResult } from "./types.js";
+import { IMPORTANT_LINE, RESULT_LINE } from "./structured.js";
 
 /** Below this many lines, line-dedup isn't worth attempting. */
 const MIN_LINES_FOR_DEDUP = 20;
@@ -31,8 +32,11 @@ export function compressText(original: string, ccr: CCRStore): CompressResult {
     const counts = new Map<string, number>();
     const firstSeen = new Map<string, string>();
     const order: string[] = [];
+    let uniq = 0;
     for (const line of lines) {
-      const key = normalize(line);
+      // Error lines never collapse into a ×N template: assertion failures
+      // differ exactly in the bits the normalizer erases (the values).
+      const key = IMPORTANT_LINE.test(line) ? `!imp${(uniq += 1)}` : normalize(line);
       const seen = counts.get(key);
       if (seen === undefined) {
         counts.set(key, 1);
@@ -83,12 +87,39 @@ const TAIL_SENTENCES = 1;
  * Returns null when there aren't enough sentences to anchor.
  */
 export function compressShortProse(original: string, ccr: CCRStore): CompressResult | null {
-  const sentences = original.split(SENTENCE_SPLIT);
-  if (sentences.length < MIN_SENTENCES) return null;
-  const head = sentences.slice(0, HEAD_SENTENCES).join(" ");
-  const tail = sentences.slice(-TAIL_SENTENCES).join(" ");
-  const elided = sentences.length - HEAD_SENTENCES - TAIL_SENTENCES;
+  // Find sentence boundaries by OFFSET so head/tail keep the original bytes
+  // verbatim (joining split sentences with " " used to break mid-line after
+  // colons, splitting error lines across the elision boundary).
+  const re = new RegExp(SENTENCE_SPLIT.source, "g");
+  const bounds: Array<{ end: number; next: number }> = [];
+  for (let m = re.exec(original); m !== null; m = re.exec(original)) {
+    bounds.push({ end: m.index, next: m.index + m[0].length });
+  }
+  if (bounds.length + 1 < MIN_SENTENCES) return null;
+
+  // Snap both boundaries to LINE breaks: a sentence boundary can land
+  // mid-line (": 1"), and splitting a line across the elision turns one
+  // error line into two fragments. Lines are the unit of fidelity.
+  const tailBound = bounds[bounds.length - TAIL_SENTENCES]!;
+  let headEnd = original.indexOf("\n", bounds[HEAD_SENTENCES - 1]!.end);
+  if (headEnd === -1) headEnd = bounds[HEAD_SENTENCES - 1]!.end;
+  let tailStart = original.lastIndexOf("\n", tailBound.next) + 1;
+  if (tailStart <= headEnd) {
+    // Single-line prose (no newline between the anchors): line snapping is
+    // moot — cut at the sentence boundaries directly.
+    headEnd = bounds[HEAD_SENTENCES - 1]!.end;
+    tailStart = tailBound.next;
+  }
+  const head = original.slice(0, headEnd);
+  const tail = original.slice(tailStart);
+  const middle = original.slice(headEnd, tailStart);
+  // Error/failure and result-summary LINES are never elided — same invariant
+  // as every other handler (a skeleton that loses the error is worse than no
+  // skeleton). Whole lines, so the exact original text survives.
+  const rescued = middle.split("\n").filter((l) => IMPORTANT_LINE.test(l) || RESULT_LINE.test(l));
+  const elided = bounds.length + 1 - HEAD_SENTENCES - TAIL_SENTENCES;
   const handle = ccr.put(original);
-  const skeleton = `${head}\n⟪… ${elided} sentences elided · exact original: ⟨ccr:${handle}⟩ …⟫\n${tail}`;
+  const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
+  const skeleton = `${head}\n⟪… ${elided} sentences elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
   return { skeleton, handle, contentType: "prose" };
 }

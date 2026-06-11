@@ -43,6 +43,11 @@ async function main(): Promise<void> {
     await runProfile(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "evals") {
+    const { runEvals } = await import("./evals.js");
+    const rep = await runEvals(process.argv.slice(3));
+    process.exit(rep.pass ? 0 : 1);
+  }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
     await runLearn(process.argv.slice(3));

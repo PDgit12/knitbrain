@@ -12,6 +12,7 @@ import {
   compressSearchResults,
   compressLog,
   IMPORTANT_LINE,
+  RESULT_LINE,
 } from "./structured.js";
 import type { CompressResult } from "./types.js";
 import { countTokens } from "../tokenizer.js";
@@ -44,8 +45,15 @@ const ANCHOR_TRIGGER_PCT = 35;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-/** Max failure lines rescued from an elided middle (shared IMPORTANT_LINE). */
-const MAX_RESCUED = 12;
+/** Max failure lines rescued from an elided middle (shared IMPORTANT_LINE).
+ * Error lines are the highest-value content in any output — the cap exists
+ * only to bound pathological blocks, not to trim ordinary failures. */
+const MAX_RESCUED = 32;
+
+/** Top-level declaration lines — rescued when the anchor swallows CODE
+ * (an agent navigating a file needs the names even if bodies are gone). */
+const DECLARATION_LINE =
+  /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|type|struct|enum)\s+[A-Za-z_$]/;
 
 /**
  * Anchor elision — the universal fallback for long low-structure output
@@ -55,12 +63,14 @@ const MAX_RESCUED = 12;
  * length. Profiled on 69 real transcripts: these shapes are ~70% of burn.
  * Lossless via CCR; TOIN backs off any shape that gets over-retrieved.
  */
-function anchorSkeleton(text: string, handle: string): string {
+function anchorSkeleton(text: string, handle: string, isCodeShape: boolean): string {
   const lines = text.split("\n");
   const headN = clamp(Math.round(lines.length * 0.15), 8, 25);
   const tailN = clamp(Math.round(lines.length * 0.12), 6, 18);
   const middle = lines.slice(headN, lines.length - tailN);
-  const rescued = middle.filter((l) => IMPORTANT_LINE.test(l)).slice(0, MAX_RESCUED);
+  const worthKeeping = (l: string): boolean =>
+    IMPORTANT_LINE.test(l) || RESULT_LINE.test(l) || (isCodeShape && DECLARATION_LINE.test(l));
+  const rescued = middle.filter(worthKeeping).slice(0, MAX_RESCUED);
   const head = lines.slice(0, headN).join("\n");
   const tail = lines.slice(-tailN).join("\n");
   const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
@@ -166,7 +176,7 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
   const lineCount = text.split("\n").length;
   if (savedPct < ANCHOR_TRIGGER_PCT && lineCount >= ANCHOR_MIN_LINES) {
     const anchorHandle = handle || ccr.put(text);
-    const anchored = anchorSkeleton(text, anchorHandle);
+    const anchored = anchorSkeleton(text, anchorHandle, contentType === "code");
     const anchoredTokens = countTokens(anchored);
     if (anchoredTokens < skeletonTokens) {
       skeleton = anchored;

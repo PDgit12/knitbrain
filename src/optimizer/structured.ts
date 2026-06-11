@@ -13,7 +13,12 @@ import type { CompressResult } from "./types.js";
 
 /** Lines that must survive any elision (failures live mid-output). */
 export const IMPORTANT_LINE =
-  /\b(FAIL(ED|URE)?|FATAL|ERROR|Error:|error(\s+TS\d+|\[E\d+\])?:|✗|✘|✖|npm ERR!|Exception|Traceback|AssertionError|fatal:|panic:|Segmentation fault|undefined reference)\b|^\s*(✗|✘|✖)/;
+  /\b(FAIL(ED|URE)?|FATAL|ERROR|Error:|error(\s+TS\d+|\[E\d+\])?:|✗|✘|✖|npm ERR!|Exception|Traceback|AssertionError|fatal:|panic:|Segmentation fault|undefined reference)\b|^\s*(✗|✘|✖)/m;
+
+/** Result-summary lines (test/build totals) — the other thing an agent always
+ * needs from a run. Rescued alongside errors by every elision path. */
+export const RESULT_LINE =
+  /^\s*(Tests?|Test (Suites?|Files)|Suites?|Duration|Time:|Ran \d+|\d+ (passing|failing|pending|tests? (passed|failed)))\b/m;
 
 // ---------------------------------------------------------------------------
 // Search results (grep -n / ripgrep / eslint style: path:line[:col]: content)
@@ -115,7 +120,7 @@ export function compressLog(original: string, ccr: CCRStore): CompressResult {
   const keep = new Array<boolean>(lines.length).fill(false);
   for (let i = 0; i < lines.length; i += 1) {
     if (i < LOG_HEAD || i >= lines.length - LOG_TAIL) keep[i] = true;
-    else if (IMPORTANT_LINE.test(lines[i]!)) keep[i] = true;
+    else if (IMPORTANT_LINE.test(lines[i]!) || RESULT_LINE.test(lines[i]!)) keep[i] = true;
   }
 
   const out: string[] = [];
