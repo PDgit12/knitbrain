@@ -8,6 +8,7 @@ import type { SkillsStore } from "../engine/skills.js";
 import { classifyTask, type Tier } from "../engine/workflow.js";
 import type { Calibration } from "../engine/calibration.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
+import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
 import { slashCommands } from "../platforms.js";
@@ -384,8 +385,17 @@ export const TOOLS: readonly ToolDef[] = [
       const found = ctx.skills.find(task);
       const seed = ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
       const skill = found
-        ? { status: "found", name: found.name, uses: found.uses, body: found.body }
-        : { status: "drafted — refine while working, then knitbrain_skill_save", body: ctx.skills.draft(task, seed) };
+        ? {
+            status: skillHealth(found) === "needs-revision"
+              ? "found but NEEDS REVISION (it keeps failing) — fix the playbook before relying on it, then knitbrain_skill_save"
+              : "found",
+            name: found.name,
+            uses: found.uses,
+            health: skillHealth(found),
+            constraints: found.constraints,
+            body: found.body,
+          }
+        : { status: "drafted — refine while working, then knitbrain_skill_save", constraints: [] as string[], body: ctx.skills.draft(task, seed) };
 
       // AGENTS (puppeteer mode): on complex tasks the agent FILES are
       // written, not just proposed — same persistence model as skills.
@@ -401,7 +411,12 @@ export const TOOLS: readonly ToolDef[] = [
                 scope: p.scope,
                 tools: p.tools,
                 reviewGate: p.reviewGate,
-                brief: `task: ${task}\n${skill.body}`,
+                brief:
+                  `task: ${task}\n` +
+                  (skill.constraints.length > 0
+                    ? `CONSTRAINTS (non-negotiable):\n${skill.constraints.map((c) => `- ${c}`).join("\n")}\n`
+                    : "") +
+                  skill.body,
               });
               // Agent lifecycle is team-visible: the creation event lands on
               // the board (and mirrors to the hub when joined), so individual
@@ -434,7 +449,7 @@ export const TOOLS: readonly ToolDef[] = [
           directive:
             cls.tier === "complex"
               ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update."
-              : "Execute with the skill. Verify before claiming done. Record learning + skill update if anything non-obvious surfaced.",
+              : "Execute with the skill. Verify before claiming done. Then close the loop: knitbrain_skill_outcome (did it WORK — concrete outcome, not 'done') + record learning if anything non-obvious surfaced.",
         },
         null,
         2,
@@ -443,13 +458,14 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "knitbrain_skill_save",
-    description: "Persist a refined skill playbook (telegraphic). Same name updates the skill — skills compound across tasks.",
+    description: "Persist a refined skill playbook (telegraphic). Same name updates the skill — skills compound across tasks. `constraints` are non-negotiable guardrails that propagate into every agent briefed with the skill.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string" },
         body: { type: "string" },
         triggers: { type: "array", items: { type: "string" } },
+        constraints: { type: "array", items: { type: "string" }, description: "Hard rules, e.g. 'never run migrations directly'." },
       },
       required: ["name", "body"],
       additionalProperties: false,
@@ -457,8 +473,31 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       const triggers = Array.isArray(args["triggers"]) ? (args["triggers"] as string[]) : [];
-      const s = ctx.skills.save({ name: str(args, "name"), body: str(args, "body"), triggers });
-      return `skill "${s.name}" saved (uses=${s.uses}, triggers: ${s.triggers.join(", ")})`;
+      const constraints = Array.isArray(args["constraints"]) ? (args["constraints"] as string[]) : [];
+      const s = ctx.skills.save({ name: str(args, "name"), body: str(args, "body"), triggers, constraints });
+      return `skill "${s.name}" saved (uses=${s.uses}, wins=${s.wins}/losses=${s.losses}, constraints: ${s.constraints.length}, triggers: ${s.triggers.join(", ")})`;
+    },
+  },
+  {
+    name: "knitbrain_skill_outcome",
+    description:
+      "Close the loop on a skill: report whether it actually WORKED after using it (a test passing, a bug fixed — a concrete outcome, not 'task complete'). Failures with a note fold into the playbook's pitfalls; skills that keep failing get flagged needs-revision instead of being re-served.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        worked: { type: "boolean", description: "Did the skill's approach produce the intended concrete outcome?" },
+        note: { type: "string", description: "If it failed: what bit (one line, becomes a pitfall)." },
+      },
+      required: ["name", "worked"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      if (typeof args["worked"] !== "boolean") return "refused: `worked` must be true or false.";
+      const s = ctx.skills.outcome(str(args, "name"), args["worked"], typeof args["note"] === "string" ? args["note"] : undefined);
+      if (!s) return `no skill named "${str(args, "name")}" — check knitbrain_run output for the active skill name.`;
+      return `skill "${s.name}": wins=${s.wins} losses=${s.losses} → ${skillHealth(s)}`;
     },
   },
   {

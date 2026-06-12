@@ -18,8 +18,21 @@ export interface Skill {
   triggers: string[];
   /** Telegraphic playbook body (caveman-method: max knowledge per token). */
   body: string;
+  /** Non-negotiable guardrails — propagate into every agent briefed with
+   * this skill ("never run migrations directly", "ask before deleting"). */
+  constraints: string[];
   uses: number;
+  /** SIGNAL: outcomes reported after using the skill (Act → Measure). */
+  wins: number;
+  losses: number;
   updatedAt: string;
+}
+
+/** ADJUSTMENT verdict: a skill that keeps failing must be revised, not reused. */
+export function skillHealth(s: Skill): "unproven" | "working" | "needs-revision" {
+  const outcomes = s.wins + s.losses;
+  if (outcomes < 2) return "unproven";
+  return s.losses >= 2 && s.wins / outcomes < 0.5 ? "needs-revision" : "working";
 }
 
 export interface SkillsStore {
@@ -28,7 +41,9 @@ export interface SkillsStore {
   /** Draft a NEW telegraphic skill skeleton for a task (not persisted). */
   draft(task: string, seedLessons: string[]): string;
   /** Persist a skill (create or update by name). */
-  save(input: { name: string; body: string; triggers?: string[] }): Skill;
+  save(input: { name: string; body: string; triggers?: string[]; constraints?: string[] }): Skill;
+  /** SIGNAL: record whether the skill actually worked (closes the loop). */
+  outcome(name: string, worked: boolean, note?: string): Skill | null;
   list(): Skill[];
 }
 
@@ -42,7 +57,14 @@ export function createSkillsStore(root: string): SkillsStore {
   const load = (): Skill[] => {
     if (!existsSync(path)) return [];
     try {
-      return JSON.parse(readFileSync(path, "utf8")) as Skill[];
+      const raw = JSON.parse(readFileSync(path, "utf8")) as Array<Partial<Skill> & { name: string }>;
+      // forward-migrate records written before constraints/outcome fields
+      return raw.map((s) => ({
+        constraints: [],
+        wins: 0,
+        losses: 0,
+        ...s,
+      })) as Skill[];
     } catch {
       return [];
     }
@@ -109,6 +131,7 @@ AFTER: refine this skill w/ what you learned → knitbrain_skill_save (same name
       if (existing) {
         existing.body = input.body;
         existing.triggers = [...new Set([...existing.triggers, ...triggers])];
+        if (input.constraints) existing.constraints = [...new Set([...existing.constraints, ...input.constraints])];
         existing.updatedAt = new Date().toISOString();
         persist(all);
         return existing;
@@ -118,10 +141,29 @@ AFTER: refine this skill w/ what you learned → knitbrain_skill_save (same name
         name: input.name,
         triggers,
         body: input.body,
+        constraints: input.constraints ?? [],
         uses: 0,
+        wins: 0,
+        losses: 0,
         updatedAt: new Date().toISOString(),
       };
       persist([...all, skill]);
+      return skill;
+    },
+
+    outcome(name, worked, note) {
+      const all = load();
+      const skill = all.find((s) => s.name === name);
+      if (!skill) return null;
+      if (worked) skill.wins += 1;
+      else skill.losses += 1;
+      // A failure note is knowledge — fold it into the playbook's pitfalls so
+      // the ADJUSTMENT is concrete, not just a counter.
+      if (!worked && note && note.trim().length > 0 && !skill.body.includes(note)) {
+        skill.body += `\n- pitfall (reported ${new Date().toISOString().slice(0, 10)}): ${note.trim()}`;
+      }
+      skill.updatedAt = new Date().toISOString();
+      persist(all);
       return skill;
     },
 

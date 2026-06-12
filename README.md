@@ -40,11 +40,11 @@ Saving tokens is worthless if the agent loses the answer. `knitbrain evals` chec
 
 | check | result | gate |
 |---|---|---|
-| error-fidelity — every error/failure line survives in the skeleton | **141/141 = 100%** | 100% |
+| error-fidelity — every error/failure line survives in the skeleton | **142/142 = 100%** | 100% |
 | summary-fidelity — test/build result totals survive | **189/189 = 100%** | ≥95% |
-| identifier-fidelity — top-level declared names survive | **314/316 = 99.4%** | ≥99% |
-| round-trip — `⟨ccr:hash⟩` recovers the original byte-for-byte | **2,339/2,339 = 100%** | 100% |
-| never-expand — no compressed block got bigger | **4,505/4,505 = 100%** | 100% |
+| identifier-fidelity — top-level declared names survive | **329/331 = 99.4%** | ≥99% |
+| round-trip — `⟨ccr:hash⟩` recovers the original byte-for-byte | **2,369/2,369 = 100%** | 100% |
+| never-expand — no compressed block got bigger | **4,567/4,567 = 100%** | 100% |
 
 These gates shaped the product: error lines, result summaries, and declarations are *never* elided, by every handler. Holding that line costs about 1 percentage point of savings — we pay it, and publish both numbers. Run `npx knitbrain evals` (exit code 1 on any gate failure) to check on your own transcripts.
 
@@ -66,7 +66,7 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
             ▼                                            ▼
  ┌──────────────────────────┐            ┌──────────────────────────────┐
  │  knitbrain · MCP server  │            │  knitbrain-proxy (loopback)  │
- │  25 tools                │            │  rolling window — old turns  │
+ │  26 tools                │            │  rolling window — old turns  │
  │  ├ memory: learnings,    │            │  compressed harder · exact   │
  │  │ handoffs, sessions    │            │  repeats deduped to markers  │
  │  ├ knowledge graph       │            │  · your directive verbatim   │
@@ -102,7 +102,7 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
 
 **One brain, two doors, one lossless store:**
 
-- **MCP server** (`knitbrain`) — 25 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine, project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
+- **MCP server** (`knitbrain`) — 26 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
 - **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, exact repeats across turns collapsed to a marker, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
 - **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
 - **Live dashboard** — context meter, tokens saved, CCR tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
@@ -175,10 +175,10 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 npm install
 npm run verify       # typecheck → lint → test → build → consistency → bench (all must pass)
 npm run e2e          # built-artifact E2E: stdio session + real-file compression
-npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 25 tools
+npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 26 tools
 ```
 
-Current proof status: **195 tests passing**, eval gates PASS on 4,505 real blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 25 tools and both binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+Current proof status: **199 tests passing**, eval gates PASS on 4,567 real blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 26 tools and the three binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 

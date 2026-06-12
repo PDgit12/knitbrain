@@ -25,4 +25,4 @@ CONTEXT DISCIPLINE (tokens are the budget)
 
 BEFORE SAYING DONE
 8. Verify claims (run the tests/build — don't assert green without output).
-9. Record what you learned: knitbrain_record_learning (and knitbrain_skill_save if the skill improved). The next session starts smarter — that's the loop.`;
+9. Close the loop with a SIGNAL, not "task complete": knitbrain_skill_outcome (did the skill's approach produce the concrete outcome?), knitbrain_record_learning for anything non-obvious, knitbrain_skill_save if the playbook improved. Failing skills get flagged needs-revision automatically. The next session starts smarter — that's the loop.`;

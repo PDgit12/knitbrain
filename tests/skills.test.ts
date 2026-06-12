@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSkillsStore, type SkillsStore } from "../src/engine/skills.js";
+import { createSkillsStore, skillHealth, type SkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
@@ -99,5 +99,51 @@ describe("knitbrain_run orchestrator (rung 20)", () => {
 
   it("run is VERBATIM-protected (directives never skeletonized)", () => {
     expect(run.output).toBe("verbatim");
+  });
+});
+
+describe("skill compounding loop (signal → adjustment)", () => {
+  let root: string;
+  beforeEach(() => (root = mkdtempSync(join(tmpdir(), "knitbrain-skill-loop-"))));
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("outcome() records wins/losses and folds failure notes into the playbook", () => {
+    const store = createSkillsStore(root);
+    store.save({ name: "deploy-safely", body: "STEPS:\n1. stage first", triggers: ["deploy"] });
+    store.outcome("deploy-safely", true);
+    const after = store.outcome("deploy-safely", false, "staging env missing API key broke the smoke test");
+    expect(after!.wins).toBe(1);
+    expect(after!.losses).toBe(1);
+    expect(after!.body).toContain("pitfall");
+    expect(after!.body).toContain("staging env missing API key");
+    expect(store.outcome("no-such-skill", true)).toBeNull();
+  });
+
+  it("skillHealth flags repeat failers as needs-revision", () => {
+    const store = createSkillsStore(root);
+    const s = store.save({ name: "flaky", body: "x", triggers: ["flaky"] });
+    expect(skillHealth(s)).toBe("unproven");
+    store.outcome("flaky", false, "a");
+    store.outcome("flaky", false, "b");
+    const bad = store.list().find((x) => x.name === "flaky")!;
+    expect(skillHealth(bad)).toBe("needs-revision");
+    store.outcome("flaky", true);
+    store.outcome("flaky", true);
+    store.outcome("flaky", true);
+    const recovered = store.list().find((x) => x.name === "flaky")!;
+    expect(skillHealth(recovered)).toBe("working");
+  });
+
+  it("constraints persist, merge on update, and survive forward-migration", () => {
+    const store = createSkillsStore(root);
+    store.save({ name: "db-ops", body: "x", constraints: ["never run migrations directly"] });
+    store.save({ name: "db-ops", body: "y", constraints: ["ask before deleting data"] });
+    const s = store.list().find((x) => x.name === "db-ops")!;
+    expect(s.constraints).toEqual(["never run migrations directly", "ask before deleting data"]);
+    // forward-migration: a pre-0.2.1 record without the new fields loads cleanly
+    writeFileSync(join(root, "skills.json"), JSON.stringify([{ id: "a1", name: "old", triggers: ["old"], body: "b", uses: 3, updatedAt: "2026-01-01" }]));
+    const migrated = createSkillsStore(root).list()[0]!;
+    expect(migrated.constraints).toEqual([]);
+    expect(migrated.wins).toBe(0);
   });
 });

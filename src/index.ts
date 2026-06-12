@@ -43,6 +43,24 @@ async function main(): Promise<void> {
     await runProfile(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "help" || process.argv[2] === "--help" || process.argv[2] === "-h") {
+    console.log(`knitbrain — the local-first brain for coding agents
+
+usage: knitbrain <command>
+
+  setup        one-click integration for your platform(s) (MCP, hooks, rules, slash commands)
+  profile      measure savings on YOUR real transcripts (run before installing anything)
+  evals        answer-preservation gates on your transcripts (exit 1 on failure)
+  learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
+  dashboard    live local dashboard (127.0.0.1:8790)
+  prompt       print the full operating prompt (for platforms without MCP instructions)
+  hub          start the team hub (host runs once; teammates join)
+  join         join a team hub: knitbrain join <url> <token> <name>
+  help         this message
+
+  (no command) start the MCP server on stdio — this is what your editor invokes`);
+    return;
+  }
   if (process.argv[2] === "prompt") {
     const { INSTRUCTIONS } = await import("./mcp/instructions.js");
     console.log("# knitbrain — full operating prompt (paste into your platform's system prompt / rules)");

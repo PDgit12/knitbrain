@@ -95,7 +95,7 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 25, `tools/list advertises exactly 25 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 26, `tools/list advertises exactly 26 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
@@ -162,8 +162,12 @@ const main = async () => {
     ok(deps.text.includes("main.ts"), "query_dependents computes the blast radius");
 
     console.log("[e2e-tools] skills + agents");
-    const skill = await call("knitbrain_skill_save", { name: "input-validation", body: "validate at boundaries; fail fast; test both paths", triggers: ["validation"] });
-    ok(/saved/.test(skill.text), "skill_save persists a playbook");
+    const skill = await call("knitbrain_skill_save", { name: "input-validation", body: "validate at boundaries; fail fast; test both paths", triggers: ["validation"], constraints: ["never trust client-side validation alone"] });
+    ok(/saved/.test(skill.text) && skill.text.includes("constraints: 1"), "skill_save persists a playbook with constraints");
+    const outcome1 = await call("knitbrain_skill_outcome", { name: "input-validation", worked: false, note: "regex rejected valid unicode emails" });
+    ok(outcome1.text.includes("losses=1"), "skill_outcome records the failure signal");
+    const outcome2 = await call("knitbrain_skill_outcome", { name: "input-validation", worked: true });
+    ok(outcome2.text.includes("wins=1"), "skill_outcome records the win signal (loop closed)");
     const agents = await call("knitbrain_propose_agents");
     ok(!agents.isError, "propose_agents returns proposals for this project");
     const created = await call("knitbrain_create_agent", { name: "qa-guard", scope: "tests/**", tools: ["Read", "Bash"] });
@@ -192,7 +196,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 25 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 26 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });
