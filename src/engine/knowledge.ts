@@ -72,12 +72,17 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
   mkdirSync(cacheDir, { recursive: true });
   const cachePath = join(cacheDir, "graph.json");
   const graph = new Map<string, FileNode>();
+  // Reverse adjacency index: target file → files that import it. Built once
+  // whenever the graph (re)loads, so queryDependents is an O(1) lookup instead
+  // of re-resolving every edge in the graph on every call (O(V·E) per query).
+  const dependents = new Map<string, Set<string>>();
   let scanned = false;
 
   if (existsSync(cachePath)) {
     try {
       const nodes = JSON.parse(readFileSync(cachePath, "utf8")) as FileNode[];
       for (const n of nodes) graph.set(n.file, n);
+      buildReverseIndex();
       scanned = true;
     } catch {
       /* rebuild on next query */
@@ -105,11 +110,30 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
       const file = norm(full);
       graph.set(file, { file, imports: parseImports(src), exports: parseExports(src) });
     }
+    buildReverseIndex();
     const tmp = `${cachePath}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify([...graph.values()]), "utf8");
     renameSync(tmp, cachePath);
     scanned = true;
     return { files: graph.size };
+  }
+
+  /** Resolve every edge once and invert the graph into `dependents`. Runs at
+   * scan/load time so per-query dependent lookup is O(1). */
+  function buildReverseIndex(): void {
+    dependents.clear();
+    for (const node of graph.values()) {
+      for (const edge of node.imports) {
+        const target = resolveEdge(node.file, edge.from);
+        if (target === null) continue;
+        let set = dependents.get(target);
+        if (set === undefined) {
+          set = new Set();
+          dependents.set(target, set);
+        }
+        set.add(node.file);
+      }
+    }
   }
 
   const ensure = (): void => {
@@ -150,17 +174,9 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
     },
     queryDependents(file) {
       ensure();
-      const target = norm(file);
-      const deps: string[] = [];
-      for (const node of graph.values()) {
-        for (const edge of node.imports) {
-          if (resolveEdge(node.file, edge.from) === target) {
-            deps.push(node.file);
-            break;
-          }
-        }
-      }
-      return deps;
+      // O(1) lookup against the reverse index (built once at scan), instead of
+      // re-resolving every edge in the graph on each call.
+      return [...(dependents.get(norm(file)) ?? [])];
     },
   };
 }

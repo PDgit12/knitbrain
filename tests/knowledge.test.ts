@@ -48,4 +48,26 @@ describe("knowledge graph (rung 10)", () => {
     const reopened = createKnowledge(root, join(root, ".cache"));
     expect(reopened.queryExports("src/a.ts")?.sort()).toEqual(["A", "alpha"]);
   });
+
+  it("reverse index returns ALL distinct importers, deduped (rung 12)", () => {
+    // two more files importing a.ts → three dependents total
+    writeFileSync(join(root, "src", "c.ts"), `import { alpha } from "./a.js";\nexport const c = alpha();\n`);
+    // d imports a.ts twice (two specifiers) — must appear ONCE, not twice
+    writeFileSync(
+      join(root, "src", "d.ts"),
+      `import { alpha } from "./a.js";\nimport { A } from "./a.js";\nexport const d = alpha() + A;\n`,
+    );
+    kn.scan();
+    const deps = kn.queryDependents("src/a.ts").sort();
+    expect(deps).toEqual(["src/b.ts", "src/c.ts", "src/d.ts"]);
+    // a file nobody imports has no dependents (empty, not error)
+    expect(kn.queryDependents("src/d.ts")).toEqual([]);
+  });
+
+  it("reverse index survives cache reload (built on load, not just scan)", () => {
+    kn.scan();
+    const reopened = createKnowledge(root, join(root, ".cache"));
+    // no scan() call on the reopened instance — must answer from the cached graph
+    expect(reopened.queryDependents("src/a.ts")).toContain("src/b.ts");
+  });
 });

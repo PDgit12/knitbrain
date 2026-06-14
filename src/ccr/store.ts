@@ -109,6 +109,21 @@ export function createFileCCRStore(root: string): CCRStore {
     renameSync(tmp, manifestPath);
   }
 
+  // The manifest is non-authoritative (file existence is the source of truth;
+  // it only carries lastUsed/retrievals hints, and get() already defers its
+  // counter writes). So put() batches manifest flushes instead of rewriting
+  // the whole growing manifest on every call — that was O(N) per put, O(N²)
+  // across a batch (the profiler does thousands). Content files are still
+  // written immediately and durably; only the metadata flush is amortized.
+  let dirtyPuts = 0;
+  const FLUSH_EVERY = 64;
+  function saveManifestBatched(): void {
+    if ((dirtyPuts += 1) >= FLUSH_EVERY) {
+      dirtyPuts = 0;
+      saveManifest();
+    }
+  }
+
   // SECURITY: a handle is ONLY ever a 64-hex SHA-256. Reject anything else
   // before it touches a filesystem path (prevents traversal + existence probes).
   const assertHandle = (h: string): void => {
@@ -153,7 +168,7 @@ export function createFileCCRStore(root: string): CCRStore {
         writeAtomic(hotPath(handle), original);
       }
       meta.set(handle, { lastUsed: Date.now(), retrievals: meta.get(handle)?.retrievals ?? 0 });
-      saveManifest();
+      saveManifestBatched();
       return handle;
     },
 
