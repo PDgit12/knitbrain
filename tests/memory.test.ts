@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemory, type Memory } from "../src/engine/memory.js";
@@ -49,5 +49,67 @@ describe("memory engine (rung 8)", () => {
     const session = reopened.loadSession();
     expect(session.handoff).toBe("resume: finish rung 8");
     expect(session.topLearnings.length).toBeGreaterThan(0);
+  });
+});
+
+import { learningHealth } from "../src/engine/memory.js";
+
+describe("learnings closed loop (signal → adjustment)", () => {
+  let root: string;
+  let mem: Memory;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-mem-loop-"));
+    mem = createMemory(root);
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("learningOutcome records helpful/unhelpful and folds corrections into the lesson", () => {
+    const { id } = mem.recordLearning({ summary: "use uv run python in this repo", lesson: "python3 misses the venv", tags: ["python"] });
+    expect(mem.learningOutcome(id, true)!.helpful).toBe(1);
+    const after = mem.learningOutcome(id, false, "only for the ml/ subdir, not the api");
+    expect(after!.unhelpful).toBe(1);
+    expect(mem.getLearning(id)!.lesson).toContain("correction");
+    expect(mem.getLearning(id)!.lesson).toContain("only for the ml/ subdir");
+    expect(mem.learningOutcome("nope", true)).toBeNull();
+  });
+
+  it("learningHealth discredits repeat-wrong learnings, proves repeat-right ones", () => {
+    const { id } = mem.recordLearning({ summary: "alpha beta gamma", lesson: "x" });
+    expect(learningHealth(mem.getLearning(id)!)).toBe("unproven");
+    mem.learningOutcome(id, false, "a");
+    mem.learningOutcome(id, false, "b");
+    expect(learningHealth(mem.getLearning(id)!)).toBe("discredited");
+  });
+
+  it("search ranks proven learnings above discredited ones with equal term match", () => {
+    const good = mem.recordLearning({ summary: "deploy needs the staging flag set", lesson: "g", tags: ["deploy"] });
+    const bad = mem.recordLearning({ summary: "deploy needs a full db reset first", lesson: "b", tags: ["deploy"] });
+    mem.learningOutcome(good.id, true);
+    mem.learningOutcome(good.id, true);
+    mem.learningOutcome(bad.id, false, "wrong, never reset the db");
+    mem.learningOutcome(bad.id, false);
+    const hits = mem.searchLearnings("deploy", 5);
+    expect(hits[0]!.id).toBe(good.id); // proven first
+    expect(hits.find((h) => h.id === bad.id)!.net).toBe(-2); // discredited carries its net
+  });
+
+  it("loadSession surfaces the most PROVEN learnings first, not just the newest", () => {
+    mem.recordLearning({ summary: "old but proven fact", lesson: "x" });
+    const proven = mem.listLearnings()[0]!;
+    mem.learningOutcome(proven.id, true);
+    mem.learningOutcome(proven.id, true);
+    for (let i = 0; i < 6; i++) mem.recordLearning({ summary: `newer note ${i}`, lesson: "y" });
+    const top = mem.loadSession().topLearnings;
+    expect(top[0]!.id).toBe(proven.id); // proven beats recency
+  });
+
+  it("forward-migrates pre-loop learning records without signal fields", () => {
+    writeFileSync(
+      join(root, "learnings.json"),
+      JSON.stringify([{ id: "old1", date: "2026-01-01", summary: "legacy learning", lesson: "z", tags: [] }]),
+    );
+    const fresh = createMemory(root);
+    expect(fresh.getLearning("old1")!.helpful).toBe(0);
+    expect(fresh.learningOutcome("old1", true)!.helpful).toBe(1);
   });
 });

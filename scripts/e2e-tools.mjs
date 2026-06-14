@@ -95,7 +95,7 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 26, `tools/list advertises exactly 26 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 27, `tools/list advertises exactly 27 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
@@ -143,6 +143,12 @@ const main = async () => {
     if (learningId) {
       const got = await call("knitbrain_get_learning", { id: learningId });
       ok(got.text.includes("validation"), "get_learning fetches the full record");
+      const lo1 = await call("knitbrain_learning_outcome", { id: learningId, helpful: false, note: "actually they live in src/lib.ts now" });
+      ok(lo1.text.includes("unhelpful=1") && lo1.text.includes("discredited") === false, "learning_outcome records the unhelpful signal");
+      const lo2 = await call("knitbrain_learning_outcome", { id: learningId, helpful: true });
+      ok(lo2.text.includes("helpful=1"), "learning_outcome records the helpful signal (loop closed)");
+      const reread = await call("knitbrain_get_learning", { id: learningId });
+      ok(reread.text.includes("correction"), "unhelpful note folded into the lesson");
     } else {
       ok(false, "search returned an id for get_learning");
     }
@@ -196,7 +202,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 26 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 27 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

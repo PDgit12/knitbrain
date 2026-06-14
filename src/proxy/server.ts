@@ -36,6 +36,9 @@ export interface ProxyConfig {
   feedback?: Pick<Feedback, "shouldSkip" | "onCompress">;
   /** Observe optimization stats per request (telemetry hook). */
   onStats?: (stats: ProxyStats) => void;
+  /** Abort if the upstream sends no response headers within this many ms
+   * (bounds dead/hung endpoints; never cuts an in-flight stream). Default 30s. */
+  connectTimeoutMs?: number;
 }
 
 /** Resolve the upstream base URL for a request, honoring overrides. */
@@ -106,11 +109,22 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
     cfg.onStats?.(stats);
 
     const url = resolveUpstream(cfg, provider).replace(/\/+$/, "") + req.url;
-    const upstream = await fetch(url, {
-      method: "POST",
-      headers: forwardHeaders(req.headers),
-      body: JSON.stringify(body),
-    });
+    // Bound time-to-first-byte only: abort if the upstream never starts
+    // responding (dead/hung endpoint), but clear the timer the moment headers
+    // arrive so a legitimately long streaming completion is never cut off.
+    const ttfb = new AbortController();
+    const ttfbTimer = setTimeout(() => ttfb.abort(), cfg.connectTimeoutMs ?? 30_000);
+    let upstream: Response;
+    try {
+      upstream = await fetch(url, {
+        method: "POST",
+        headers: forwardHeaders(req.headers),
+        body: JSON.stringify(body),
+        signal: ttfb.signal,
+      });
+    } finally {
+      clearTimeout(ttfbTimer);
+    }
 
     const headersOut: Record<string, string> = {
       "content-type": upstream.headers.get("content-type") ?? "application/json",

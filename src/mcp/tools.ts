@@ -1,5 +1,5 @@
 import type { CCRStore } from "../ccr/store.js";
-import type { Memory } from "../engine/memory.js";
+import { learningHealth, type Memory } from "../engine/memory.js";
 import type { Knowledge } from "../engine/knowledge.js";
 import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
@@ -182,6 +182,28 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const l = ctx.memory.getLearning(str(args, "id"));
       return l ? JSON.stringify(l, null, 2) : `no learning found with id ${str(args, "id")}`;
+    },
+  },
+  {
+    name: "knitbrain_learning_outcome",
+    description:
+      "Close the loop on a recalled learning: report whether it actually HELPED on this task (a concrete outcome, not 'noted'). Useful learnings rise in future recall; ones reported wrong are discredited and sink, and a correction note folds into the lesson so the next recall carries the fix. This is what turns memory from a log into something that compounds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        helpful: { type: "boolean", description: "Did this learning actually help on the task at hand?" },
+        note: { type: "string", description: "If it was wrong: the correction (one line, folds into the lesson)." },
+      },
+      required: ["id", "helpful"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      if (typeof args["helpful"] !== "boolean") return "refused: `helpful` must be true or false.";
+      const l = ctx.memory.learningOutcome(str(args, "id"), args["helpful"], typeof args["note"] === "string" ? args["note"] : undefined);
+      if (!l) return `no learning found with id ${str(args, "id")}`;
+      return `learning "${l.id}": helpful=${l.helpful} unhelpful=${l.unhelpful} → ${learningHealth(l)}`;
     },
   },
   {

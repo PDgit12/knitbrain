@@ -1,5 +1,5 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 
@@ -26,10 +26,22 @@ export interface Hub {
   token: string;
 }
 
+/** Cap request bodies so one authenticated client can't exhaust hub memory. */
+const MAX_BODY_BYTES = 1_000_000;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let d = "";
-    req.on("data", (c) => (d += c));
+    let bytes = 0;
+    req.on("data", (c: Buffer) => {
+      bytes += c.length;
+      if (bytes > MAX_BODY_BYTES) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      d += c;
+    });
     req.on("end", () => resolve(d));
     req.on("error", reject);
   });
@@ -38,7 +50,11 @@ function readBody(req: IncomingMessage): Promise<string> {
 export function createHub(root: string): Hub {
   mkdirSync(root, { recursive: true });
   const tokenPath = join(root, "token.txt");
-  const boardPath = join(root, "board.json");
+  // Append-only log: one JSON entry per line. Posting is O(1) (append a line)
+  // instead of O(N) (rewrite the whole board) — so a sprint's worth of team
+  // postings doesn't degrade to O(N²) total. Legacy board.json is migrated in.
+  const boardPath = join(root, "board.jsonl");
+  const legacyPath = join(root, "board.json");
 
   let token: string;
   if (existsSync(tokenPath)) {
@@ -48,18 +64,31 @@ export function createHub(root: string): Hub {
     writeFileSync(tokenPath, token, { encoding: "utf8", mode: 0o600 });
   }
 
+  // One-time migration from the old whole-file board.json to the JSONL log.
+  if (!existsSync(boardPath) && existsSync(legacyPath)) {
+    try {
+      const old = JSON.parse(readFileSync(legacyPath, "utf8")) as HubEntry[];
+      if (old.length > 0) writeFileSync(boardPath, old.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+    } catch {
+      /* corrupt legacy board — start fresh */
+    }
+  }
+
   const load = (): HubEntry[] => {
     if (!existsSync(boardPath)) return [];
-    try {
-      return JSON.parse(readFileSync(boardPath, "utf8")) as HubEntry[];
-    } catch {
-      return [];
+    const out: HubEntry[] = [];
+    for (const line of readFileSync(boardPath, "utf8").split("\n")) {
+      if (line.trim() === "") continue;
+      try {
+        out.push(JSON.parse(line) as HubEntry);
+      } catch {
+        /* skip a corrupt line, keep the rest */
+      }
     }
+    return out;
   };
-  const save = (entries: HubEntry[]): void => {
-    const tmp = `${boardPath}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(entries), "utf8");
-    renameSync(tmp, boardPath);
+  const append = (entry: HubEntry): void => {
+    writeFileSync(boardPath, JSON.stringify(entry) + "\n", { encoding: "utf8", flag: "a" });
   };
 
   // SECURITY: constant-time comparison — no timing oracle on the team token.
@@ -93,7 +122,7 @@ export function createHub(root: string): Hub {
           original: body.original,
           ts: new Date().toISOString(),
         };
-        save([...load(), entry]);
+        append(entry);
         return json(res, 200, { id: entry.id });
       }
       if (req.method === "GET" && req.url === "/board") {

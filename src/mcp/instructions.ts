@@ -6,6 +6,12 @@
  */
 export const INSTRUCTIONS = `knitbrain operating protocol (closed loop — follow in order):
 
+GROUND RULE — no yes-man. Report what is true, not what is wanted. "Done" is a
+claim you must back with output (tests run, command exit codes), never a vibe.
+Surface failures, partial work, and wrong verdicts plainly. Agreeing without
+evidence corrupts every signal below — a sycophantic "it works" poisons the
+memory the next session trusts. Verify, then state.
+
 SESSION START
 1. Call knitbrain_load_session first. If it reports unfinished work, resume that before anything else.
 
@@ -25,4 +31,4 @@ CONTEXT DISCIPLINE (tokens are the budget)
 
 BEFORE SAYING DONE
 8. Verify claims (run the tests/build — don't assert green without output).
-9. Close the loop with a SIGNAL, not "task complete": knitbrain_skill_outcome (did the skill's approach produce the concrete outcome?), knitbrain_record_learning for anything non-obvious, knitbrain_skill_save if the playbook improved. Failing skills get flagged needs-revision automatically. The next session starts smarter — that's the loop.`;
+9. Close the loop with a SIGNAL, not "task complete": knitbrain_skill_outcome (did the skill work?), knitbrain_learning_outcome (did a recalled learning actually help? wrong ones get discredited and demoted), knitbrain_record_learning for anything non-obvious, knitbrain_skill_save if the playbook improved. Failing skills and discredited learnings are flagged automatically. The next session starts smarter — that's the loop.`;

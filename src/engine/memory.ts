@@ -9,6 +9,10 @@ export interface Learning {
   summary: string;
   lesson: string;
   tags: string[];
+  /** SIGNAL: times this learning was reported useful when recalled. */
+  helpful: number;
+  /** SIGNAL: times it was reported wrong/unhelpful (discredits it). */
+  unhelpful: number;
 }
 
 /** A search hit: headline only (call getLearning for the full lesson). */
@@ -17,6 +21,15 @@ export interface LearningHeadline {
   summary: string;
   tags: string[];
   score: number;
+  /** Net usefulness (helpful − unhelpful) — lets callers see what's proven. */
+  net: number;
+}
+
+/** ADJUSTMENT verdict: a learning reported wrong repeatedly is discredited and
+ * sinks in ranking instead of misleading every future recall. */
+export function learningHealth(l: Learning): "unproven" | "proven" | "discredited" {
+  if (l.unhelpful >= 2 && l.unhelpful > l.helpful) return "discredited";
+  return l.helpful >= 2 ? "proven" : "unproven";
 }
 
 export interface Memory {
@@ -27,6 +40,9 @@ export interface Memory {
   searchLearnings(query: string, limit?: number): LearningHeadline[];
   getLearning(id: string): Learning | undefined;
   listLearnings(): Learning[];
+  /** SIGNAL: report whether a recalled learning actually helped. Closes the
+   * loop — a wrong learning gets discredited and demoted, a useful one rises. */
+  learningOutcome(id: string, helpful: boolean, note?: string): Learning | null;
   saveHandoff(state: string): void;
   loadSession(): { handoff: string | null; topLearnings: LearningHeadline[] };
 }
@@ -49,17 +65,23 @@ export function createMemory(root: string): Memory {
   const load = (): Learning[] => {
     if (!existsSync(learningsPath)) return [];
     try {
-      return JSON.parse(readFileSync(learningsPath, "utf8")) as Learning[];
+      const raw = JSON.parse(readFileSync(learningsPath, "utf8")) as Array<Partial<Learning>>;
+      // Forward-migrate records written before the signal fields existed.
+      return raw.map((l) => ({ helpful: 0, unhelpful: 0, ...l })) as Learning[];
     } catch {
       return [];
     }
   };
+
+  const persist = (all: Learning[]): void =>
+    writeAtomic(learningsPath, JSON.stringify(all, null, 2));
 
   const headline = (l: Learning, score: number): LearningHeadline => ({
     id: l.id,
     summary: l.summary,
     tags: l.tags,
     score,
+    net: l.helpful - l.unhelpful,
   });
 
   return {
@@ -82,8 +104,10 @@ export function createMemory(root: string): Memory {
         summary,
         lesson: input.lesson,
         tags: input.tags ?? [],
+        helpful: 0,
+        unhelpful: 0,
       };
-      writeAtomic(learningsPath, JSON.stringify([...all, learning], null, 2));
+      persist([...all, learning]);
       return { id, duplicate: false };
     },
 
@@ -98,16 +122,35 @@ export function createMemory(root: string): Memory {
           if (summaryTerms.has(t)) score += 2; // headline/tag match weighted higher
           else if (lessonTerms.has(t)) score += 1;
         }
-        return headline(l, score);
+        return { l, score };
       });
+      // ADJUSTMENT: among term matches, proven learnings (net helpful) rise and
+      // discredited ones sink — recall is ranked by outcome, not just keywords.
+      // Term match still gates relevance (score > 0); usefulness only re-orders.
       return scored
-        .filter((h) => h.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
+        .filter((s) => s.score > 0)
+        .sort((a, b) => b.score + b.l.helpful - b.l.unhelpful * 2 - (a.score + a.l.helpful - a.l.unhelpful * 2))
+        .slice(0, limit)
+        .map((s) => headline(s.l, s.score));
     },
 
     getLearning(id) {
       return load().find((l) => l.id === id);
+    },
+
+    learningOutcome(id, helpful, note) {
+      const all = load();
+      const l = all.find((x) => x.id === id);
+      if (!l) return null;
+      if (helpful) l.helpful += 1;
+      else l.unhelpful += 1;
+      // A correction is itself knowledge: fold it into the lesson so the next
+      // recall carries the fix, not just a lower score.
+      if (!helpful && note && note.trim().length > 0 && !l.lesson.includes(note)) {
+        l.lesson += `\n- correction (${new Date().toISOString().slice(0, 10)}): ${note.trim()}`;
+      }
+      persist(all);
+      return l;
     },
 
     listLearnings() {
@@ -120,10 +163,15 @@ export function createMemory(root: string): Memory {
 
     loadSession() {
       const handoff = existsSync(handoffPath) ? readFileSync(handoffPath, "utf8") : null;
-      const top = load()
-        .slice(-5)
-        .reverse()
-        .map((l) => headline(l, 0));
+      // ADJUSTMENT: resume with the most PROVEN learnings first (net helpful),
+      // recency breaking ties — not just whatever was recorded last. A
+      // discredited learning never leads the next session.
+      const all = load();
+      const top = all
+        .map((l, i) => ({ l, i }))
+        .sort((a, b) => b.l.helpful - b.l.unhelpful - (a.l.helpful - a.l.unhelpful) || b.i - a.i)
+        .slice(0, 5)
+        .map(({ l }) => headline(l, 0));
       return { handoff, topLearnings: top };
     },
   };

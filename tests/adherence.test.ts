@@ -108,8 +108,16 @@ describe("adherence: plan-mode directive + handshake protocol", () => {
       "knitbrain_retrieve",
       "knitbrain_context_meter",
       "knitbrain_record_learning",
+      "knitbrain_learning_outcome",
     ]) {
       expect(INSTRUCTIONS).toContain(must);
     }
+  });
+
+  it("handshake protocol forbids yes-man behavior (anti-sycophancy)", () => {
+    expect(INSTRUCTIONS).toContain("no yes-man");
+    // the rule must tie sycophancy to signal corruption, not just be a platitude
+    expect(INSTRUCTIONS.toLowerCase()).toContain("sycophantic");
+    expect(INSTRUCTIONS).toMatch(/back with output|tests run|exit codes/);
   });
 });

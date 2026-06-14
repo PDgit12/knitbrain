@@ -55,7 +55,7 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
 - **Memory** — per-project learnings, session handoffs, a knowledge graph (imports/exports/blast-radius), on-demand skills that compound across tasks, and `knitbrain learn` — offline failure mining that writes corrections from your real sessions into CLAUDE.md.
 - **Lossless optimization** — structure-preserving skeletons (JSON keeps its schema; code keeps its signatures via tree-sitter AST across TypeScript/TSX/JS, Python, Go, Rust, Java, C++, C#, Ruby, PHP, Bash), dedicated handlers for search results, build/test logs, and diffs (error lines always survive), cross-turn dedup of re-sent bulk, sentence anchoring for prose — all reversible through a content-addressed store.
 - **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves; complex verdicts carry an explicit ENTER-PLAN-MODE directive the agent follows before touching files; guardrailed agent generation and a shared team board.
-- **Self-healing, not self-confident** — two feedback loops run continuously: TOIN backs off any compression kind that gets over-retrieved, and the classifier shifts its own thresholds after 3 wrong-verdict votes (`knitbrain_record_false_positive`). Wrong tuning costs efficiency, never correctness.
+- **Every rung compounds, not just remembers** — the difference between an asset and a log is the closed loop (memory → signal → adjustment). Each subsystem closes it: compression backs off any kind that gets over-retrieved (TOIN), the classifier shifts its thresholds after 3 wrong-verdict votes (`record_false_positive`), skills get flagged `needs-revision` when reported failing (`skill_outcome`), and learnings are ranked by whether they actually helped — a learning reported wrong is discredited and demoted, its correction folded into the lesson (`learning_outcome`). Wrong tuning costs efficiency, never correctness.
 - **Closed loop, zero config** — the full operating protocol (load session → classify → plan-mode adherence → skills → agents → context discipline → record learning) rides the MCP handshake itself. Any MCP client gets it without a single file of setup; `knitbrain prompt` prints it for platforms that want it in a system prompt.
 
 ## Architecture
@@ -66,7 +66,7 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
             ▼                                            ▼
  ┌──────────────────────────┐            ┌──────────────────────────────┐
  │  knitbrain · MCP server  │            │  knitbrain-proxy (loopback)  │
- │  26 tools                │            │  rolling window — old turns  │
+ │  27 tools                │            │  rolling window — old turns  │
  │  ├ memory: learnings,    │            │  compressed harder · exact   │
  │  │ handoffs, sessions    │            │  repeats deduped to markers  │
  │  ├ knowledge graph       │            │  · your directive verbatim   │
@@ -102,7 +102,7 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
 
 **One brain, two doors, one lossless store:**
 
-- **MCP server** (`knitbrain`) — 26 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
+- **MCP server** (`knitbrain`) — 27 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
 - **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, exact repeats across turns collapsed to a marker, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
 - **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
 - **Live dashboard** — context meter, tokens saved, CCR tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
@@ -175,10 +175,10 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 npm install
 npm run verify       # typecheck → lint → test → build → consistency → bench (all must pass)
 npm run e2e          # built-artifact E2E: stdio session + real-file compression
-npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 26 tools
+npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 27 tools
 ```
 
-Current proof status: **199 tests passing**, eval gates PASS on 4,567 real blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 26 tools and the three binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+Current proof status: **207 tests passing**, eval gates PASS on real transcript blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 27 tools and the three binaries verified working. One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
 
 ## License
 
