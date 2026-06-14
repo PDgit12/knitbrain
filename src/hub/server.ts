@@ -29,20 +29,24 @@ export interface Hub {
 /** Cap request bodies so one authenticated client can't exhaust hub memory. */
 const MAX_BODY_BYTES = 1_000_000;
 
-function readBody(req: IncomingMessage): Promise<string> {
+/** Sentinel returned (not thrown) when a body exceeds the cap, so the handler
+ * can answer with a clean 413 instead of resetting the socket. */
+const TOO_LARGE = Symbol("too-large");
+
+function readBody(req: IncomingMessage): Promise<string | typeof TOO_LARGE> {
   return new Promise((resolve, reject) => {
     let d = "";
     let bytes = 0;
+    let over = false;
     req.on("data", (c: Buffer) => {
       bytes += c.length;
       if (bytes > MAX_BODY_BYTES) {
-        reject(new Error("body too large"));
-        req.destroy();
+        over = true; // stop buffering, keep draining (bounded memory)
         return;
       }
-      d += c;
+      if (!over) d += c;
     });
-    req.on("end", () => resolve(d));
+    req.on("end", () => resolve(over ? TOO_LARGE : d));
     req.on("error", reject);
   });
 }
@@ -111,7 +115,9 @@ export function createHub(root: string): Hub {
       if (!authed(req)) return json(res, 401, { error: "missing or invalid token" });
 
       if (req.method === "POST" && req.url === "/board") {
-        const body = JSON.parse(await readBody(req)) as Partial<HubEntry>;
+        const raw = await readBody(req);
+        if (raw === TOO_LARGE) return json(res, 413, { error: "body too large" });
+        const body = JSON.parse(raw) as Partial<HubEntry>;
         if (typeof body.author !== "string" || typeof body.original !== "string") {
           return json(res, 400, { error: "author and original are required" });
         }

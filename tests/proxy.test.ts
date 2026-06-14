@@ -236,3 +236,39 @@ describe("proxy SSE streaming passthrough (rung 9)", () => {
     expect(body).toContain("[DONE]");
   });
 });
+
+describe("proxy time-to-first-byte timeout (rung 13)", () => {
+  let root: string;
+  let ccr: CCRStore;
+  let deadUpstream: Server;
+  let proxy: Server;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-ttfb-"));
+    ccr = createFileCCRStore(root);
+    // A dead upstream: accepts the connection but NEVER sends response headers.
+    deadUpstream = createServer(() => {
+      /* intentionally never responds */
+    });
+    const port = await listen(deadUpstream);
+    proxy = createProxyServer({ ccr, upstream: `http://127.0.0.1:${port}`, connectTimeoutMs: 250 });
+  });
+  afterEach(async () => {
+    await close(proxy);
+    await close(deadUpstream);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("a hung upstream fails fast (502) instead of hanging forever", async () => {
+    const port = await listen(proxy);
+    const t0 = Date.now();
+    const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+    });
+    const elapsed = Date.now() - t0;
+    expect(res.status).toBe(502); // upstream-failure path, not a hang
+    expect(elapsed).toBeLessThan(3000); // bounded by the 250ms TTFB timer, not infinite
+  });
+});
