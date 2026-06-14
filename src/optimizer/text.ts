@@ -1,6 +1,7 @@
 import type { CCRStore } from "../ccr/store.js";
 import type { CompressResult } from "./types.js";
 import { IMPORTANT_LINE, RESULT_LINE } from "./structured.js";
+import { PARAMS } from "./params.js";
 
 /** Below this many lines, line-dedup isn't worth attempting. */
 const MIN_LINES_FOR_DEDUP = 20;
@@ -74,7 +75,7 @@ const SENTENCE_SPLIT = /(?<=[.!?:])\s+(?=[A-Z0-9⟪`"'*-])/;
 /** Sentence-anchor needs at least this many sentences to be worth it.
  * The inline 64-hex handle costs ~45 tokens, so the kept set must stay small
  * for the elision to clear the never-expand guard on typical short blocks. */
-const MIN_SENTENCES = 8;
+
 const HEAD_SENTENCES = 2;
 const TAIL_SENTENCES = 1;
 
@@ -95,7 +96,7 @@ export function compressShortProse(original: string, ccr: CCRStore): CompressRes
   for (let m = re.exec(original); m !== null; m = re.exec(original)) {
     bounds.push({ end: m.index, next: m.index + m[0].length });
   }
-  if (bounds.length + 1 < MIN_SENTENCES) return null;
+  if (bounds.length + 1 < PARAMS.minSentences) return null;
 
   // Snap both boundaries to LINE breaks: a sentence boundary can land
   // mid-line (": 1"), and splitting a line across the elision turns one

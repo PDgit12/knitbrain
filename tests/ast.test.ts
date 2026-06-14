@@ -273,6 +273,20 @@ end
     expect(ccr.get(r.handle)).toBe(JAVA_SRC);
   });
 
+  it("does not leak WASM memory across many parses (no Aborted/OOM) — rung 14", () => {
+    // Each parser.parse() allocates a Tree in WASM linear memory that must be
+    // freed. Before the fix, ~thousands of parses aborted the WASM heap. This
+    // drives far more than that and asserts it simply completes.
+    const samples = [TS_SRC, PY_SRC, GO_SRC, RUST_SRC, JAVA_SRC, RUBY_SRC];
+    for (let i = 0; i < 2500; i += 1) {
+      const r = compressCodeAst(samples[i % samples.length]!, ccr);
+      expect(r === null || typeof r.skeleton === "string").toBe(true);
+    }
+    // still works correctly after the stress — not silently degraded
+    const after = compressCodeAst(TS_SRC, ccr)!;
+    expect(after.skeleton).toContain("export function loadConfig");
+  }, 30000);
+
   it("elides Ruby def…end bodies — end-delimited, scanner-invisible (lossless)", () => {
     const r = compressCodeAst(RUBY_SRC, ccr)!;
     expect(r).not.toBeNull();

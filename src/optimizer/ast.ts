@@ -264,12 +264,21 @@ export function compressCodeAst(original: string, ccr: CCRStore): CompressResult
     if (!parser) continue;
     const tree = parser.parse(original);
     if (tree === null) continue;
-    const found = collectElisions(tree.rootNode, original, HASH_COMMENT_GRAMMARS.has(langName));
-    const chars = found.reduce((s, e) => s + (e.end - e.start), 0);
-    if (chars > elidedChars) {
-      elisions = found;
-      elidedChars = chars;
-      hashStyle = HASH_COMMENT_GRAMMARS.has(langName);
+    // A parsed Tree owns WASM linear memory and MUST be freed — `Elision`s are
+    // plain JS offsets, independent of the tree, so we extract then delete.
+    // Leaking trees grows the WASM heap until it aborts (Aborted/OOM) on a
+    // long-lived server that compresses many code blocks. Up to 4 trees per
+    // block (one per candidate grammar), so this is the dominant leak.
+    try {
+      const found = collectElisions(tree.rootNode, original, HASH_COMMENT_GRAMMARS.has(langName));
+      const chars = found.reduce((s, e) => s + (e.end - e.start), 0);
+      if (chars > elidedChars) {
+        elisions = found;
+        elidedChars = chars;
+        hashStyle = HASH_COMMENT_GRAMMARS.has(langName);
+      }
+    } finally {
+      tree.delete();
     }
   }
   if (elisions.length === 0) return null; // nothing to elide — let the scanner try

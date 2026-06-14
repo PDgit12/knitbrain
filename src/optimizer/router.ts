@@ -1,5 +1,6 @@
 import type { CCRStore } from "../ccr/store.js";
 import type { ContentType } from "./types.js";
+import { PARAMS } from "./params.js";
 import { isJson, compressJson } from "./json.js";
 import { isCode, compressCode } from "./code.js";
 import { compressCodeAst } from "./ast.js";
@@ -32,16 +33,6 @@ export interface RouteResult {
   readonly savedPct: number;
 }
 
-/**
- * Minimum token saving (%) for compression to be kept. Below this we pass the
- * original through unchanged — the optimizer must NEVER make a payload larger.
- */
-const MIN_SAVING_PCT = 5;
-
-/** Anchor fallback applies to outputs at least this many lines long. */
-const ANCHOR_MIN_LINES = 40;
-/** If structural compression saves less than this %, try the anchor. */
-const ANCHOR_TRIGGER_PCT = 35;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
@@ -143,7 +134,7 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
     if (type === "code") return compressCodeAst(t, ccr) ?? compressCode(t, ccr);
     // Short prose (too few lines for the anchor fallback): try the TOIN-gated
     // sentence anchor; longer or sentence-poor text takes the line handler.
-    if (allowProse && t.split("\n").length < ANCHOR_MIN_LINES) {
+    if (allowProse && t.split("\n").length < PARAMS.anchorMinLines) {
       const prose = compressShortProse(t, ccr);
       if (prose !== null) return prose;
     }
@@ -174,7 +165,7 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
 
   // ANCHOR FALLBACK: long output where structure didn't pay → head+tail keep.
   const lineCount = text.split("\n").length;
-  if (savedPct < ANCHOR_TRIGGER_PCT && lineCount >= ANCHOR_MIN_LINES) {
+  if (savedPct < PARAMS.anchorTriggerPct && lineCount >= PARAMS.anchorMinLines) {
     const anchorHandle = handle || ccr.put(text);
     const anchored = anchorSkeleton(text, anchorHandle, contentType === "code");
     const anchoredTokens = countTokens(anchored);
@@ -190,7 +181,7 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
   }
 
   // NEVER-EXPAND GUARD: if compression isn't meaningfully smaller, pass through.
-  if (savedPct < MIN_SAVING_PCT) {
+  if (savedPct < PARAMS.minSavingPct) {
     return {
       skeleton: text,
       handle: "",
