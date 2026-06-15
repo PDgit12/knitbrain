@@ -43,6 +43,10 @@ async function main(): Promise<void> {
     await runProfile(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "wrap") {
+    const { runWrap } = await import("./wrap.js");
+    process.exit(await runWrap(process.argv.slice(3)));
+  }
   if (process.argv[2] === "help" || process.argv[2] === "--help" || process.argv[2] === "-h") {
     console.log(`knitbrain — the local-first brain for coding agents
 
@@ -50,6 +54,7 @@ usage: knitbrain <command>
 
   setup        one-click integration for your platform(s) (MCP, hooks, rules, slash commands)
   profile      measure savings on YOUR real transcripts (run before installing anything)
+  wrap <agent> launch claude/codex/aider/copilot with the optimizer proxy wired in
   evals        answer-preservation gates on your transcripts (exit 1 on failure)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   dashboard    live local dashboard (127.0.0.1:8790)
