@@ -20,6 +20,12 @@ export const IMPORTANT_LINE =
 export const RESULT_LINE =
   /^\s*(Tests?|Test (Suites?|Files)|Suites?|Duration|Time:|Ran \d+|\d+ (passing|failing|pending|tests? (passed|failed)))\b/m;
 
+/** Top-level declaration lines — the API surface an agent navigates by. Kept
+ * by every elision path (anchor AND diff hunks) so a compressed view never
+ * loses what functions/classes/types exist or changed. Shared single source. */
+export const DECLARATION_LINE =
+  /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|type|struct|enum)\s+[A-Za-z_$]/;
+
 // ---------------------------------------------------------------------------
 // Search results (grep -n / ripgrep / eslint style: path:line[:col]: content)
 // ---------------------------------------------------------------------------
@@ -183,7 +189,12 @@ export function compressDiff(original: string, ccr: CCRStore): CompressResult {
       const adds = body.filter((l) => l.startsWith("+")).length;
       const dels = body.filter((l) => l.startsWith("-")).length;
       const ctx = body.length - adds - dels;
-      const rescued = body.filter((l) => IMPORTANT_LINE.test(l));
+      // Rescue error lines AND top-level declarations (strip the +/-/space
+      // diff marker before the decl test) — a compressed diff must never hide
+      // which functions/classes/types were added or removed.
+      const rescued = body.filter(
+        (l) => IMPORTANT_LINE.test(l) || DECLARATION_LINE.test(l.replace(/^[+\- ]/, "")),
+      );
       out.push(`⟪… hunk elided: +${adds}/-${dels} lines, ${ctx} context⟫`);
       out.push(...rescued);
     }

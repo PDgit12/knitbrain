@@ -100,6 +100,22 @@ describe("structured handlers (search/log/diff)", () => {
     expect(ccr.get(r.handle)).toBe(GIT_DIFF);
   });
 
+  it("diff: rescues top-level declarations from elided hunks (not just errors)", () => {
+    const diff = [
+      "diff --git a/src/reward.ts b/src/reward.ts",
+      "@@ -1,40 +1,40 @@",
+      ...Array.from({ length: 30 }, (_, i) => `+  const filler${i} = ${i};`),
+      "+export function rewardFor(verdict: Verdict): number {",
+      "+export interface FeedbackEvent { id: string; }",
+      ...Array.from({ length: 30 }, (_, i) => `-  const old${i} = ${i};`),
+    ].join("\n");
+    const r = compressDiff(diff, ccr);
+    expect(r.skeleton).toContain("rewardFor"); // declaration survives hunk elision
+    expect(r.skeleton).toContain("FeedbackEvent");
+    expect(r.skeleton).toContain("hunk elided"); // body WAS elided
+    expect(ccr.get(r.handle)).toBe(diff);
+  });
+
   it("router end-to-end: all three shapes compress and recover byte-for-byte", () => {
     for (const sample of [GREP_OUT, TEST_LOG, GIT_DIFF]) {
       const r = compress(sample, ccr);

@@ -14,6 +14,7 @@ import {
   compressLog,
   IMPORTANT_LINE,
   RESULT_LINE,
+  DECLARATION_LINE,
 } from "./structured.js";
 import type { CompressResult } from "./types.js";
 import { countTokens } from "../tokenizer.js";
@@ -41,10 +42,6 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
  * only to bound pathological blocks, not to trim ordinary failures. */
 const MAX_RESCUED = 32;
 
-/** Top-level declaration lines — rescued when the anchor swallows CODE
- * (an agent navigating a file needs the names even if bodies are gone). */
-const DECLARATION_LINE =
-  /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|type|struct|enum)\s+[A-Za-z_$]/;
 
 /**
  * Anchor elision — the universal fallback for long low-structure output
@@ -59,9 +56,19 @@ function anchorSkeleton(text: string, handle: string, isCodeShape: boolean): str
   const headN = clamp(Math.round(lines.length * 0.15), 8, 25);
   const tailN = clamp(Math.round(lines.length * 0.12), 6, 18);
   const middle = lines.slice(headN, lines.length - tailN);
-  const worthKeeping = (l: string): boolean =>
-    IMPORTANT_LINE.test(l) || RESULT_LINE.test(l) || (isCodeShape && DECLARATION_LINE.test(l));
-  const rescued = middle.filter(worthKeeping).slice(0, MAX_RESCUED);
+  // Top-level declarations are the API surface an agent navigates by and are
+  // bounded by file structure, so rescue them UNCAPPED. The MAX_RESCUED cap
+  // only bounds error/summary spam (which can be unbounded in a noisy log),
+  // and declarations must not compete with it for slots. Original order kept.
+  let importantBudget = MAX_RESCUED;
+  const rescued = middle.filter((l) => {
+    if (isCodeShape && DECLARATION_LINE.test(l)) return true;
+    if ((IMPORTANT_LINE.test(l) || RESULT_LINE.test(l)) && importantBudget > 0) {
+      importantBudget -= 1;
+      return true;
+    }
+    return false;
+  });
   const head = lines.slice(0, headN).join("\n");
   const tail = lines.slice(-tailN).join("\n");
   const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
@@ -81,7 +88,10 @@ export function detect(text: string): ContentType {
 }
 
 /** Claude-Code Read format: lines prefixed `   123→content`. */
-const LINE_NUM_RE = /^\s{0,8}\d+→/;
+/** Host-Read line numbering: the `123→` arrow form AND the `123⇥` tab form
+ * (cat -n / some Read tools). Both prefixes defeat code parsing and bury
+ * declarations if left in — strip either. */
+const LINE_NUM_RE = /^\s{0,8}\d+(?:→|\t)/;
 
 /**
  * Detect host-Read line numbering (the dominant in-session tool-result shape;

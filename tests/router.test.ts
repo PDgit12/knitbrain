@@ -3,8 +3,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
-import { compress, detect } from "../src/optimizer/router.js";
+import { compress, detect, stripLineNumbers } from "../src/optimizer/router.js";
 import { countTokens } from "../src/tokenizer.js";
+
+describe("stripLineNumbers — both host-Read formats (rung 14)", () => {
+  it("strips the NN→ arrow form AND the NN<tab> form", () => {
+    const arrow = Array.from({ length: 12 }, (_, i) => `  ${i + 1}→export const v${i} = ${i};`).join("\n");
+    const tab = Array.from({ length: 12 }, (_, i) => `${i + 1}\texport const v${i} = ${i};`).join("\n");
+    expect(stripLineNumbers(arrow)).not.toBeNull();
+    expect(stripLineNumbers(arrow)!).toContain("export const v0 = 0;");
+    expect(stripLineNumbers(arrow)!).not.toContain("→");
+    const strippedTab = stripLineNumbers(tab);
+    expect(strippedTab).not.toBeNull();
+    expect(strippedTab!).toContain("export const v0 = 0;");
+    expect(strippedTab!.split("\n")[0]).toBe("export const v0 = 0;"); // tab+number gone
+  });
+});
 
 describe("ContentRouter (rung 4)", () => {
   let root: string;
