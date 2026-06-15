@@ -23,24 +23,39 @@
  */
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const distUrl = (p) => pathToFileURL(join(ROOT, "dist", p)).href;
-const { setParams, PARAMS } = await import(distUrl("optimizer/params.js"));
-const { runProfile } = await import(distUrl("profile.js"));
-const { runEvals } = await import(distUrl("evals.js"));
-
-const noop = () => {};
 const corpus = process.argv[2] ? [process.argv[2]] : [];
 const ledger = join(ROOT, "experiments.tsv");
+const WORKER = join(ROOT, "scripts", "research-measure.mjs");
 writeFileSync(ledger, "knob\tvalue\tsavings\tgates\tstatus\tnote\n");
 
-/** One real measurement on the corpus: savings % under the fidelity gate. */
-async function measure() {
-  const savings = await runProfile(corpus, noop); // overall saved %, real corpus
-  const evals = await runEvals(corpus, noop); // fidelity gates on real blocks
-  return { savings, pass: evals.pass, blocks: evals.blocks };
+// param name → the env var src/optimizer/params.ts reads.
+const ENV_OF = {
+  anchorTriggerPct: "KNITBRAIN_ANCHOR_TRIGGER_PCT",
+  minSentences: "KNITBRAIN_MIN_SENTENCES",
+  anchorMinLines: "KNITBRAIN_ANCHOR_MIN_LINES",
+  minSavingPct: "KNITBRAIN_MIN_SAVING_PCT",
+};
+const PARAMS = { anchorTriggerPct: 35, minSentences: 8, anchorMinLines: 40, minSavingPct: 5 };
+
+/**
+ * One real measurement, in a FRESH child process (zero WASM accumulation
+ * across experiments). `params` overrides ride the KNITBRAIN_* env vars.
+ */
+function measure(params = {}) {
+  const env = { ...process.env };
+  for (const [k, v] of Object.entries(params)) env[ENV_OF[k]] = String(v);
+  const r = spawnSync(process.execPath, [WORKER, ...(corpus[0] ? [corpus[0]] : [])], {
+    env,
+    encoding: "utf8",
+    maxBuffer: 128 << 20,
+  });
+  const line = (r.stdout || "").trim().split("\n").filter(Boolean).pop();
+  if (!line) throw new Error(`worker produced no output${r.status ? ` (exit ${r.status})` : ""}`);
+  return JSON.parse(line);
 }
 
 const log = (knob, value, savings, pass, status, note) => {
@@ -60,7 +75,7 @@ const KNOBS = [
 
 console.log(`[research] corpus: ${corpus[0] ?? "~/.claude/projects (default)"}`);
 console.log("[research] baseline (current hand-tuned defaults)…");
-const baseline = await measure();
+const baseline = measure();
 console.log(`[research] baseline: savings=${baseline.savings.toFixed(2)}%  gates=${baseline.pass ? "green" : "RED"}  blocks=${baseline.blocks}`);
 if (!baseline.pass) {
   console.error("[research] baseline gates are RED — fix fidelity before tuning. Aborting.");
@@ -78,10 +93,10 @@ for (const knob of KNOBS) {
   let bestSavings = bestOverall;
   const effects = new Set();
   for (const value of knob.grid) {
-    setParams({ [knob.name]: value });
     let m;
     try {
-      m = await measure();
+      // Carry adopted winners forward (coordinate descent), each run isolated.
+      m = measure({ ...adopted, [knob.name]: value });
     } catch (err) {
       log(knob.name, value, 0, false, "crash", String(err).slice(0, 60));
       continue;
@@ -96,7 +111,6 @@ for (const knob of KNOBS) {
     }
   }
   // Adopt the winner for this knob (coordinate descent), carry it forward.
-  setParams({ [knob.name]: bestVal });
   adopted[knob.name] = bestVal;
   bestOverall = bestSavings;
   // SLOP FLAG: a knob whose every grid value produced the SAME savings has no

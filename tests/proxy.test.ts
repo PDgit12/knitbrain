@@ -272,3 +272,59 @@ describe("proxy time-to-first-byte timeout (rung 13)", () => {
     expect(elapsed).toBeLessThan(3000); // bounded by the 250ms TTFB timer, not infinite
   });
 });
+
+describe("proxy OpenAI round-trip (/v1/chat/completions)", () => {
+  let root: string;
+  let ccr: CCRStore;
+  let upstream: Server;
+  let proxy: Server;
+  let received: string[];
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-oai-"));
+    ccr = createFileCCRStore(root);
+    received = [];
+    upstream = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        received.push(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id: "chatcmpl-1", choices: [{ message: { role: "assistant", content: "ok" } }] }));
+      });
+    });
+    const upPort = await listen(upstream);
+    proxy = createProxyServer({ ccr, upstream: `http://127.0.0.1:${upPort}` });
+  });
+  afterEach(async () => {
+    await close(proxy);
+    await close(upstream);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("compresses an OpenAI-shaped request and returns the upstream response", async () => {
+    const port = await listen(proxy);
+    const oldData = JSON.stringify({ rows: Array.from({ length: 60 }, (_, i) => ({ i, v: "y".repeat(40) })) });
+    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer sk-test" },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are helpful. Today's date is 2026-06-15." },
+          { role: "user", content: oldData },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "do it" },
+        ],
+      }),
+    });
+    expect(((await res.json()) as { id?: string }).id).toBe("chatcmpl-1"); // upstream response passed through
+    const fwd = JSON.parse(received[0]!);
+    const first = fwd.messages[1].content; // the old data block
+    const firstText = typeof first === "string" ? first : first.map((b: { text?: string }) => b.text ?? "").join("");
+    expect(firstText).toContain("⟨ccr:"); // compressed on the wire
+    expect(fwd.messages[3].content).toBe("do it"); // intent intact
+    // OpenAI path: automatic prefix caching, so NO cache_control blocks injected
+    expect(JSON.stringify(fwd)).not.toContain("cache_control");
+  });
+});
