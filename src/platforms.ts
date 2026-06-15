@@ -17,8 +17,18 @@ export interface Artifact {
   mode: "write" | "json-merge-mcp" | "json-merge-hooks";
 }
 
-/** Hook wiring for Claude Code settings.json (Layer 2 enforcement). */
+/** Hook wiring for Claude Code settings.json (Layer 2 enforcement). The
+ * SessionStart hook makes the loop's first step automatic (protocol + memory
+ * injected without the agent calling load_session); Stop keeps session-end
+ * resumable; PreCompact saves before compaction; PreToolUse hard-redirects
+ * large raw Reads to knitbrain_read. */
 export const KNITBRAIN_HOOKS = {
+  SessionStart: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook sessionstart" }],
+    },
+  ],
   PreToolUse: [
     {
       matcher: "Read",
@@ -29,6 +39,12 @@ export const KNITBRAIN_HOOKS = {
     {
       matcher: "",
       hooks: [{ type: "command", command: "knitbrain-hook precompact" }],
+    },
+  ],
+  Stop: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook stop" }],
     },
   ],
 } as const;

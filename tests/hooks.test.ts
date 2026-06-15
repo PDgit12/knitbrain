@@ -79,3 +79,40 @@ describe("settings.json hooks wiring (non-clobbering)", () => {
     }
   });
 });
+
+import { buildSessionStartContext, sessionStartOutput } from "../src/hooks/sessionstart.js";
+import { KNITBRAIN_HOOKS } from "../src/platforms.js";
+
+describe("SessionStart hook (auto protocol + memory injection)", () => {
+  it("injects the full operating protocol so load_session isn't agent-dependent", () => {
+    const ctx = buildSessionStartContext({ handoff: null, topLearnings: [] });
+    expect(ctx).toContain("ENTER YOUR HOST'S PLAN MODE"); // protocol present
+    expect(ctx).toContain("knitbrain_load_session");
+    expect(ctx).toContain("no yes-man"); // anti-sycophancy ground rule rides along
+  });
+
+  it("resumes a prior handoff and surfaces proven learnings", () => {
+    const ctx = buildSessionStartContext({
+      handoff: "goal: ship 0.4.0; next: audit",
+      topLearnings: [{ summary: "validation lives in src/lib.ts" }, { summary: "use uv run python" }],
+    });
+    expect(ctx).toContain("RESUMABLE HANDOFF");
+    expect(ctx).toContain("ship 0.4.0");
+    expect(ctx).toContain("TOP PROJECT LEARNINGS");
+    expect(ctx).toContain("validation lives in src/lib.ts");
+  });
+
+  it("emits valid Claude Code SessionStart hook JSON", () => {
+    const parsed = JSON.parse(sessionStartOutput({ handoff: null, topLearnings: [] })) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(parsed.hookSpecificOutput.additionalContext.length).toBeGreaterThan(100);
+  });
+
+  it("setup wires all four lifecycle hooks", () => {
+    expect(Object.keys(KNITBRAIN_HOOKS).sort()).toEqual(["PreCompact", "PreToolUse", "SessionStart", "Stop"]);
+    expect(KNITBRAIN_HOOKS.SessionStart[0]!.hooks[0]!.command).toBe("knitbrain-hook sessionstart");
+    expect(KNITBRAIN_HOOKS.Stop[0]!.hooks[0]!.command).toBe("knitbrain-hook stop");
+  });
+});
