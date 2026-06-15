@@ -95,6 +95,13 @@ describe("knitbrain learn — failure mining with success correlation", () => {
   });
 
   it("projectSlug matches Claude Code's transcript directory naming", () => {
-    expect(projectSlug("/Users/dev/my.project")).toBe("-Users-dev-my-project");
+    // The exact Unix encoding (resolve() keeps POSIX paths as-is).
+    if (process.platform !== "win32") {
+      expect(projectSlug("/Users/dev/my.project")).toBe("-Users-dev-my-project");
+    }
+    // Portable property (holds on every OS): no raw path separators survive.
+    const slug = projectSlug("/Users/dev/my.project");
+    expect(slug).not.toMatch(/[/.\\:]/);
+    expect(slug).toContain("Users-dev-my-project");
   });
 });

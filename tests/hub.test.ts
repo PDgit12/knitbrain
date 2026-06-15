@@ -77,9 +77,13 @@ describe("team hub (rung 18)", () => {
 
   it("token is high-entropy and stored 0600 (how the team secret is created)", async () => {
     expect(token).toMatch(/^khub_[0-9a-f]{48}$/); // 24 random bytes → 192 bits
-    const { statSync } = await import("node:fs");
-    const mode = statSync(join(root, "hub", "token.txt")).mode & 0o777;
-    expect(mode).toBe(0o600); // owner-only
+    // Unix file modes only — Windows has no POSIX perms (reports 0o666), so
+    // the 0600 guarantee is Unix-only; the entropy guarantee holds everywhere.
+    if (process.platform !== "win32") {
+      const { statSync } = await import("node:fs");
+      const mode = statSync(join(root, "hub", "token.txt")).mode & 0o777;
+      expect(mode).toBe(0o600); // owner-only
+    }
   });
 
   it("append-only board: many posts persist in order (O(1) per post)", async () => {

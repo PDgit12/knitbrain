@@ -264,7 +264,10 @@ export function applyToClaudeMd(projectRoot: string, section: string): string {
 
 /** Claude Code's transcript-directory slug for a project path. */
 export function projectSlug(projectRoot: string): string {
-  return resolve(projectRoot).replace(/[/.]/g, "-");
+  // Normalize ALL path separators (Unix /, Windows \) plus dots and the
+  // Windows drive colon, so the slug is portable and matches Claude Code's
+  // transcript-dir encoding on either OS.
+  return resolve(projectRoot).replace(/[/.\\:]/g, "-");
 }
 
 /** Transcript files for one project (or all projects with --all). */
