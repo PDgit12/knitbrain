@@ -12,6 +12,7 @@ import {
   zedSnippet,
   copilotSnippet,
 } from "./platforms.js";
+import { applyGlobalConfig, type GlobalConfigKind } from "./global-config.js";
 
 export type Platform =
   | "claude-code"
@@ -90,9 +91,20 @@ export function mergeMcpJson(existing: string | null, cfg: SetupConfig): string 
  * + rules; VS Code/Copilot → .vscode/mcp.json + instructions; Codex → config
  * snippet (its config is global — we never clobber it). Unknown → .mcp.json.
  */
-export function runSetup(cwd: string = process.cwd()): number {
+/** Map a detected global-config platform to its writer kind. */
+const GLOBAL_KIND: Partial<Record<Platform, GlobalConfigKind>> = {
+  codex: "codex",
+  windsurf: "windsurf",
+  zed: "zed",
+  "copilot-cli": "copilot-cli",
+};
+
+export function runSetup(cwd: string = process.cwd(), argv: string[] = process.argv.slice(3)): number {
   const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
   const cfg = generateConfig();
+  // --yes writes global configs (Codex/Windsurf/Zed/Copilot CLI) directly,
+  // backed up + non-clobbering, instead of printing a snippet to paste.
+  const writeGlobals = argv.includes("--yes") || argv.includes("-y");
 
   console.log("knitbrain setup");
   console.log(`  detected platform(s): ${platforms.join(", ")}`);
@@ -105,24 +117,28 @@ export function runSetup(cwd: string = process.cwd()): number {
   if (platforms.includes("vscode")) artifacts.push(...vscodeArtifacts());
   if (platforms.includes("windsurf")) artifacts.push(...windsurfArtifacts());
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
-  if (platforms.includes("codex")) {
-    console.log("  Codex CLI detected — its MCP config is global; add this yourself:");
-    for (const line of codexSnippet(cfg).split("\n")) console.log(`    ${line}`);
+  // Global-config platforms: with --yes we WRITE the config (backed up,
+  // non-clobbering); otherwise we print the snippet to paste (safe default).
+  const snippets: Partial<Record<Platform, () => string>> = {
+    codex: () => codexSnippet(cfg),
+    windsurf: windsurfSnippet,
+    zed: zedSnippet,
+    "copilot-cli": copilotSnippet,
+  };
+  let printedGlobalHint = false;
+  for (const platform of ["codex", "windsurf", "zed", "copilot-cli"] as Platform[]) {
+    if (!platforms.includes(platform)) continue;
+    const kind = GLOBAL_KIND[platform]!;
+    if (writeGlobals) {
+      const { path, status } = applyGlobalConfig(kind, homedir());
+      console.log(`  ✓ ${status} ${path}${status === "written" ? " (backed up)" : ""}`);
+    } else {
+      console.log(`  ${platform} detected — its MCP config is global. Paste this, or re-run with --yes to write it:`);
+      for (const line of snippets[platform]!().split("\n")) console.log(`    ${line}`);
+      printedGlobalHint = true;
+    }
   }
-  if (platforms.includes("windsurf")) {
-    console.log("  Windsurf detected — rules written; MCP config is global, add this yourself:");
-    for (const line of windsurfSnippet().split("\n")) console.log(`    ${line}`);
-  }
-  if (platforms.includes("zed")) {
-    console.log("  Zed detected — MCP config is global, add this yourself:");
-    for (const line of zedSnippet().split("\n")) console.log(`    ${line}`);
-  }
-  if (platforms.includes("copilot-cli")) {
-    // VS Code Copilot is covered by the vscode artifacts (.vscode/mcp.json +
-    // .github/instructions); the standalone CLI keeps its config global.
-    console.log("  Copilot CLI detected — its MCP config is global, add this yourself:");
-    for (const line of copilotSnippet().split("\n")) console.log(`    ${line}`);
-  }
+  if (printedGlobalHint) console.log("  (tip: knitbrain setup --yes writes these for you, backed up + non-clobbering)");
   console.log("");
   console.log("  The operating protocol itself needs NO setup: it rides the MCP handshake");
   console.log("  (any MCP client gets it). For platforms without MCP-instructions support,");
