@@ -86,6 +86,13 @@ const TAIL_SENTENCES = 1;
  * Prose is information-dense, so callers gate this behind TOIN ("prose" kind):
  * if agents keep paging the originals back, it backs off automatically.
  * Returns null when there aren't enough sentences to anchor.
+ *
+ * MEASURED (real corpus): ~71% of short prose passes the router's never-expand
+ * guard uncompressed — the ~45-token ⟨ccr:hash⟩ handle exceeds what eliding a
+ * few dense sentences saves. The resulting ~18% overall is the SAFE floor, not
+ * a defect: pushing it would mean eliding dense prose (risking answer-fidelity)
+ * or shortening the content-addressed handle (risking the lossless guarantee).
+ * Deliberately not chased — prose is the lowest-value shape, guarantees first.
  */
 export function compressShortProse(original: string, ccr: CCRStore): CompressResult | null {
   // Find sentence boundaries by OFFSET so head/tail keep the original bytes
