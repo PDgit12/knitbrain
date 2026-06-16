@@ -328,3 +328,85 @@ describe("proxy OpenAI round-trip (/v1/chat/completions)", () => {
     expect(JSON.stringify(fwd)).not.toContain("cache_control");
   });
 });
+
+describe("proxy security: auth forwarding + no token leak (subscription-safe)", () => {
+  let root: string;
+  let ccr: CCRStore;
+  let upstream: Server;
+  let proxy: Server;
+  let receivedHeaders: Record<string, string | string[] | undefined>;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "knitbrain-sec-"));
+    ccr = createFileCCRStore(root);
+    receivedHeaders = {};
+    upstream = createServer((req, res) => {
+      receivedHeaders = req.headers;
+      let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => { void b;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      });
+    });
+    const up = await listen(upstream);
+    proxy = createProxyServer({ ccr, upstream: `http://127.0.0.1:${up}` });
+  });
+  afterEach(async () => { await close(proxy); await close(upstream); rmSync(root, { recursive: true, force: true }); });
+
+  it("forwards the OAuth bearer + User-Agent byte-identical (so subscription is accepted)", async () => {
+    const port = await listen(proxy);
+    const SECRET = "sk-ant-oat-SECRET-TOKEN-do-not-leak";
+    await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${SECRET}`,
+        "user-agent": "claude-cli/1.2.3 (subscription)",
+        "anthropic-beta": "oauth-2025",
+      },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi " + "x".repeat(500) }] }),
+    });
+    // upstream must see the bearer AND the user-agent unchanged (OAuth needs both)
+    expect(receivedHeaders["authorization"]).toBe(`Bearer ${SECRET}`);
+    expect(receivedHeaders["user-agent"]).toBe("claude-cli/1.2.3 (subscription)");
+    expect(receivedHeaders["anthropic-beta"]).toBe("oauth-2025");
+    // content-length recomputed from the compressed body, not blindly forwarded
+    expect(receivedHeaders["content-length"]).not.toBe("0");
+  });
+
+  it("never writes the auth token to stdout/stderr (token-leak gate)", async () => {
+    const port = await listen(proxy);
+    const SECRET = "sk-ant-oat-LEAK-CANARY-9f8e7d";
+    const logs: string[] = [];
+    const origOut = process.stdout.write.bind(process.stdout);
+    const origErr = process.stderr.write.bind(process.stderr);
+    // capture everything the proxy might print during a request
+    (process.stdout.write as unknown as (s: string) => boolean) = (s: string) => { logs.push(String(s)); return true; };
+    (process.stderr.write as unknown as (s: string) => boolean) = (s: string) => { logs.push(String(s)); return true; };
+    try {
+      await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+        body: JSON.stringify({ messages: [{ role: "user", content: "x".repeat(800) }] }),
+      });
+    } finally {
+      process.stdout.write = origOut;
+      process.stderr.write = origErr;
+    }
+    expect(logs.join("").includes(SECRET)).toBe(false); // token never logged
+  });
+
+  it("fails closed: a dead upstream returns a generic 502 with no detail", async () => {
+    const dead = createProxyServer({ ccr, upstream: "http://127.0.0.1:1" });
+    const port = await listen(dead);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: "POST", headers: { "content-type": "application/json", authorization: "Bearer sk-ant-oat-x" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+      });
+      expect(res.status).toBe(502);
+      const body = await res.text();
+      expect(body).not.toContain("sk-ant-oat"); // no token/detail echoed
+      expect(body).not.toMatch(/ECONNREFUSED|stack|at Object/); // no internal detail
+    } finally { await close(dead); }
+  });
+});

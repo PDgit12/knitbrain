@@ -79,14 +79,26 @@ export async function runWrap(argv: string[]): Promise<number> {
     return 1;
   }
 
-  if (!hasApiKey(process.env)) {
+  const subscription = argv.includes("--subscription");
+  if (!hasApiKey(process.env) && !subscription) {
+    // Safe default: never silently route someone's subscription OAuth through
+    // a proxy. Launch direct; tell them the opt-in exists.
     console.error(
-      "[knitbrain] No ANTHROPIC_API_KEY/OPENAI_API_KEY in env — you're likely on a subscription (OAuth).\n" +
-        "  The proxy only optimizes API-key traffic; your MCP-side optimization + memory still work.\n" +
-        "  Launching the agent normally (no proxy).",
+      "[knitbrain] No API key in env — you're likely on a subscription (OAuth).\n" +
+        "  Launching the agent normally (no proxy). Your MCP-side optimization + memory still work.\n" +
+        "  To ALSO compress subscription traffic on the wire, re-run with --subscription (see the note it prints).",
     );
     const direct = spawn(plan.binary, agentArgs, { stdio: "inherit", env: process.env });
     return new Promise((resolve) => direct.on("exit", (code) => resolve(code ?? 0)));
+  }
+  if (subscription && !hasApiKey(process.env)) {
+    // Explicit opt-in: disclose exactly what happens to the token before we do it.
+    console.error(
+      "[knitbrain] --subscription: routing " + plan.binary + " through a LOCAL proxy (127.0.0.1) to\n" +
+        "  compress requests. Your auth token is forwarded ONLY to the provider, never logged or stored\n" +
+        "  (proven by the proxy's token-leak test). This routes subscription traffic through a local\n" +
+        "  proxy — review your provider's terms if you're unsure. Continuing.",
+    );
   }
 
   // Reuse a running proxy, else start one detached on the loopback port.

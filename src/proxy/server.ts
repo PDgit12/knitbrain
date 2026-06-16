@@ -55,13 +55,34 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-/** Forward only the auth/version headers the upstream needs. */
+// Hop-by-hop / connection-specific headers we must NOT forward: host and
+// content-length are recomputed by fetch from the new (compressed) body;
+// accept-encoding is dropped so the upstream returns uncompressed SSE we can
+// pipe verbatim (forwarding it risks a decompression mismatch on streams).
+const STRIP_HEADERS = new Set([
+  "host",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+  "accept-encoding",
+]);
+
+/**
+ * Forward the client's headers to the upstream, byte-identical, minus the
+ * hop-by-hop ones. We pass EVERYTHING else through — including User-Agent and
+ * provider beta/app headers — because OAuth/subscription acceptance depends on
+ * them (an allowlist of just auth headers gets subscription requests
+ * rejected). Auth is forwarded unchanged, never re-signed, and (per the proxy
+ * contract) never logged or persisted — see the token-leak test.
+ */
 function forwardHeaders(h: IncomingHttpHeaders): Record<string, string> {
-  const out: Record<string, string> = { "content-type": "application/json" };
-  for (const k of ["x-api-key", "anthropic-version", "anthropic-beta", "authorization"]) {
-    const v = h[k];
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(h)) {
+    if (STRIP_HEADERS.has(k.toLowerCase())) continue;
     if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v)) out[k] = v.join(", ");
   }
+  if (!out["content-type"]) out["content-type"] = "application/json";
   return out;
 }
 
@@ -72,9 +93,12 @@ function forwardHeaders(h: IncomingHttpHeaders): Record<string, string> {
  */
 export function createProxyServer(cfg: ProxyConfig): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res, cfg).catch((err: unknown) => {
+    void handle(req, res, cfg).catch(() => {
+      // Fail closed: generic body only. Never echo the error detail — it must
+      // be impossible for a forwarded auth token or request content to surface
+      // in an error response.
       if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "knitbrain proxy upstream failure", detail: String(err) }));
+      res.end(JSON.stringify({ error: "knitbrain proxy: upstream request failed" }));
     });
   });
 }
