@@ -75,6 +75,22 @@ function anchorSkeleton(text: string, handle: string, isCodeShape: boolean): str
   return `${head}\n⟪… ${middle.length - rescued.length} lines elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
 }
 
+/**
+ * Re-surface any top-level declaration that body-elision dropped from a code
+ * skeleton. Concatenated multi-file dumps can let one function body's brace
+ * range over-run and swallow later signatures (AST, heuristic, and anchor
+ * paths all hit this) — the API surface an agent navigates by must never
+ * vanish from the skeleton. Lossless either way; this just keeps it inline.
+ */
+function rescueDecls(original: string, skeleton: string): string {
+  const missing: string[] = [];
+  for (const line of original.split("\n")) {
+    const m = DECLARATION_LINE.exec(line);
+    if (m && !skeleton.includes(m[1]!)) missing.push(line.trim());
+  }
+  return missing.length > 0 ? `${skeleton}\n⟪decls: ${missing.join(" · ")}⟫` : skeleton;
+}
+
 /** Deterministic content-type detection (no ML). JSON is strict; the
  * structured shapes (diff/search/log) outrank the looser code heuristic —
  * grep dumps and test logs used to trip isCode and compress poorly. */
@@ -187,6 +203,18 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
         originalTokens === 0
           ? 0
           : Math.round((1 - skeletonTokens / originalTokens) * 1000) / 10;
+    }
+  }
+
+  // DECLARATION RESCUE: re-append any top-level signature elision dropped
+  // (code only — that's where declarations live; diffs self-rescue).
+  if (contentType === "code") {
+    const rescued = rescueDecls(text, skeleton);
+    if (rescued !== skeleton) {
+      skeleton = rescued;
+      skeletonTokens = countTokens(skeleton);
+      savedPct =
+        originalTokens === 0 ? 0 : Math.round((1 - skeletonTokens / originalTokens) * 1000) / 10;
     }
   }
 

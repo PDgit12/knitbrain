@@ -39,6 +39,20 @@ describe("ContentRouter (rung 4)", () => {
     expect(detect("Just a paragraph of ordinary prose, nothing structured here.")).toBe("text");
   });
 
+  it("rescues a top-level declaration that body-elision over-ran (concatenated dump)", () => {
+    // A truncated/unclosed first function makes the brace scan run past its
+    // intended end into the second function — eliding `export function second`.
+    // Without the rescue, `second` vanishes from the skeleton (the real bug).
+    const body = Array.from({ length: 60 }, (_, i) => `  doThing(${i});`).join("\n");
+    const dump = `export function first(x: number) {\n${body}\nexport function second() { return 2; }\n`;
+    const r = compress(dump, ccr);
+    expect(r.compressed).toBe(true);
+    expect(r.contentType).toBe("code");
+    expect(r.skeleton).toContain("first"); // signature kept normally
+    expect(r.skeleton).toContain("second"); // signature rescued, not swallowed
+    expect(ccr.get(r.handle)).toBe(dump); // still lossless
+  });
+
   it("NEVER expands — declaration-only code passes through unchanged", () => {
     // The exact shape that regressed in the e2e (interfaces, no fn bodies).
     const decls = `export interface A { id: number; name: string; }
