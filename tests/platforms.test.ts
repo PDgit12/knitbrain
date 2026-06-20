@@ -9,6 +9,7 @@ import {
   cursorArtifacts,
   vscodeArtifacts,
   codexSnippet,
+  universalArtifacts,
 } from "../src/platforms.js";
 
 const cfg = generateConfig();
@@ -54,6 +55,22 @@ describe("platform adapter matrix (rung 16)", () => {
       const parsed = JSON.parse(readFileSync(join(root, ".cursor/mcp.json"), "utf8"));
       expect(parsed.mcpServers.other).toEqual({ command: "x" });
       expect(parsed.mcpServers.knitbrain).toEqual({ command: "knitbrain" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("universalArtifacts (AGENTS.md) writes when absent, never clobbers when present", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-agents-"));
+    try {
+      // absent → written
+      expect(applyArtifacts(root, universalArtifacts(), cfg)).toEqual(["AGENTS.md"]);
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("Knit Brain");
+      // present → skipped, user content preserved
+      const mine = "# my own agents file\n";
+      writeFileSync(join(root, "AGENTS.md"), mine, "utf8");
+      expect(applyArtifacts(root, universalArtifacts(), cfg)).toEqual([]);
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(mine);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

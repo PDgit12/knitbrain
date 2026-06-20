@@ -13,8 +13,9 @@ export interface Artifact {
   /** Path relative to the project root. */
   path: string;
   content: string;
-  /** Merge strategy: json-merges for shared config files, write for ours. */
-  mode: "write" | "json-merge-mcp" | "json-merge-hooks";
+  /** Merge strategy: json-merges for shared config files, write for ours,
+   *  write-if-absent for shared files we must not clobber (e.g. AGENTS.md). */
+  mode: "write" | "write-if-absent" | "json-merge-mcp" | "json-merge-hooks";
 }
 
 /** Hook wiring for Claude Code settings.json (Layer 2 enforcement). The
@@ -78,6 +79,21 @@ export type TerseLevel = "lite" | "full" | "ultra";
  * TERSE_MODE; this just stamps the active level on it. */
 export function terseGuide(level: TerseLevel = "full"): string {
   return `${TERSE_MODE}\n\nActive level: **${level}**.`;
+}
+
+/** Universal: AGENTS.md is the cross-agent standard (Codex, Amp, Gemini,
+ * OpenCode, Cursor, … all read it). Written for every setup, never clobbering
+ * a user's existing AGENTS.md. The MCP server itself is the integration; this
+ * carries the notation + terse guidance to agents we don't write native config
+ * for. */
+export function universalArtifacts(): Artifact[] {
+  return [
+    {
+      path: "AGENTS.md",
+      mode: "write-if-absent",
+      content: `# Knit Brain\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
+    },
+  ];
 }
 
 /** Claude Code: .mcp.json + native slash commands. */
@@ -211,6 +227,8 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
   const written: string[] = [];
   for (const a of artifacts) {
     const full = join(root, a.path);
+    // Shared standard files (AGENTS.md): never clobber a user's existing one.
+    if (a.mode === "write-if-absent" && existsSync(full)) continue;
     mkdirSync(dirname(full), { recursive: true });
     let content = a.content;
     if (a.mode === "json-merge-mcp" || a.mode === "json-merge-hooks") {
