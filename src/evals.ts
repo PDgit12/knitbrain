@@ -49,7 +49,9 @@ const SUMMARY_WINDOW = 20;
 
 /** TOP-LEVEL declarations (column 0, modifiers allowed). Names nested inside
  * function bodies are elided BY DESIGN (that's what body elision is); the
- * promise is that the names an agent navigates by — the API surface — survive. */
+ * promise is that the names an agent navigates by — the API surface — survive.
+ * Kept INDEPENDENT from the optimizer's DECLARATION_LINE on purpose: a test that
+ * imports the impl's own regex can't catch the impl drifting from intent. */
 const DECLARATION =
   /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|struct|enum)\s+([A-Za-z_$][\w$]*)/gm;
 
@@ -171,6 +173,7 @@ export async function runEvals(args: string[], log: (line: string) => void = con
   const rep = emptyReport();
   if (files.length === 0) {
     log("[evals] nothing to scan — pass a directory or .jsonl path (default: ~/.claude/projects)");
+    rep.pass = true; // nothing to judge is not a failure (don't break CI on an empty corpus)
     return rep;
   }
   await ensureAst();

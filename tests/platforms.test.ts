@@ -9,6 +9,7 @@ import {
   cursorArtifacts,
   vscodeArtifacts,
   codexSnippet,
+  universalArtifacts,
 } from "../src/platforms.js";
 
 const cfg = generateConfig();
@@ -59,11 +60,27 @@ describe("platform adapter matrix (rung 16)", () => {
     }
   });
 
+  it("universalArtifacts (AGENTS.md) writes when absent, never clobbers when present", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-agents-"));
+    try {
+      // absent → written
+      expect(applyArtifacts(root, universalArtifacts(), cfg)).toEqual(["AGENTS.md"]);
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("Knit Brain");
+      // present → skipped, user content preserved
+      const mine = "# my own agents file\n";
+      writeFileSync(join(root, "AGENTS.md"), mine, "utf8");
+      expect(applyArtifacts(root, universalArtifacts(), cfg)).toEqual([]);
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(mine);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("applyArtifacts writes every artifact to disk", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-plat-"));
     try {
       const written = applyArtifacts(root, claudeArtifacts(cfg), cfg);
-      expect(written.length).toBe(5); // .mcp.json + settings.json(hooks) + 2 commands + rules
+      expect(written.length).toBe(6); // .mcp.json + settings.json(hooks) + 3 commands (meter/handoff/terse) + rules
       for (const p of written) expect(existsSync(join(root, p))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });

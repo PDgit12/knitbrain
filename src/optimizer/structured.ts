@@ -24,7 +24,7 @@ export const RESULT_LINE =
  * by every elision path (anchor AND diff hunks) so a compressed view never
  * loses what functions/classes/types exist or changed. Shared single source. */
 export const DECLARATION_LINE =
-  /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|type|struct|enum)\s+[A-Za-z_$]/;
+  /^(?:export\s+|pub(?:\(crate\))?\s+|public\s+|private\s+|protected\s+|static\s+|abstract\s+|final\s+|async\s+|default\s+)*(?:function|class|def|fn|func|interface|trait|impl|type|struct|enum)\s+([A-Za-z_$][\w$]*)/;
 
 // ---------------------------------------------------------------------------
 // Search results (grep -n / ripgrep / eslint style: path:line[:col]: content)

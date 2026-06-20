@@ -8,6 +8,7 @@ import {
   cursorArtifacts,
   vscodeArtifacts,
   windsurfArtifacts,
+  universalArtifacts,
   windsurfSnippet,
   zedSnippet,
   copilotSnippet,
@@ -117,6 +118,8 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   if (platforms.includes("vscode")) artifacts.push(...vscodeArtifacts());
   if (platforms.includes("windsurf")) artifacts.push(...windsurfArtifacts());
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
+  // Universal AGENTS.md (every setup; never clobbers an existing one).
+  for (const path of applyArtifacts(cwd, universalArtifacts(), cfg)) console.log(`  ✓ wrote ${path}`);
   // Global-config platforms: with --yes we WRITE the config (backed up,
   // non-clobbering); otherwise we print the snippet to paste (safe default).
   const snippets: Partial<Record<Platform, () => string>> = {
@@ -143,6 +146,17 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   console.log("  The operating protocol itself needs NO setup: it rides the MCP handshake");
   console.log("  (any MCP client gets it). For platforms without MCP-instructions support,");
   console.log("  paste the output of:  knitbrain prompt");
+
+  console.log("");
+  console.log("  Any other agent (kilo, roo, trae, qwen, amp, cline, continue, …):");
+  console.log("    point its MCP config at this one universal entry —");
+  console.log('    { "mcpServers": { "knitbrain": { "command": "knitbrain" } } }');
+  console.log("    AGENTS.md (written above) carries the guidance; no per-agent setup needed.");
+
+  console.log("");
+  console.log("  Statusline badge (lifetime tokens saved) — add to .claude/settings.json:");
+  console.log('    "statusLine": { "type": "command", "command": "knitbrain statusline" }');
+  console.log("    (one tool owns the statusline; KNITBRAIN_STATUSLINE=0 silences it)");
 
   // Billing-mode detection: an API key in the environment means API /
   // pay-as-you-go traffic that CAN be proxied; no key usually means a

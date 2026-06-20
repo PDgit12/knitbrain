@@ -3,6 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { runSetup } from "./setup.js";
 
+/** Compact token count for the statusline: 12.4k / 1.2M. */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 async function main(): Promise<void> {
   if (process.argv[2] === "setup") {
     process.exit(runSetup());
@@ -57,8 +64,11 @@ usage: knitbrain <command>
   wrap <agent> launch claude/codex/aider/copilot with the optimizer proxy wired in
   evals        answer-preservation gates on your transcripts (exit 1 on failure)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
+  compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
+  terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
+  statusline   print the tokens-saved badge for your editor's statusline (KNITBRAIN_STATUSLINE=0 silences)
   hub          start the team hub (host runs once; teammates join)
   join         join a team hub: knitbrain join <url> <token> <name>
   help         this message
@@ -76,10 +86,36 @@ usage: knitbrain <command>
     console.log("call knitbrain_retrieve with that hash to read it byte-for-byte. Compression is lossless.");
     return;
   }
+  if (process.argv[2] === "statusline") {
+    // Runs on every prompt render — must be fast and NEVER throw (a crashing
+    // statusline command breaks the editor's prompt line).
+    if (process.env["KNITBRAIN_STATUSLINE"] === "0") return;
+    try {
+      const [{ createMeter }, paths] = await Promise.all([
+        import("./engine/meter.js"),
+        import("./paths.js"),
+      ]);
+      const saved = createMeter(paths.meterRoot()).read().savedTokens;
+      if (saved > 0) process.stdout.write(`[knitbrain] saved ${fmtTokens(saved)}`);
+    } catch {
+      /* statusline must never break the prompt */
+    }
+    return;
+  }
+  if (process.argv[2] === "terse") {
+    const { terseGuide } = await import("./platforms.js");
+    const lvl = process.argv[3];
+    console.log(terseGuide(lvl === "lite" || lvl === "ultra" ? lvl : "full"));
+    return;
+  }
   if (process.argv[2] === "evals") {
     const { runEvals } = await import("./evals.js");
     const rep = await runEvals(process.argv.slice(3));
     process.exit(rep.pass ? 0 : 1);
+  }
+  if (process.argv[2] === "compress") {
+    const { runCompressFile } = await import("./compress-file.js");
+    process.exit(runCompressFile(process.argv.slice(3)));
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
