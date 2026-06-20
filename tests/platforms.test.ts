@@ -63,7 +63,7 @@ describe("platform adapter matrix (rung 16)", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-plat-"));
     try {
       const written = applyArtifacts(root, claudeArtifacts(cfg), cfg);
-      expect(written.length).toBe(5); // .mcp.json + settings.json(hooks) + 2 commands + rules
+      expect(written.length).toBe(6); // .mcp.json + settings.json(hooks) + 3 commands (meter/handoff/terse) + rules
       for (const p of written) expect(existsSync(join(root, p))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });

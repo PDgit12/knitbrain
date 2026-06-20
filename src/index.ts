@@ -59,6 +59,7 @@ usage: knitbrain <command>
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
+  terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
   hub          start the team hub (host runs once; teammates join)
   join         join a team hub: knitbrain join <url> <token> <name>
   help         this message
@@ -74,6 +75,12 @@ usage: knitbrain <command>
     console.log("");
     console.log("NOTATION: a ⟨ccr:HASH⟩ marker in any output means the exact original is stored locally —");
     console.log("call knitbrain_retrieve with that hash to read it byte-for-byte. Compression is lossless.");
+    return;
+  }
+  if (process.argv[2] === "terse") {
+    const { terseGuide } = await import("./platforms.js");
+    const lvl = process.argv[3];
+    console.log(terseGuide(lvl === "lite" || lvl === "ultra" ? lvl : "full"));
     return;
   }
   if (process.argv[2] === "evals") {

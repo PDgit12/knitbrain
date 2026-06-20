@@ -28,7 +28,8 @@ EVERY NON-TRIVIAL TASK
 CONTEXT DISCIPLINE (tokens are the budget)
 6. Big file? knitbrain_read (not raw Read). Big output to keep? knitbrain_optimize. Exact original back? knitbrain_retrieve with the ⟨ccr:hash⟩.
 7. Check knitbrain_context_meter when the session runs long; follow its advice.
+8. Terse output (output-side budget): answer telegraphically — same facts, fewer tokens (lite/full/ultra). \`knitbrain terse [level]\` prints the guide; /terse toggles it in Claude Code. Never drop technical content, numbers, paths, or decision-changing caveats.
 
 BEFORE SAYING DONE
-8. Verify claims (run the tests/build — don't assert green without output).
-9. Close the loop with a SIGNAL, not "task complete": knitbrain_skill_outcome (did the skill work?), knitbrain_learning_outcome (did a recalled learning actually help? wrong ones get discredited and demoted), knitbrain_record_learning for anything non-obvious, knitbrain_skill_save if the playbook improved. Failing skills and discredited learnings are flagged automatically. The next session starts smarter — that's the loop.`;
+9. Verify claims (run the tests/build — don't assert green without output).
+10. Close the loop with a SIGNAL, not "task complete": knitbrain_skill_outcome (did the skill work?), knitbrain_learning_outcome (did a recalled learning actually help? wrong ones get discredited and demoted), knitbrain_record_learning for anything non-obvious, knitbrain_skill_save if the playbook improved. Failing skills and discredited learnings are flagged automatically. The next session starts smarter — that's the loop.`;

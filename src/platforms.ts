@@ -58,7 +58,7 @@ const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons.
  * optimizer/CCR). Answer telegraphically: same technical content, far fewer
  * tokens. Levels mirror common practice (lite/full/ultra).
  */
-const TERSE_MODE = `## Terse mode (output tokens)
+export const TERSE_MODE = `## Terse mode (output tokens)
 
 Answer terse. Same facts, fewer words:
 - Drop filler, pleasantries, hedging ("I'd be happy to", "it seems that", "you might want to consider").
@@ -70,6 +70,15 @@ Answer terse. Same facts, fewer words:
 
 Example — verbose: "The reason your component re-renders is likely that you're creating a new object reference on each render; consider useMemo."
 Terse: "New object ref each render → re-render. Wrap in useMemo."`;
+
+export type TerseLevel = "lite" | "full" | "ultra";
+
+/** Output-side terse instruction at a chosen level. Single source: the CLI
+ * (`knitbrain terse`), the /terse slash command, and the rules files all use
+ * TERSE_MODE; this just stamps the active level on it. */
+export function terseGuide(level: TerseLevel = "full"): string {
+  return `${TERSE_MODE}\n\nActive level: **${level}**.`;
+}
 
 /** Claude Code: .mcp.json + native slash commands. */
 export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
@@ -85,6 +94,11 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
       path: ".claude/commands/handoff.md",
       mode: "write",
       content: `---\ndescription: Save a Knit Brain session handoff (goal, state, next steps) so a fresh session resumes cleanly\n---\n\nSummarize the current goal, completed work, in-flight files, and concrete next steps, then call \`knitbrain_save_handoff\` with that summary as \`state\`. Confirm to the user that a fresh session will resume via \`knitbrain_load_session\`.\n`,
+    },
+    {
+      path: ".claude/commands/terse.md",
+      mode: "write",
+      content: `---\ndescription: Terse knitbrain output (lite|full|ultra) — same facts, fewer output tokens\nargument-hint: [lite|full|ultra]\n---\n\nAdopt terse output for the rest of this session. Run \`knitbrain terse $ARGUMENTS\` and follow the printed guide (default level: full). Say "verbose" to switch off.\n`,
     },
     {
       path: ".claude/rules/knitbrain.md",
