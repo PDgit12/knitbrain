@@ -173,6 +173,7 @@ export async function runEvals(args: string[], log: (line: string) => void = con
   const rep = emptyReport();
   if (files.length === 0) {
     log("[evals] nothing to scan — pass a directory or .jsonl path (default: ~/.claude/projects)");
+    rep.pass = true; // nothing to judge is not a failure (don't break CI on an empty corpus)
     return rep;
   }
   await ensureAst();
