@@ -64,6 +64,7 @@ usage: knitbrain <command>
   wrap <agent> launch claude/codex/aider/copilot with the optimizer proxy wired in
   evals        answer-preservation gates on your transcripts (exit 1 on failure)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
+  compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
   terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
@@ -111,6 +112,10 @@ usage: knitbrain <command>
     const { runEvals } = await import("./evals.js");
     const rep = await runEvals(process.argv.slice(3));
     process.exit(rep.pass ? 0 : 1);
+  }
+  if (process.argv[2] === "compress") {
+    const { runCompressFile } = await import("./compress-file.js");
+    process.exit(runCompressFile(process.argv.slice(3)));
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
