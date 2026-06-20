@@ -144,6 +144,11 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   console.log("  (any MCP client gets it). For platforms without MCP-instructions support,");
   console.log("  paste the output of:  knitbrain prompt");
 
+  console.log("");
+  console.log("  Statusline badge (lifetime tokens saved) — add to .claude/settings.json:");
+  console.log('    "statusLine": { "type": "command", "command": "knitbrain statusline" }');
+  console.log("    (one tool owns the statusline; KNITBRAIN_STATUSLINE=0 silences it)");
+
   // Billing-mode detection: an API key in the environment means API /
   // pay-as-you-go traffic that CAN be proxied; no key usually means a
   // subscription (Pro/Max) OAuth session that cannot — MCP-side optimization

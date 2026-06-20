@@ -3,6 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { runSetup } from "./setup.js";
 
+/** Compact token count for the statusline: 12.4k / 1.2M. */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 async function main(): Promise<void> {
   if (process.argv[2] === "setup") {
     process.exit(runSetup());
@@ -60,6 +67,7 @@ usage: knitbrain <command>
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
   terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
+  statusline   print the tokens-saved badge for your editor's statusline (KNITBRAIN_STATUSLINE=0 silences)
   hub          start the team hub (host runs once; teammates join)
   join         join a team hub: knitbrain join <url> <token> <name>
   help         this message
@@ -75,6 +83,22 @@ usage: knitbrain <command>
     console.log("");
     console.log("NOTATION: a ⟨ccr:HASH⟩ marker in any output means the exact original is stored locally —");
     console.log("call knitbrain_retrieve with that hash to read it byte-for-byte. Compression is lossless.");
+    return;
+  }
+  if (process.argv[2] === "statusline") {
+    // Runs on every prompt render — must be fast and NEVER throw (a crashing
+    // statusline command breaks the editor's prompt line).
+    if (process.env["KNITBRAIN_STATUSLINE"] === "0") return;
+    try {
+      const [{ createMeter }, paths] = await Promise.all([
+        import("./engine/meter.js"),
+        import("./paths.js"),
+      ]);
+      const saved = createMeter(paths.meterRoot()).read().savedTokens;
+      if (saved > 0) process.stdout.write(`[knitbrain] saved ${fmtTokens(saved)}`);
+    } catch {
+      /* statusline must never break the prompt */
+    }
     return;
   }
   if (process.argv[2] === "terse") {
