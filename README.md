@@ -42,7 +42,7 @@ Saving tokens is worthless if the agent loses the answer. `knitbrain evals` chec
 |---|---|---|
 | error-fidelity — every error/failure line survives in the skeleton | **142/142 = 100%** | 100% |
 | summary-fidelity — test/build result totals survive | **189/189 = 100%** | ≥95% |
-| identifier-fidelity — top-level declared names survive | **≥99%** (corpus-dependent) | ≥99% |
+| identifier-fidelity — top-level declared names survive | **100%** (rescued inline) | ≥99% |
 | round-trip — `⟨ccr:hash⟩` recovers the original byte-for-byte | **100%** | 100% |
 | never-expand — no compressed block got bigger | **100%** | 100% |
 
@@ -125,6 +125,11 @@ knitbrain dashboard    # live local dashboard (127.0.0.1:8790)
 knitbrain learn        # mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
 knitbrain evals        # answer-preservation gates on your own transcripts
 knitbrain prompt       # full operating prompt, for platforms without MCP-instructions support
+
+# output-side savings (knitbrain shrinks tool results IN; these shrink what goes OUT):
+knitbrain terse [lvl]  # terse-output guide (lite|full|ultra) — paste, or /terse in Claude Code
+knitbrain compress <f> # terse-rewrite a memory file (CLAUDE.md) — keeps <f>.original backup
+knitbrain statusline   # tokens-saved badge for your editor's statusline
 
 # pay per token? one command wires the optimizer proxy into your agent:
 knitbrain wrap claude  # (or codex / aider / copilot) — sets the base URL,
