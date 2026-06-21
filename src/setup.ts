@@ -170,10 +170,11 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
     console.log("    knitbrain-proxy");
     for (const [k, v] of Object.entries(cfg.proxyEnv)) console.log(`    export ${k}=${v}`);
   } else {
-    console.log("  No API key in env — likely a subscription plan (Pro/Max/OAuth).");
-    console.log("  The proxy doesn't apply to OAuth traffic; MCP-side optimization is active");
-    console.log("  (tool outputs, memory, meter, skills — the bulk of context burn).");
-    console.log("  If you DO use an API key, export it and re-run setup for proxy wiring.");
+    console.log("  Subscription plan (Pro/Max/OAuth) detected — you get the FULL optimization.");
+    console.log("  The main lever — tool-result compression (the bulk of context burn) — runs");
+    console.log("  identically with or without an API key: it rides the MCP path, not the proxy.");
+    console.log("  (The on-the-wire proxy is an API-key-only BONUS; no subscription LLM API can be");
+    console.log("  intercepted — that's true of every tool in this space, not a knitbrain limit.)");
   }
   return 0;
 }
