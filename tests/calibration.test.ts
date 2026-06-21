@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCalibration } from "../src/engine/calibration.js";
@@ -56,5 +56,34 @@ describe("classifier FP loop (calibration)", () => {
     const b = createCalibration(join(root, "cal"));
     for (let i = 0; i < 3; i += 1) a.recordFalsePositive("complex", "trivial");
     expect(b.get().scopeAdjust).toBe(1);
+  });
+});
+
+describe("calibration decay (stale FP votes age out, learned shift persists)", () => {
+  it("clears partial fpDirections older than 30d but keeps scopeAdjust", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-decay-"));
+    try {
+      const old = new Date(Date.now() - 40 * 86400000).toISOString();
+      writeFileSync(join(r, "calibration.json"), JSON.stringify({
+        fpDirections: { "complex-was-standard": 2 },
+        scopeAdjust: 1,
+        updatedAt: old,
+      }));
+      const cal = createCalibration(r);
+      const s = cal.get();
+      expect(s.fpDirections).toEqual({}); // stale partial votes decayed
+      expect(s.scopeAdjust).toBe(1); // learned calibration kept
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+  it("keeps recent fpDirections", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-decay2-"));
+    try {
+      writeFileSync(join(r, "calibration.json"), JSON.stringify({
+        fpDirections: { "complex-was-standard": 2 },
+        scopeAdjust: 0,
+        updatedAt: new Date().toISOString(),
+      }));
+      expect(createCalibration(r).get().fpDirections).toEqual({ "complex-was-standard": 2 });
+    } finally { rmSync(r, { recursive: true, force: true }); }
   });
 });

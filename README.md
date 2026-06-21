@@ -172,6 +172,7 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 - **Never-expand** — output tokens ≤ input tokens, always.
 - **Errors survive** — error/failure lines, result summaries, and top-level declarations are never elided; `knitbrain evals` gates this at 100%/≥95%/≥99% on real transcripts.
 - **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.
+- **Fresh, not stale** — a handoff is timestamped: `knitbrain_load_session` flags one older than 7 days and auto-clears past 14, so a dead handoff never silently resumes; the knowledge graph drops cache entries for deleted files on load; stale classifier vote-runs decay after 30 days (the learned calibration persists). Memory is ranked by outcome — a learning reported wrong is discredited and sinks.
 - **Local-first** — proxy, hub, and dashboard bind `127.0.0.1` by default; nothing leaves your machine.
 - **Reproducible claims** — the headline numbers come from `knitbrain profile` and `knitbrain evals` on real transcripts, both of which you can run on yours. (`npm run bench` is a CI regression gate: a real-shape suite whose fixture mix mirrors the profiled distribution, with per-shape savings floors and fidelity checks, plus a clearly-labeled best-case suite — fixture numbers are never quoted as real-world savings.)
 

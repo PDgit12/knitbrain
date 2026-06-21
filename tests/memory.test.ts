@@ -113,3 +113,39 @@ describe("learnings closed loop (signal → adjustment)", () => {
     expect(fresh.learningOutcome("old1", true)!.helpful).toBe(1);
   });
 });
+
+
+describe("handoff freshness", () => {
+  let r: string;
+  let m: ReturnType<typeof createMemory>;
+  let hf: string;
+  beforeEach(() => { r = mkdtempSync(join(tmpdir(), "kb-hf-")); m = createMemory(join(r, "memory")); hf = join(r, "memory", "handoff.txt"); });
+  afterEach(() => rmSync(r, { recursive: true, force: true }));
+  const old = (days: number) => new Date(Date.now() - days * 86400000).toISOString();
+
+  it("fresh handoff is not stale", () => {
+    m.saveHandoff("resume me");
+    const s = m.loadSession();
+    expect(s.handoff).toBe("resume me");
+    expect(s.handoffStale).toBe(false);
+    expect(s.handoffSavedAt).toBeTruthy();
+  });
+  it("flags a handoff older than 7 days", () => {
+    writeFileSync(hf, JSON.stringify({ state: "older", savedAt: old(10) }));
+    const s = m.loadSession();
+    expect(s.handoff).toBe("older");
+    expect(s.handoffStale).toBe(true);
+  });
+  it("auto-clears a handoff older than 14 days", () => {
+    writeFileSync(hf, JSON.stringify({ state: "ancient", savedAt: old(20) }));
+    expect(m.loadSession().handoff).toBeNull();
+    expect(m.loadSession().handoff).toBeNull(); // file removed, stays gone
+  });
+  it("treats a legacy bare-string handoff as undated + stale", () => {
+    writeFileSync(hf, "legacy plain text");
+    const s = m.loadSession();
+    expect(s.handoff).toBe("legacy plain text");
+    expect(s.handoffSavedAt).toBeNull();
+    expect(s.handoffStale).toBe(true);
+  });
+});

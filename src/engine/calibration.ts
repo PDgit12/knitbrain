@@ -35,6 +35,9 @@ export interface Calibration {
 const ADJUSTMENT_THRESHOLD = 3;
 /** scopeAdjust is clamped — calibration tunes, it must never disable the classifier. */
 const MAX_ADJUST = 2;
+/** Partial FP vote runs older than this age out (incomplete signal goes stale);
+ *  the learned scopeAdjust persists — decaying it would un-learn calibration. */
+const DECAY_DAYS = 30;
 
 const TIERS: ReadonlySet<string> = new Set(["inquiry", "trivial", "standard", "complex"]);
 
@@ -54,10 +57,13 @@ export function createCalibration(root: string): Calibration {
     if (!existsSync(path)) return fresh();
     try {
       const p = JSON.parse(readFileSync(path, "utf8")) as Partial<CalibrationState>;
+      const updatedAt = typeof p.updatedAt === "string" ? p.updatedAt : new Date(0).toISOString();
+      // Decay: stale incomplete vote runs age out; keep the learned scopeAdjust.
+      const stale = Date.now() - Date.parse(updatedAt) > DECAY_DAYS * 86_400_000;
       return {
-        fpDirections: p.fpDirections && typeof p.fpDirections === "object" ? { ...p.fpDirections } : {},
+        fpDirections: !stale && p.fpDirections && typeof p.fpDirections === "object" ? { ...p.fpDirections } : {},
         scopeAdjust: typeof p.scopeAdjust === "number" ? p.scopeAdjust : 0,
-        updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : new Date(0).toISOString(),
+        updatedAt,
       };
     } catch {
       return fresh();

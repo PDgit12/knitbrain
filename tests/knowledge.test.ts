@@ -71,3 +71,22 @@ describe("knowledge graph (rung 10)", () => {
     expect(reopened.queryDependents("src/a.ts")).toContain("src/b.ts");
   });
 });
+
+
+describe("ghost-prune (deleted files dropped on cache load)", () => {
+  it("drops cached nodes whose file no longer exists", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-ghost-"));
+    try {
+      const cacheDir = join(r, ".cache");
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(join(r, "real.ts"), "export const x = 1;");
+      writeFileSync(join(cacheDir, "graph.json"), JSON.stringify([
+        { file: "real.ts", imports: [], exports: ["x"] },
+        { file: "ghost.ts", imports: [], exports: ["y"] },
+      ]));
+      const kn = createKnowledge(r, cacheDir);
+      expect(kn.queryExports("real.ts")).toEqual(["x"]);
+      expect(kn.queryExports("ghost.ts")).toBeNull();
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+});

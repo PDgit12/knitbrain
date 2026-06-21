@@ -82,7 +82,9 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
   if (existsSync(cachePath)) {
     try {
       const nodes = JSON.parse(readFileSync(cachePath, "utf8")) as FileNode[];
-      for (const n of nodes) graph.set(n.file, n);
+      // Ghost-prune: drop cached nodes for files deleted since the last scan,
+      // so a stale cache never reports a file that no longer exists.
+      for (const n of nodes) if (existsSync(resolve(projectRoot, n.file))) graph.set(n.file, n);
       buildReverseIndex();
       scanned = true;
     } catch {

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
+
+/** Handoff freshness: flag a handoff older than this, auto-clear past the hard limit. */
+const HANDOFF_STALE_DAYS = 7;
+const HANDOFF_CLEAR_DAYS = 14;
 import { join } from "node:path";
 
 /** A recorded project learning. */
@@ -45,7 +49,14 @@ export interface Memory {
    * loop — a wrong learning gets discredited and demoted, a useful one rises. */
   learningOutcome(id: string, helpful: boolean, note?: string): Learning | null;
   saveHandoff(state: string): void;
-  loadSession(): { handoff: string | null; topLearnings: LearningHeadline[] };
+  loadSession(): {
+    handoff: string | null;
+    /** When the handoff was saved (null for a legacy undated handoff). */
+    handoffSavedAt: string | null;
+    /** True if the handoff is old enough to distrust before resuming. */
+    handoffStale: boolean;
+    topLearnings: LearningHeadline[];
+  };
 }
 
 const tokenize = (s: string): string[] =>
@@ -154,11 +165,43 @@ export function createMemory(root: string): Memory {
     },
 
     saveHandoff(state) {
-      writeAtomic(handoffPath, state);
+      // Timestamped so loadSession can detect a stale handoff (a weeks-old
+      // resume poisons the next session — the protocol's own warning).
+      writeAtomic(handoffPath, JSON.stringify({ state, savedAt: new Date().toISOString() }));
     },
 
     loadSession() {
-      const handoff = existsSync(handoffPath) ? readFileSync(handoffPath, "utf8") : null;
+      let handoff: string | null = null;
+      let handoffSavedAt: string | null = null;
+      let handoffStale = false;
+      if (existsSync(handoffPath)) {
+        const raw = readFileSync(handoffPath, "utf8");
+        let savedAt: string | null = null;
+        try {
+          const parsed = JSON.parse(raw) as { state?: string; savedAt?: string };
+          if (parsed && typeof parsed.state === "string") {
+            handoff = parsed.state;
+            savedAt = typeof parsed.savedAt === "string" ? parsed.savedAt : null;
+          } else {
+            handoff = raw; // JSON, but not our shape — treat verbatim
+          }
+        } catch {
+          handoff = raw; // legacy bare-string handoff (undated)
+        }
+        if (savedAt) {
+          const ageDays = (Date.now() - Date.parse(savedAt)) / 86_400_000;
+          if (ageDays > HANDOFF_CLEAR_DAYS) {
+            rmSync(handoffPath, { force: true }); // too old to trust — auto-clear
+            handoff = null;
+          } else {
+            handoffSavedAt = savedAt;
+            handoffStale = ageDays > HANDOFF_STALE_DAYS;
+          }
+        } else {
+          // Legacy undated handoff: keep (may still be relevant) but flag stale.
+          handoffStale = true;
+        }
+      }
       // ADJUSTMENT: resume with the most PROVEN learnings first (net helpful),
       // recency breaking ties — not just whatever was recorded last. A
       // discredited learning never leads the next session.
@@ -168,7 +211,7 @@ export function createMemory(root: string): Memory {
         .sort((a, b) => b.l.helpful - b.l.unhelpful - (a.l.helpful - a.l.unhelpful) || b.i - a.i)
         .slice(0, 5)
         .map(({ l }) => headline(l, 0));
-      return { handoff, topLearnings: top };
+      return { handoff, handoffSavedAt, handoffStale, topLearnings: top };
     },
   };
 }
