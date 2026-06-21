@@ -104,7 +104,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
         frac >= handoffAt ? "handoff" : frac >= warnAt ? "warn" : "ok";
       const advice =
         status === "handoff"
-          ? `Context ${usedPct}% full — SAVE A HANDOFF NOW (knitbrain_save_handoff with goal/state/next steps), then clear the session and resume; knitbrain_load_session restores everything.`
+          ? `Context ${usedPct}% full — SAVE A HANDOFF NOW (knitbrain_save_handoff with goal/state/next steps), then clear and resume with knitbrain_load_session. Prefer this over /compact: a handoff is structured and lossless (originals stay in the recall store), while /compact lossily summarizes and forgets.`
           : status === "warn"
             ? `Context ${usedPct}% full — finish the current step, then consider knitbrain_save_handoff before starting anything large.`
             : `Context ${usedPct}% full — healthy.`;
