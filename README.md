@@ -1,192 +1,158 @@
-# Knit Brain
+<h1 align="center">knitbrain</h1>
 
-[![npm](https://img.shields.io/npm/v/knitbrain)](https://www.npmjs.com/package/knitbrain)
-[![ci](https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml/badge.svg)](https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
+<p align="center"><strong>The local-first brain for coding agents.</strong></p>
 
-> The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~48% of all tool-result tokens on real sessions (55% on sizable blocks; 60–70% on code/JSON/logs), with answer-preservation gates, reproducible with one command.
+<p align="center">
+Per-project memory · lossless context compression · tier-routed workflow · an autonomous build loop —
+for <em>any</em> MCP-speaking agent, with or without an API key.
+</p>
 
-Pure TypeScript. No Python, no native binaries, no network beyond `npm install`.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#the-numbers">Numbers</a> ·
+  <a href="#what-you-get">What you get</a> ·
+  <a href="#loop-engineering">Loop engineering</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#commands">Commands</a>
+</p>
 
-```bash
-npx knitbrain profile    # measure what it would save on YOUR real sessions — before installing anything
-npx knitbrain evals      # prove the answers survive — same corpus, deterministic judging
-```
+---
 
-## The honest number
+Most tools in this space pick one axis. Compression layers shrink tokens but remember nothing.
+Memory layers remember but burn your context window. knitbrain is **one substrate** that does both —
+plus the workflow layer that makes an agent actually use them, and an autonomous loop that runs the
+whole thing across fresh contexts.
 
-Most tools in this space quote their best workload ("up to 90%!"). We publish the number nobody else does: the **all-inclusive average** — every tool-result token from real coding sessions, *including* the small outputs that pass through uncompressed.
+It ships as an **MCP server**, so it works in every MCP client (Claude Code, Cursor, Codex, Copilot,
+Windsurf, Cline, and more) with one config line. **Pure Node, three dependencies, no Python, no ML
+runtime, nothing leaves your machine.**
 
-**On ~3M tokens of tool results from real Claude Code sessions: ~48% saved overall, lossless.** That denominator includes every tool-result token — even the small outputs that pass through untouched (counting only sizable blocks ≥400 chars, it's ~55%). The exact figure moves with your workload mix; run `knitbrain profile` for yours. Every original recoverable byte-for-byte.
-
-| shape | % of real burn | saved |
-|---|---|---|
-| code & file reads | 47% | 60.3% |
-| repetitive logs | 17% | 70.5% |
-| short prose (reports, summaries) | 16% | 18.0% |
-| long prose | 7% | 69.2% |
-| test output | 6% | 47.4% |
-| JSON | 5% | 65.1% |
-| diffs | 1% | 62.7% |
-
-Measured the way others measure — single best-case workloads — we land 60–99% (import graphs 98.9%, whole files 88.8%, body-heavy code 71.6%). But that's not the number you'll feel; the all-inclusive average is.
-
-**Don't take our word for any of this.** `knitbrain profile` runs the actual optimizer over your own transcripts (`~/.claude/projects` by default) and prints *your* number. Local only — nothing is uploaded.
-
-## Same answers, measured
-
-Saving tokens is worthless if the agent loses the answer. `knitbrain evals` checks — on the same real corpus, with deterministic string-containment judging (no LLM judge to flatter us) — that the facts agents act on survive compression:
-
-| check | result | gate |
-|---|---|---|
-| error-fidelity — every error/failure line survives in the skeleton | **142/142 = 100%** | 100% |
-| summary-fidelity — test/build result totals survive | **189/189 = 100%** | ≥95% |
-| identifier-fidelity — top-level declared names survive | **100%** (rescued inline) | ≥99% |
-| round-trip — `⟨recall:hash⟩` recovers the original byte-for-byte | **100%** | 100% |
-| never-expand — no compressed block got bigger | **100%** | 100% |
-
-Error lines, result summaries, and round-trip recovery are hard guarantees (always 100%). Identifier-fidelity runs ≥99% on normal corpora; on declaration-dense corpora a name in a very large block can land in an elided region — and even then it's **lossless** (the full block is one `knitbrain_retrieve` away). Holding the fidelity line costs ~1pp of savings; we pay it. Run `npx knitbrain evals` (exit code 1 on gate failure) for your own number.
-
-## Why this and not a point tool
-
-Compression-only layers shrink tokens but remember nothing. Memory-only layers remember but burn your window. Knit Brain is one substrate doing both, plus the workflow layer that makes agents use them:
-
-- **Memory** — per-project learnings, session handoffs, a knowledge graph (imports/exports/blast-radius), on-demand skills that compound across tasks, and `knitbrain learn` — offline failure mining that writes corrections from your real sessions into CLAUDE.md.
-- **Lossless optimization** — structure-preserving skeletons (JSON keeps its schema; code keeps its signatures via tree-sitter AST across TypeScript/TSX/JS, Python, Go, Rust, Java, C++, C#, Ruby, PHP, Bash), dedicated handlers for search results, build/test logs, and diffs (error lines always survive), cross-turn dedup of re-sent bulk, sentence anchoring for prose — all reversible through a content-addressed store.
-- **Workflow intelligence** — a deterministic tier classifier (inquiry/trivial/standard/complex) routing how much process a task deserves; complex verdicts carry an explicit ENTER-PLAN-MODE directive the agent follows before touching files; guardrailed agent generation and a shared team board.
-- **Every rung compounds, not just remembers** — the difference between an asset and a log is the closed loop (memory → signal → adjustment). Each subsystem closes it: compression backs off any kind that gets over-retrieved (TOIN), the classifier shifts its thresholds after 3 wrong-verdict votes (`record_false_positive`), skills get flagged `needs-revision` when reported failing (`skill_outcome`), and learnings are ranked by whether they actually helped — a learning reported wrong is discredited and demoted, its correction folded into the lesson (`learning_outcome`). Wrong tuning costs efficiency, never correctness.
-- **Closed loop, enforced not just nudged** — the full operating protocol (load session → classify → plan-mode adherence → skills → agents → context discipline → record learning) rides the MCP handshake. On hook-capable hosts (Claude Code), `setup` also installs lifecycle hooks so the loop's first step is *automatic*: a SessionStart hook injects the protocol + prior handoff + proven learnings into every session, a PreToolUse hook hard-redirects large raw Reads to `knitbrain_read`, PreCompact/Stop keep work resumable. Honest ceiling: enforced where the host has hooks, strongly nudged everywhere else.
-
-## Architecture
-
-```
- agent (Claude Code / Cursor / Codex)              your app (API key)
-            │                                            │
-            ▼                                            ▼
- ┌──────────────────────────┐            ┌──────────────────────────────┐
- │  knitbrain · MCP server  │            │  knitbrain-proxy (loopback)  │
- │  27 tools                │            │  rolling window — old turns  │
- │  ├ memory: learnings,    │            │  compressed harder · exact   │
- │  │ handoffs, sessions    │            │  repeats deduped to markers  │
- │  ├ knowledge graph       │            │  · your directive verbatim   │
- │  ├ classifier + FP loop  │            │  · CacheAligner prefix       │
- │  ├ skills · agents       │            └──────────────┬───────────────┘
- │  ├ team board · meter    │                           │ smaller request
- │  └ optimize / retrieve   │                           ▼
- └────────────┬─────────────┘            LLM provider (Anthropic
-              │ every data payload        /v1/messages · OpenAI
-              ▼                           /v1/chat/completions)
- ┌──────────────────────────────────────────────┐
- │ optimizer router                             │
- │  json   → schema-preserving skeleton         │
- │  code   → tree-sitter AST body elision       │
- │           (TS/JS · Py · Go · Rust · Java ·   │
- │            C++ · C# · Ruby · PHP · Bash)     │
- │  search → per-file collapse + counts         │
- │  logs   → errors+summaries kept, runs        │
- │           collapsed (races template dedup)   │
- │  diffs  → headers kept, hunks → ±counts      │
- │  prose  → sentence anchor (TOIN-gated)       │
- │  errors / result lines NEVER elided          │
- └────────────────────┬─────────────────────────┘
-                      ▼ skeleton + ⟨recall:hash⟩
- ┌──────────────────────────────────────────────┐     ┌─────────────────┐
- │ Recall store — lossless, content-addressed      │◀───▶│ live dashboard  │
- │ (sha256 = handle) · integrity-checked reads  │     │ 127.0.0.1:8790  │
- │ hot → cold gzip → budgeted purge             │     └─────────────────┘
- └──────────────────────────────────────────────┘
-   self-healing: TOIN backs off over-retrieved kinds ·
-   classifier recalibrates after 3 wrong-verdict votes
-```
-
-**One brain, two doors, one lossless store:**
-
-- **MCP server** (`knitbrain`) — 27 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨recall:hash⟩` handle.
-- **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, exact repeats across turns collapsed to a marker, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
-- **Recall store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
-- **Live dashboard** — context meter, tokens saved, Recall tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
-
-## Quickstart
+## Install
 
 ```bash
-npm install -g knitbrain
+npm install -g knitbrain      # or: npx knitbrain <command>
 
-knitbrain profile      # your savings, on your transcripts, before you commit to anything
-
-# in your project — ONE command configures everything (memory, workflow,
-# plan-mode adherence, skills, teams, meter, hooks; non-clobbering):
-knitbrain setup        # native integration: Claude Code, Cursor, VS Code +
-                       # Copilot, Windsurf written directly
-knitbrain setup --yes  # ALSO writes the global configs (Codex, Copilot CLI,
-                       # Zed) for you — backed up + non-clobbering, no paste
-
-knitbrain dashboard    # live local dashboard (127.0.0.1:8790)
-knitbrain learn        # mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
-knitbrain evals        # answer-preservation gates on your own transcripts
-knitbrain prompt       # full operating prompt, for platforms without MCP-instructions support
-
-# output-side savings (knitbrain shrinks tool results IN; these shrink what goes OUT):
-knitbrain terse [lvl]  # terse-output guide (lite|full|ultra) — paste, or /terse in Claude Code
-knitbrain compress <f> # terse-rewrite a memory file (CLAUDE.md) — keeps <f>.original backup
-knitbrain statusline   # tokens-saved badge for your editor's statusline
-
-# pay per token? one command wires the optimizer proxy into your agent:
-knitbrain wrap claude  # (or codex / aider / copilot) — sets the base URL,
-                       # starts the proxy, launches the agent. No manual export.
-
-# teams — shared optimized sessions (one URL + one token):
-knitbrain hub                              # start the team hub (host runs this once)
-knitbrain join <hub-url> <token> <name>    # everyone else; postings mirror automatically
+knitbrain profile             # measure savings on YOUR transcripts — before installing anything
+knitbrain setup               # wire it into your agent(s) — writes native config + AGENTS.md
 ```
+
+Requires Node ≥ 18.
+
+## The numbers
+
+We publish the number most tools won't: the **all-inclusive average** over real coding sessions —
+every tool-result token, *including* the small outputs that pass through uncompressed.
+
+- **~46% saved** across ~3M real tool-result tokens (≈55% counting only blocks ≥ 400 chars).
+- **68%** on the weighted real-shape benchmark mix (code 67% · logs 97% · JSON 97% · diffs 71% · prose 80%).
+- **Lossless.** Every elision carries a `⟨recall:HASH⟩` handle that restores the exact original
+  byte-for-byte. An answer-preservation suite (`knitbrain evals`) gates it: round-trip **100%**,
+  identifier-fidelity **100%**, error/summary lines never dropped.
+
+All three are reproducible on your own machine — `knitbrain profile`, `knitbrain evals`, `npm run bench`.
+The exact percentage moves with your workload; run `profile` for yours.
+
+## What you get
+
+- **Lossless context compression.** Tool results (code, logs, diffs, JSON, prose) are routed to a
+  structure-preserving skeletonizer (tree-sitter AST + deterministic handlers), the original kept in a
+  content-addressed recall store. Never expands output; passes small payloads through untouched.
+- **Per-project memory + knowledge graph.** Learnings ranked by outcome (a learning reported wrong is
+  discredited and sinks), an imports/exports/dependents graph, session handoffs — all kept fresh
+  (stale handoffs auto-clear, deleted files drop from the graph, classifier signals decay).
+- **Tier-routed workflow.** A deterministic classifier sizes each task (inquiry → trivial → standard →
+  complex) and routes the right depth — including plan-mode for complex work — with a self-healing
+  false-positive loop.
+- **An autonomous loop.** Drive an agent through a task queue solo (`loop`) or fan work out to N
+  isolated parallel workers (`fan`) — verify-gated, never auto-merging. See below.
+- **A live dashboard.** Watch agents work in real time, with the real token meter and (on a
+  subscription) your Pro/Max usage window.
+
+## Loop engineering
+
+The inner agent loop — load → classify → plan → build → verify → record — rides the MCP handshake.
+On top of it sits the **outer loop**:
+
+```bash
+# one AFK worker drains a checkbox goal file, verify-gated:
+knitbrain loop goal.md --verify "npm test"
+
+# N workers in parallel, each isolated in its own git worktree:
+knitbrain fan goal.md --workers 4 --verify "npm test"
+```
+
+A goal file is just markdown with `- [ ] task` checkboxes. Workers claim tasks atomically, run your
+agent on each, and a task is marked done **only after verify passes** (no false green). It **never
+commits, merges, or pushes** — parallel workers leave their branches for you to review. A queue with
+workers and a human at the merge, not an infinite token loop.
+
+## How it works
+
+```
+  any MCP agent  ──►  knitbrain MCP server  ──►  tool result
+  (Claude Code,                │                      │
+   Cursor, Codex,        ┌─────┴─────┐         detect → skeletonize
+   Copilot, …)           │   brain   │         (AST / log / diff / json)
+                         │ memory ·  │                │
+                         │ graph ·   │         ⟨recall:HASH⟩ + original
+                         │ classifier│              in recall store
+                         └───────────┘                │
+                                                 dashboard ◄─ live
+```
+
+Optional, for API-key users: a loopback proxy (`knitbrain wrap claude`) compresses the request
+on the wire too. On a subscription, that wire path can't apply (OAuth traffic can't be intercepted —
+true of every tool in this space) — but the main lever, tool-result compression, runs identically
+either way, no API key required.
+
+## Commands
+
+| Command | What |
+|---|---|
+| `knitbrain setup` | Wire into your agent(s): MCP config, rules, slash commands, `AGENTS.md`. |
+| `knitbrain profile` | Measure savings on your real transcripts. |
+| `knitbrain evals` | Answer-preservation gates on your transcripts (exit 1 on failure). |
+| `knitbrain loop <goal>` | Autonomous single-worker loop over a checkbox goal file. |
+| `knitbrain fan <goal>` | Parallel loop — N workers in isolated git worktrees. |
+| `knitbrain compress <file>` | Terse-rewrite a memory file (e.g. `CLAUDE.md`); keeps a backup. |
+| `knitbrain terse [level]` | Print the terse-output guide (lite/full/ultra). |
+| `knitbrain dashboard` | Live local dashboard (`127.0.0.1:8790`). |
+| `knitbrain statusline` | Tokens-saved badge for your editor's status line. |
+| `knitbrain wrap <agent>` | Launch an agent through the optimizer proxy (API-key setups). |
+| `knitbrain learn` | Mine past sessions for failure→success corrections. |
+| `knitbrain hub` / `join` | Optional team hub — shared sessions over one URL + token. |
+| `knitbrain prompt` | Print the full operating prompt (for non-MCP platforms). |
+| `knitbrain` *(no args)* | Start the MCP server on stdio — what your editor invokes. |
+
+## Guarantees (enforced by gated tests, not promises)
+
+- **Lossless** — every compressed payload recovers byte-for-byte; the round-trip test gates the build.
+- **Never-expand** — output tokens ≤ input tokens, always.
+- **Answers survive** — error lines, result summaries, and top-level declarations are never elided
+  (`knitbrain evals` gates fidelity at 100% on real transcripts).
+- **Fresh, not stale** — timestamped handoffs (flagged > 7 days, auto-cleared > 14), deleted files
+  pruned from the graph, classifier votes decay; memory ranked by outcome.
+- **Local-first** — proxy, hub, and dashboard bind `127.0.0.1`; nothing leaves your machine.
+- **Reproducible** — every headline number comes from a command you can run on your own data.
 
 ## Use as a library
-
-The same router that powers the proxy and MCP server is importable directly — no server, no config:
 
 ```ts
 import { createOptimizer } from "knitbrain";
 
-const kb = createOptimizer();                 // Recall store under ~/.knitbrain/ccr
-const r = kb.compress(bigToolOutput);          // detect → route → compress
-console.log(r.savedPct, r.contentType);        // e.g. 62.4 "json"
-// r.skeleton → hand to the model; kb.retrieve(r.handle) → exact original, byte-for-byte
+const kb = createOptimizer();           // recall store under ~/.knitbrain
+const { skeleton, savedPct } = kb.compress(largeToolOutput);
+// original always recoverable via the ⟨recall:HASH⟩ handle
 ```
-
-`compress()` is lossless (original always recoverable via the recall handle) and guarded — if compression doesn't save at least 5%, the original passes through untouched.
-
-## If you pay per token
-
-Agent loops re-send the entire conversation on every turn, so input tokens dominate the bill — usually by an order of magnitude over output. That makes context the thing worth optimizing:
-
-- **The proxy shrinks the request itself, on the wire.** ~48% fewer tool-result tokens means a proportionally smaller input bill on the bulk of every request, every turn, compounding over a session. `knitbrain wrap claude` wires it in with one command — no manual base-URL export.
-- **It stacks with provider prompt caching.** CacheAligner keeps the system prefix byte-stable across turns: whitespace normalization, volatile lines ("Today's date is …") moved out of the prefix to a marked tail, and — when your client doesn't manage its own — Anthropic `cache_control` breakpoints inserted at the system prompt and the stable history boundary. Cached input reads are ~90% cheaper on Anthropic; OpenAI prefix caching needs exactly the byte-stability this provides. Compression is deterministic, so optimized history prefixes stay stable turn over turn — the two levers stack.
-- **It can never make a request more expensive.** The never-expand guard is enforced by tests: output tokens ≤ input tokens, always.
-- **On a subscription instead?** Same mechanics, different currency: fewer tokens per turn means the context window fills slower — fewer compactions, fewer lost-context restarts, longer useful sessions.
-
-Run `knitbrain profile` to see the percentage on your own workload before believing any of this.
-
-## Guarantees (enforced by gated tests, not promises)
-
-- **Lossless** — every compressed payload recovers byte-for-byte from the recall store; the round-trip test gates the build.
-- **Never-expand** — output tokens ≤ input tokens, always.
-- **Errors survive** — error/failure lines, result summaries, and top-level declarations are never elided; `knitbrain evals` gates this at 100%/≥95%/≥99% on real transcripts.
-- **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.
-- **Fresh, not stale** — a handoff is timestamped: `knitbrain_load_session` flags one older than 7 days and auto-clears past 14, so a dead handoff never silently resumes; the knowledge graph drops cache entries for deleted files on load; stale classifier vote-runs decay after 30 days (the learned calibration persists). Memory is ranked by outcome — a learning reported wrong is discredited and sinks.
-- **Local-first** — proxy, hub, and dashboard bind `127.0.0.1` by default; nothing leaves your machine.
-- **Reproducible claims** — the headline numbers come from `knitbrain profile` and `knitbrain evals` on real transcripts, both of which you can run on yours. (`npm run bench` is a CI regression gate: a real-shape suite whose fixture mix mirrors the profiled distribution, with per-shape savings floors and fidelity checks, plus a clearly-labeled best-case suite — fixture numbers are never quoted as real-world savings.)
 
 ## Development
 
 ```bash
-npm install
-npm run verify       # typecheck → lint → test → build → consistency → bench (all must pass)
-npm run e2e          # built-artifact E2E: stdio session + real-file compression
-npm run audit:prod   # cold-start proof: clone → install → pack → installed binaries → all 27 tools
+npm run typecheck && npm run lint && npm run test && npm run build && npm run bench
 ```
 
-Current proof status: **233 tests passing on Linux and Windows** (CI matrix: Ubuntu + Windows, Node 20 & 22), eval gates PASS on real transcript blocks, and the production audit (`audit:prod`) passes — fresh clone, clean install, packed tarball installed into a new project, all 27 tools and the three binaries verified working (incl. a 27-tool live stdio E2E and live proxy/hook/dashboard/hub checks). One opt-in test (live LLM endpoint) requires your own API key: `KNITBRAIN_LIVE_TEST=1 ANTHROPIC_API_KEY=… npm test`.
+All gates must pass before a commit or release.
 
 ## License
 
-MIT © Piyush Dua
+MIT
