@@ -148,7 +148,7 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   console.log("  paste the output of:  knitbrain prompt");
 
   console.log("");
-  console.log("  Any other agent (kilo, roo, trae, qwen, amp, cline, continue, …):");
+  console.log("  Any MCP-speaking agent (codex, copilot, openclaw, hermes, antigravity, kilo, roo, trae, qwen, amp, cline, continue — MCP standard = universal):");
   console.log("    point its MCP config at this one universal entry —");
   console.log('    { "mcpServers": { "knitbrain": { "command": "knitbrain" } } }');
   console.log("    AGENTS.md (written above) carries the guidance; no per-agent setup needed.");
