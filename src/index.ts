@@ -65,6 +65,7 @@ usage: knitbrain <command>
   evals        answer-preservation gates on your transcripts (exit 1 on failure)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
+  loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --interactive)
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
   terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
@@ -116,6 +117,10 @@ usage: knitbrain <command>
   if (process.argv[2] === "compress") {
     const { runCompressFile } = await import("./compress-file.js");
     process.exit(runCompressFile(process.argv.slice(3)));
+  }
+  if (process.argv[2] === "loop") {
+    const { runLoop } = await import("./loop.js");
+    process.exit(await runLoop(process.argv.slice(3)));
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");

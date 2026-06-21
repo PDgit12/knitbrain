@@ -29,6 +29,12 @@ export interface Hub {
 /** Cap request bodies so one authenticated client can't exhaust hub memory. */
 const MAX_BODY_BYTES = 1_000_000;
 
+/** Obvious credential shapes. A board original is stored byte-exact for the
+ * team, so we REJECT (never silently scrub — that would corrupt the original)
+ * a posting that looks like it carries a live secret. Defense-in-depth, not a
+ * guarantee: posters still must not paste secrets. */
+const SECRET_RE = /\b(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})\b/;
+
 /** Sentinel returned (not thrown) when a body exceeds the cap, so the handler
  * can answer with a clean 413 instead of resetting the socket. */
 const TOO_LARGE = Symbol("too-large");
@@ -117,9 +123,17 @@ export function createHub(root: string): Hub {
       if (req.method === "POST" && req.url === "/board") {
         const raw = await readBody(req);
         if (raw === TOO_LARGE) return json(res, 413, { error: "body too large" });
-        const body = JSON.parse(raw) as Partial<HubEntry>;
+        let body: Partial<HubEntry>;
+        try {
+          body = JSON.parse(raw) as Partial<HubEntry>;
+        } catch {
+          return json(res, 400, { error: "invalid JSON body" });
+        }
         if (typeof body.author !== "string" || typeof body.original !== "string") {
           return json(res, 400, { error: "author and original are required" });
+        }
+        if (SECRET_RE.test(body.original) || SECRET_RE.test(body.summary ?? "")) {
+          return json(res, 400, { error: "posting looks like it contains a secret — redact before posting" });
         }
         const entry: HubEntry = {
           id: createHash("sha256").update(body.author + body.original + Date.now()).digest("hex").slice(0, 8),
@@ -140,7 +154,7 @@ export function createHub(root: string): Hub {
         return entry ? json(res, 200, entry) : json(res, 404, { error: "not found" });
       }
       return json(res, 404, { error: "not found" });
-    })().catch((err: unknown) => json(res, 500, { error: String(err) }));
+    })().catch(() => json(res, 500, { error: "internal error" })); // never leak err detail
   });
 
   return { server, token };

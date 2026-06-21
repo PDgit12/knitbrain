@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { countTokens } from "./tokenizer.js";
 
 /**
@@ -61,6 +61,10 @@ export function runCompressFile(args: string[]): number {
   }
   if (!existsSync(file)) {
     console.error(`knitbrain compress: no such file: ${file}`);
+    return 1;
+  }
+  if (lstatSync(file).isSymbolicLink()) {
+    console.error(`knitbrain compress: ${file} is a symlink — refusing (resolve it first)`);
     return 1;
   }
   const backup = `${file}.original`;

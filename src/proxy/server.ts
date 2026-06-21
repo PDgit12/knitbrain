@@ -46,11 +46,22 @@ function resolveUpstream(cfg: ProxyConfig, provider: Provider): string {
   return cfg.upstream ?? cfg.upstreams?.[provider] ?? DEFAULT_UPSTREAMS[provider];
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+// Bound a runaway/malformed client body. Generous — real LLM requests carry
+// large contexts — this only stops pathological unbounded growth.
+const MAX_BODY_BYTES = 50_000_000;
+const TOO_LARGE = Symbol("too-large");
+
+function readBody(req: IncomingMessage): Promise<string | typeof TOO_LARGE> {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => resolve(data));
+    let bytes = 0;
+    let over = false;
+    req.on("data", (c: Buffer) => {
+      bytes += c.length;
+      if (bytes > MAX_BODY_BYTES) over = true; // stop buffering, keep draining
+      else if (!over) data += c;
+    });
+    req.on("end", () => resolve(over ? TOO_LARGE : data));
     req.on("error", reject);
   });
 }
@@ -112,6 +123,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
 
   if (req.method === "POST" && req.url && /^\/v1\/(messages|chat\/completions)/.test(req.url)) {
     const raw = await readBody(req);
+    if (raw === TOO_LARGE) {
+      res.writeHead(413, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "request body too large" }));
+      return;
+    }
     let parsed: RequestBody;
     try {
       parsed = JSON.parse(raw) as RequestBody;
