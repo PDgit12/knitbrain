@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 import { knitbrainHome } from "../paths.js";
 
@@ -18,9 +19,7 @@ function configPath(): string {
 export function saveHubConfig(cfg: HubConfig): string {
   mkdirSync(knitbrainHome(), { recursive: true });
   const path = configPath();
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: 0o600 });
-  renameSync(tmp, path);
+  writeAtomic(path, JSON.stringify(cfg, null, 2), { mode: 0o600 });
   return path;
 }
 

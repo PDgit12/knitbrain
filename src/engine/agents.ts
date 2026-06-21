@@ -1,4 +1,5 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { dirname, join } from "node:path";
 
 /** Domains that warrant a mandatory review/verify gate before edits. */
@@ -109,8 +110,6 @@ export function writeAgent(projectRoot: string, spec: AgentSpec): string {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${safeName}.md`);
   spec = { ...spec, name: safeName };
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, generateAgentMarkdown(spec), "utf8");
-  renameSync(tmp, path);
+  writeAtomic(path, generateAgentMarkdown(spec));
   return path;
 }

@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
+import { writeAtomic } from "../atomic.js";
 import {
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -104,9 +103,7 @@ export function createFileCCRStore(root: string): CCRStore {
   function saveManifest(): void {
     const obj: Record<string, Meta> = {};
     for (const [k, v] of meta.entries()) obj[k] = v;
-    const tmp = join(root, `.manifest.${process.pid}.tmp`);
-    writeFileSync(tmp, JSON.stringify(obj), "utf8");
-    renameSync(tmp, manifestPath);
+    writeAtomic(manifestPath, JSON.stringify(obj));
   }
 
   // The manifest is non-authoritative (file existence is the source of truth;
@@ -135,12 +132,6 @@ export function createFileCCRStore(root: string): CCRStore {
     const m = meta.get(h) ?? { lastUsed: 0, retrievals: 0 };
     meta.set(h, { lastUsed: Date.now(), retrievals: m.retrievals });
   };
-
-  function writeAtomic(path: string, data: string | Buffer): void {
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, data);
-    renameSync(tmp, path);
-  }
 
   function listHot(): string[] {
     return readdirSync(root).filter((f) => HANDLE_RE.test(f));

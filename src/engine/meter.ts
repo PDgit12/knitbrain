@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 
 /**
@@ -72,9 +73,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
   };
   reload();
   const save = (): void => {
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), "utf8");
-    renameSync(tmp, path);
+    writeAtomic(path, JSON.stringify(state));
   };
 
   return {

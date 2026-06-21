@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 import type { Tier } from "./workflow.js";
 
@@ -63,9 +64,7 @@ export function createCalibration(root: string): Calibration {
     }
   };
   const save = (state: CalibrationState): void => {
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
-    renameSync(tmp, path);
+    writeAtomic(path, JSON.stringify(state, null, 2));
   };
 
   const clamp = (v: number): number => Math.max(-MAX_ADJUST, Math.min(MAX_ADJUST, v));

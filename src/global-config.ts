@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "./atomic.js";
 import { dirname, join } from "node:path";
 
 /**
@@ -76,9 +77,7 @@ const defaultIO: GlobalConfigIO = {
   exists: existsSync,
   read: (p) => readFileSync(p, "utf8"),
   write: (p, data) => {
-    const tmp = `${p}.${process.pid}.tmp`;
-    writeFileSync(tmp, data, "utf8");
-    renameSync(tmp, p);
+    writeAtomic(p, data);
   },
   mkdirp: (dir) => mkdirSync(dir, { recursive: true }),
 };

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "./atomic.js";
 import { dirname, join } from "node:path";
 import type { SetupConfig } from "./setup.js";
 
@@ -258,9 +259,7 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
         content = JSON.stringify({ ...parsed, hooks }, null, 2) + "\n";
       }
     }
-    const tmp = `${full}.${process.pid}.tmp`;
-    writeFileSync(tmp, content, "utf8");
-    renameSync(tmp, full);
+    writeAtomic(full, content);
     written.push(a.path);
   }
   return written;

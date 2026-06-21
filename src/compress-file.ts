@@ -1,5 +1,6 @@
-import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { countTokens } from "./tokenizer.js";
+import { writeAtomic } from "./atomic.js";
 
 /**
  * `knitbrain compress <file>` — rewrite a memory file (CLAUDE.md, todos,
@@ -77,10 +78,8 @@ export function runCompressFile(args: string[]): number {
   const before = countTokens(original);
   const after = countTokens(compressed);
 
-  if (!existsSync(backup) || force) writeFileSync(backup, original, "utf8");
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, compressed, "utf8");
-  renameSync(tmp, file);
+  if (!existsSync(backup) || force) writeAtomic(backup, original);
+  writeAtomic(file, compressed);
 
   const pct = before === 0 ? 0 : Math.round((1 - after / before) * 1000) / 10;
   console.log(`compressed ${file}: ${before} -> ${after} tokens (saved ${pct}%)`);

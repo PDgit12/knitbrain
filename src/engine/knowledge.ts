@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { dirname, join, relative, resolve } from "node:path";
 
 export interface ImportEdge {
@@ -111,9 +112,7 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
       graph.set(file, { file, imports: parseImports(src), exports: parseExports(src) });
     }
     buildReverseIndex();
-    const tmp = `${cachePath}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify([...graph.values()]), "utf8");
-    renameSync(tmp, cachePath);
+    writeAtomic(cachePath, JSON.stringify([...graph.values()]));
     scanned = true;
     return { files: graph.size };
   }

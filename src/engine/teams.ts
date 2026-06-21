@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 import type { CCRStore } from "../ccr/store.js";
 import { compress } from "../optimizer/router.js";
@@ -45,9 +46,7 @@ export function createTeamBoard(root: string, ccr: CCRStore): TeamBoard {
     }
   };
   const save = (entries: BoardEntry[]): void => {
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(entries, null, 2), "utf8");
-    renameSync(tmp, path);
+    writeAtomic(path, JSON.stringify(entries, null, 2));
   };
 
   return {

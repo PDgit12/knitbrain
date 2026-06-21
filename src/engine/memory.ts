@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 
 /** A recorded project learning. */
@@ -50,11 +51,6 @@ export interface Memory {
 const tokenize = (s: string): string[] =>
   s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
 
-function writeAtomic(path: string, data: string): void {
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, data, "utf8");
-  renameSync(tmp, path);
-}
 
 /** Per-project, file-backed memory (learnings + handoff). Deterministic, local. */
 export function createMemory(root: string): Memory {
