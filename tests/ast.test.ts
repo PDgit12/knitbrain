@@ -94,7 +94,7 @@ describe("AST code handler (tree-sitter WASM)", () => {
     expect(r.skeleton).toContain("class Loader:");
     expect(r.skeleton).toContain("def load(self, key):");
     expect(r.skeleton).not.toContain("self.misses += 1");
-    expect(r.skeleton).toContain("# ⟨ccr:"); // python comment marker
+    expect(r.skeleton).toContain("# ⟨recall:"); // python comment marker
     expect(ccr.get(r.handle)).toBe(PY_SRC);
   });
 
@@ -293,7 +293,7 @@ end
     expect(r.skeleton).toContain("class Importer");
     expect(r.skeleton).toContain("def run");
     expect(r.skeleton).not.toContain('JSON.parse(line)');
-    expect(r.skeleton).toContain("# ⟨ccr:"); // hash comment marker
+    expect(r.skeleton).toContain("# ⟨recall:"); // hash comment marker
     expect(ccr.get(r.handle)).toBe(RUBY_SRC);
   });
 });

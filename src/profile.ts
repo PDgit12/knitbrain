@@ -134,7 +134,7 @@ export async function runProfile(args: string[], log: (line: string) => void = c
             const r = compress(t, ccr);
             let after = r.skeletonTokens;
             if (repeat) {
-              const marker = countTokens(`⟪same as earlier ⟨ccr:${hash}⟩⟫`);
+              const marker = countTokens(`⟪same as earlier ⟨recall:${hash}⟩⟫`);
               if (marker < after) {
                 dedupN += 1;
                 dedupSaved += after - marker;
@@ -172,6 +172,6 @@ export async function runProfile(args: string[], log: (line: string) => void = c
   const allA = totA + smallTokens;
   const overall = allB === 0 ? 0 : Math.round((1 - allA / allB) * 1000) / 10;
   log(`\nTOTAL (all tool-result tokens) ${allB} → ${allA}  overall saved=${overall}%`);
-  log("(lossless: every elision carries a ⟨ccr:hash⟩ that recovers the exact original)");
+  log("(lossless: every elision carries a ⟨recall:hash⟩ that recovers the exact original)");
   return overall;
 }

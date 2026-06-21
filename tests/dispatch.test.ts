@@ -52,7 +52,7 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
     };
     const out = dispatch(dataTool, {}, ctx);
     expect(countTokens(out)).toBeLessThan(countTokens(payload));
-    expect(out).toContain("⟨ccr:");
+    expect(out).toContain("⟨recall:");
   });
 
   it("passes VERBATIM tool output through untouched", () => {
@@ -74,18 +74,18 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
     const skeleton = optimizeTool.run({ text: original }, ctx);
     expect(countTokens(skeleton)).toBeLessThan(countTokens(original));
 
-    const handleMatch = skeleton.match(/⟨ccr:([0-9a-f]{64})⟩/);
+    const handleMatch = skeleton.match(/⟨recall:([0-9a-f]{64})⟩/);
     expect(handleMatch).not.toBeNull();
     const recovered = retrieveTool.run({ handle: handleMatch![1]! }, ctx);
     expect(recovered).toBe(original);
   });
 
-  it("retrieve accepts the full ⟨ccr:…⟩ wrapper too", () => {
+  it("retrieve accepts the full ⟨recall:…⟩ wrapper too", () => {
     const original = bigJson();
     const optimizeTool = TOOLS.find((t) => t.name === "knitbrain_optimize")!;
     const retrieveTool = TOOLS.find((t) => t.name === "knitbrain_retrieve")!;
     const skeleton = optimizeTool.run({ text: original }, ctx);
-    const wrapped = skeleton.match(/⟨ccr:[0-9a-f]{64}⟩/)![0];
+    const wrapped = skeleton.match(/⟨recall:[0-9a-f]{64}⟩/)![0];
     expect(retrieveTool.run({ handle: wrapped }, ctx)).toBe(original);
   });
 

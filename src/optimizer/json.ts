@@ -64,6 +64,6 @@ export function compressJson(original: string, ccr: CCRStore): CompressResult {
   const parsed: unknown = JSON.parse(original);
   const skel = skeletonize(parsed);
   const handle = ccr.put(original);
-  const skeleton = `${JSON.stringify(skel)} ⟨ccr:${handle}⟩`;
+  const skeleton = `${JSON.stringify(skel)} ⟨recall:${handle}⟩`;
   return { skeleton, handle, contentType: "json" };
 }

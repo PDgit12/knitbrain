@@ -66,7 +66,7 @@ export function compressText(original: string, ccr: CCRStore): CompressResult {
 
   const normalized = body.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   const skeleton =
-    normalized === original ? original : `${normalized}\n⟨ccr:${handle}⟩`;
+    normalized === original ? original : `${normalized}\n⟨recall:${handle}⟩`;
   return { skeleton, handle, contentType: "text" };
 }
 
@@ -88,7 +88,7 @@ const TAIL_SENTENCES = 1;
  * Returns null when there aren't enough sentences to anchor.
  *
  * MEASURED (real corpus): ~71% of short prose passes the router's never-expand
- * guard uncompressed — the ~45-token ⟨ccr:hash⟩ handle exceeds what eliding a
+ * guard uncompressed — the ~45-token ⟨recall:hash⟩ handle exceeds what eliding a
  * few dense sentences saves. The resulting ~18% overall is the SAFE floor, not
  * a defect: pushing it would mean eliding dense prose (risking answer-fidelity)
  * or shortening the content-addressed handle (risking the lossless guarantee).
@@ -128,6 +128,6 @@ export function compressShortProse(original: string, ccr: CCRStore): CompressRes
   const elided = bounds.length + 1 - HEAD_SENTENCES - TAIL_SENTENCES;
   const handle = ccr.put(original);
   const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
-  const skeleton = `${head}\n⟪… ${elided} sentences elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
+  const skeleton = `${head}\n⟪… ${elided} sentences elided · exact original: ⟨recall:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
   return { skeleton, handle, contentType: "prose" };
 }

@@ -37,7 +37,7 @@ function str(args: Record<string, unknown>, key: string): string {
 
 /**
  * Output discipline at the dispatch chokepoint:
- *  - "data"     → auto-compressed (skeleton + ⟨ccr:hash⟩), original in CCR.
+ *  - "data"     → auto-compressed (skeleton + ⟨recall:hash⟩), original in CCR.
  *  - "verbatim" → returned exactly as-is (governance/protocol/control output
  *                 the agent must read literally — NEVER skeletonized).
  */
@@ -51,9 +51,9 @@ export interface ToolDef {
   run(args: Record<string, unknown>, ctx: ToolContext): string;
 }
 
-/** Strip a ⟨ccr:…⟩ wrapper / prefix so a pasted handle still resolves. */
+/** Strip a ⟨recall:…⟩ wrapper / prefix so a pasted handle still resolves. */
 function normalizeHandle(raw: string): string {
-  return raw.replace(/[⟨⟩]/g, "").replace(/^ccr:/, "").trim();
+  return raw.replace(/[⟨⟩]/g, "").replace(/^(recall|ccr):/, "").trim(); // accept legacy ccr: too
 }
 
 export const TOOLS: readonly ToolDef[] = [
@@ -67,7 +67,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "knitbrain_optimize",
     description:
-      "Compress a payload (JSON / code / prose) into a token-cheap skeleton. The exact original is stored locally and recoverable via knitbrain_retrieve using the returned ⟨ccr:hash⟩. Returns the original unchanged if compression wouldn't help.",
+      "Compress a payload (JSON / code / prose) into a token-cheap skeleton. The exact original is stored locally and recoverable via knitbrain_retrieve using the returned ⟨recall:hash⟩. Returns the original unchanged if compression wouldn't help.",
     inputSchema: {
       type: "object",
       properties: { text: { type: "string", description: "The payload to optimize." } },
@@ -81,16 +81,16 @@ export const TOOLS: readonly ToolDef[] = [
       if (!r.compressed) return text;
       ctx.feedback.onCompress(r.contentType, r.handle);
       ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
-      return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨ccr:…⟩ handle for the exact original]`;
+      return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨recall:…⟩ handle for the exact original]`;
     },
   },
   {
     name: "knitbrain_retrieve",
     description:
-      "Retrieve the exact original bytes for a ⟨ccr:hash⟩ handle produced by compression. Use when a skeleton isn't enough and you need the precise content.",
+      "Retrieve the exact original bytes for a ⟨recall:hash⟩ handle produced by compression. Use when a skeleton isn't enough and you need the precise content.",
     inputSchema: {
       type: "object",
-      properties: { handle: { type: "string", description: "The ⟨ccr:hash⟩ or raw hash." } },
+      properties: { handle: { type: "string", description: "The ⟨recall:hash⟩ or raw hash." } },
       required: ["handle"],
       additionalProperties: false,
     },
@@ -105,7 +105,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "knitbrain_read",
     description:
-      "Read a project file OPTIMIZED: returns a structure-preserving skeleton (signatures/schema kept, bulk elided) + a ⟨ccr:hash⟩ to page in the exact original. Use INSTEAD of the host's raw read for large files — same information shape, ~70-90% fewer tokens. Works on every platform.",
+      "Read a project file OPTIMIZED: returns a structure-preserving skeleton (signatures/schema kept, bulk elided) + a ⟨recall:hash⟩ to page in the exact original. Use INSTEAD of the host's raw read for large files — same information shape, ~70-90% fewer tokens. Works on every platform.",
     inputSchema: {
       type: "object",
       properties: { path: { type: "string", description: "File path, relative to the project root." } },
@@ -127,7 +127,7 @@ export const TOOLS: readonly ToolDef[] = [
       if (!r.compressed) return original; // small/incompressible → exact content
       ctx.feedback.onCompress(r.contentType, r.handle);
       ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
-      return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨ccr:${r.handle}⟩]`;
+      return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨recall:${r.handle}⟩]`;
     },
   },
   {
@@ -339,7 +339,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "knitbrain_metrics",
-    description: "Compression telemetry: CCR tier counts + per-kind retrieval rates (TOIN self-tuning).",
+    description: "Compression telemetry: recall-store tier counts + per-kind retrieval rates (TOIN self-tuning).",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "verbatim",
     run: (_args, ctx) =>
@@ -569,7 +569,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "knitbrain_team_clear",
-    description: "Clear the shared team board (CCR originals are retained until tiered out).",
+    description: "Clear the shared team board (recall originals are retained until tiered out).",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "verbatim",
     run: (_args, ctx) => {

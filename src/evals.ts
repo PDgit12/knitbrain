@@ -22,7 +22,7 @@ import { IMPORTANT_LINE } from "./optimizer/structured.js";
  *                       code blocks still appear in the skeleton
  *   summary-fidelity    numeric result lines ("3 failed | 12 passed")
  *                       still appear in the skeleton
- *   round-trip          every skeleton's ⟨ccr:hash⟩ recovers the original
+ *   round-trip          every skeleton's ⟨recall:hash⟩ recovers the original
  *                       byte-for-byte
  *   never-expand        no compressed block has more tokens than it started
  *

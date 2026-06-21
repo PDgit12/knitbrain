@@ -26,7 +26,7 @@ EVERY NON-TRIVIAL TASK
 5. For complex tasks, spawn the proposed agents via your host's sub-agent mechanism; coordinate on knitbrain_team_post.
 
 CONTEXT DISCIPLINE (tokens are the budget)
-6. Big file? knitbrain_read (not raw Read). Big output to keep? knitbrain_optimize. Exact original back? knitbrain_retrieve with the ⟨ccr:hash⟩.
+6. Big file? knitbrain_read (not raw Read). Big output to keep? knitbrain_optimize. Exact original back? knitbrain_retrieve with the ⟨recall:hash⟩.
 7. Check knitbrain_context_meter when the session runs long; follow its advice.
 8. Terse output (output-side budget): answer telegraphically — same facts, fewer tokens (lite/full/ultra). \`knitbrain terse [level]\` prints the guide; /terse toggles it in Claude Code. Never drop technical content, numbers, paths, or decision-changing caveats.
 

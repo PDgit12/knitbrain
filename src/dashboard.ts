@@ -79,7 +79,7 @@ const PAGE = `<!doctype html>
     <div class="advice" id="advice"></div></div>
   <div class="card"><div class="label">Tokens saved (optimizer)</div><div class="big" id="saved">–</div></div>
   <div class="card"><div class="label">Platform tokens (real, this project)</div><div class="big" id="ptok">–</div><div class="advice" id="pbreak"></div></div>
-  <div class="card"><div class="label">CCR store (hot / cold)</div><div class="big" id="ccr">–</div></div>
+  <div class="card"><div class="label">Recall store (hot / cold)</div><div class="big" id="ccr">–</div></div>
   <div class="card"><div class="label">Learnings</div><div class="big" id="learnings">–</div></div>
 </div>
 <div class="card"><div class="label">Self-tuning (retrieval rate per kind)</div><table id="fb"></table></div>

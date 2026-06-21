@@ -83,7 +83,7 @@ usage: knitbrain <command>
     console.log("");
     console.log(INSTRUCTIONS);
     console.log("");
-    console.log("NOTATION: a ⟨ccr:HASH⟩ marker in any output means the exact original is stored locally —");
+    console.log("NOTATION: a ⟨recall:HASH⟩ marker in any output means the exact original is stored locally —");
     console.log("call knitbrain_retrieve with that hash to read it byte-for-byte. Compression is lossless.");
     return;
   }

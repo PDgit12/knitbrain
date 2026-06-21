@@ -7,7 +7,7 @@ export type ContentType = "json" | "code" | "text" | "prose" | "search" | "log" 
 
 /** Output of compressing one payload: the skeleton view + its CCR handle. */
 export interface CompressResult {
-  /** The compressed, still-readable skeleton (carries the ⟨ccr:…⟩ handle). */
+  /** The compressed, still-readable skeleton (carries the ⟨recall:…⟩ handle). */
   readonly skeleton: string;
   /** Full CCR handle for byte-for-byte recovery of the original. */
   readonly handle: string;

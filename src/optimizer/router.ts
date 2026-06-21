@@ -72,7 +72,7 @@ function anchorSkeleton(text: string, handle: string, isCodeShape: boolean): str
   const head = lines.slice(0, headN).join("\n");
   const tail = lines.slice(-tailN).join("\n");
   const rescueBlock = rescued.length > 0 ? `\n${rescued.join("\n")}` : "";
-  return `${head}\n⟪… ${middle.length - rescued.length} lines elided · exact original: ⟨ccr:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
+  return `${head}\n⟪… ${middle.length - rescued.length} lines elided · exact original: ⟨recall:${handle}⟩ …⟫${rescueBlock}\n${tail}`;
 }
 
 /**
@@ -174,7 +174,7 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
     const inner = byType(stripped, detect(stripped));
     contentType = inner.contentType; // handler may refine (e.g., text → prose)
     handle = ccr.put(text);
-    skeleton = inner.skeleton.replace(/⟨ccr:[0-9a-f]{64}⟩/g, `⟨ccr:${handle}⟩`);
+    skeleton = inner.skeleton.replace(/⟨recall:[0-9a-f]{64}⟩/g, `⟨recall:${handle}⟩`);
   } else {
     const result = byType(text, detect(text));
     contentType = result.contentType;

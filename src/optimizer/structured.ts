@@ -88,7 +88,7 @@ export function compressSearchResults(original: string, ccr: CCRStore): Compress
   flushDrops();
 
   const handle = ccr.put(original);
-  out.push(`⟪${matches} matches across ${files} files · exact original: ⟨ccr:${handle}⟩⟫`);
+  out.push(`⟪${matches} matches across ${files} files · exact original: ⟨recall:${handle}⟩⟫`);
   return { skeleton: out.join("\n"), handle, contentType: "search" };
 }
 
@@ -149,7 +149,7 @@ export function compressLog(original: string, ccr: CCRStore): CompressResult {
   flushRun();
 
   const handle = ccr.put(original);
-  out.push(`⟪exact original: ⟨ccr:${handle}⟩⟫`);
+  out.push(`⟪exact original: ⟨recall:${handle}⟩⟫`);
   return { skeleton: out.join("\n"), handle, contentType: "log" };
 }
 
@@ -212,6 +212,6 @@ export function compressDiff(original: string, ccr: CCRStore): CompressResult {
   flushBody();
 
   const handle = ccr.put(original);
-  out.push(`⟪exact diff: ⟨ccr:${handle}⟩⟫`);
+  out.push(`⟪exact diff: ⟨recall:${handle}⟩⟫`);
   return { skeleton: out.join("\n"), handle, contentType: "diff" };
 }

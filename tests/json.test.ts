@@ -65,6 +65,6 @@ describe("JSON optimizer (rung 2)", () => {
 
   it("embeds a recovery handle in the skeleton", () => {
     const { skeleton, handle } = compressJson(bigImportsPayload(), ccr);
-    expect(skeleton).toContain(`⟨ccr:${handle}⟩`);
+    expect(skeleton).toContain(`⟨recall:${handle}⟩`);
   });
 });

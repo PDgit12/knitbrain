@@ -95,6 +95,6 @@ describe("code optimizer (rung 3)", () => {
 
   it("appends a recovery handle", () => {
     const { skeleton, handle } = compressCode(SAMPLE, ccr);
-    expect(skeleton).toContain(`⟨ccr:${handle}⟩`);
+    expect(skeleton).toContain(`⟨recall:${handle}⟩`);
   });
 });

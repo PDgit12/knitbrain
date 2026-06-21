@@ -28,7 +28,7 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(arts.map((a) => a.path)).toContain(".cursor/mcp.json");
     const rules = arts.find((a) => a.path.endsWith(".mdc"))!;
     expect(rules.content).toContain("alwaysApply: true");
-    expect(rules.content).toContain("⟨ccr:HASH⟩");
+    expect(rules.content).toContain("⟨recall:HASH⟩");
   });
 
   it("VS Code mcp.json uses the 'servers' key (not mcpServers)", () => {

@@ -223,6 +223,6 @@ export function compressCode(original: string, ccr: CCRStore): CompressResult {
 
   const handle = ccr.put(original);
   // Handle emitted once (token-cheap) — bodies reference the same original.
-  skeleton = `${skeleton}\n// ⟨ccr:${handle}⟩`;
+  skeleton = `${skeleton}\n// ⟨recall:${handle}⟩`;
   return { skeleton, handle, contentType: "code" };
 }

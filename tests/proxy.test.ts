@@ -54,7 +54,7 @@ describe("optimizeRequest (rung 7)", () => {
     const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 2 });
     const msgs = out.messages;
     expect(typeof msgs[0]!.content).toBe("string");
-    expect(msgs[0]!.content).toContain("⟨ccr:"); // old block compressed
+    expect(msgs[0]!.content).toContain("⟨recall:"); // old block compressed
     expect(msgs[2]!.content).toBe("now do X"); // intent protected
     expect(stats.savedPct).toBeGreaterThan(0);
     expect(stats.blocksCompressed).toBe(1);
@@ -77,7 +77,7 @@ describe("optimizeRequest (rung 7)", () => {
     const content = out.messages[0]!.content as string;
     expect(content).toContain(instruction); // directive kept verbatim
     expect(content).toContain(closing); // closing kept verbatim
-    expect(content).toContain("⟨ccr:"); // embedded bulk compressed
+    expect(content).toContain("⟨recall:"); // embedded bulk compressed
     expect(stats.blocksCompressed).toBe(1);
     expect(content.length).toBeLessThan(`${instruction}\n${fenced}\n${closing}`.length);
   });
@@ -96,12 +96,12 @@ describe("optimizeRequest (rung 7)", () => {
     const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 1 });
     const first = out.messages[0]!.content as string;
     const second = out.messages[2]!.content as string;
-    expect(first).toContain("⟨ccr:"); // first occurrence: normal skeleton
-    expect(second).toContain("⟪same as earlier ⟨ccr:");
+    expect(first).toContain("⟨recall:"); // first occurrence: normal skeleton
+    expect(second).toContain("⟪same as earlier ⟨recall:");
     expect(second.length).toBeLessThan(first.length); // marker is tiny
     expect(stats.blocksDeduped).toBe(1);
     // lossless: the marker's handle recovers the exact original
-    const handle = /⟨ccr:([0-9a-f]{64})⟩/.exec(second)![1]!;
+    const handle = /⟨recall:([0-9a-f]{64})⟩/.exec(second)![1]!;
     expect(ccr.get(handle)).toBe(repeated);
   });
 
@@ -116,9 +116,9 @@ describe("optimizeRequest (rung 7)", () => {
     const { body: out, stats } = optimizeRequest(body, ccr, { keepLastTurns: 2 });
     const first = out.messages[0]!.content as string;
     const second = out.messages[1]!.content as string;
-    expect(first).toContain("⟨ccr:"); // first paste: normal skeleton
+    expect(first).toContain("⟨recall:"); // first paste: normal skeleton
     expect(second).toContain("Same data again:"); // directive verbatim
-    expect(second).toContain("⟪same as earlier ⟨ccr:");
+    expect(second).toContain("⟪same as earlier ⟨recall:");
     expect(stats.blocksDeduped).toBe(1);
   });
 
@@ -132,7 +132,7 @@ describe("optimizeRequest (rung 7)", () => {
     };
     const { body: out } = optimizeRequest(body, ccr, { keepLastTurns: 2 });
     const blocks = out.messages[0]!.content as Array<{ type: string; text: string }>;
-    expect(blocks[0]!.text).toContain("⟨ccr:");
+    expect(blocks[0]!.text).toContain("⟨recall:");
   });
 });
 
@@ -194,7 +194,7 @@ describe("proxy server integration (rung 7)", () => {
     // boundary message to blocks to attach a cache_control breakpoint)
     const first = forwarded.messages[0].content;
     const firstText = typeof first === "string" ? first : first.map((b: { text?: string }) => b.text ?? "").join("");
-    expect(firstText).toContain("⟨ccr:");
+    expect(firstText).toContain("⟨recall:");
     expect(forwarded.messages[2].content).toBe("do it"); // intent intact
   });
 });
@@ -322,7 +322,7 @@ describe("proxy OpenAI round-trip (/v1/chat/completions)", () => {
     const fwd = JSON.parse(received[0]!);
     const first = fwd.messages[1].content; // the old data block
     const firstText = typeof first === "string" ? first : first.map((b: { text?: string }) => b.text ?? "").join("");
-    expect(firstText).toContain("⟨ccr:"); // compressed on the wire
+    expect(firstText).toContain("⟨recall:"); // compressed on the wire
     expect(fwd.messages[3].content).toBe("do it"); // intent intact
     // OpenAI path: automatic prefix caching, so NO cache_control blocks injected
     expect(JSON.stringify(fwd)).not.toContain("cache_control");

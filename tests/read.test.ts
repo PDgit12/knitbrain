@@ -43,7 +43,7 @@ describe("knitbrain_read — universal optimized read (works on every MCP platfo
     const original = readFileSync(path, "utf8");
     const out = read.run({ path }, ctx);
     expect(countTokens(out)).toBeLessThan(countTokens(original));
-    const handle = out.match(/⟨ccr:([0-9a-f]{64})⟩/)?.[1];
+    const handle = out.match(/⟨recall:([0-9a-f]{64})⟩/)?.[1];
     expect(handle).toBeDefined();
     expect(ccr.get(handle!)).toBe(original); // exact original recoverable
   });

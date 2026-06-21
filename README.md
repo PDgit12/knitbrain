@@ -43,7 +43,7 @@ Saving tokens is worthless if the agent loses the answer. `knitbrain evals` chec
 | error-fidelity — every error/failure line survives in the skeleton | **142/142 = 100%** | 100% |
 | summary-fidelity — test/build result totals survive | **189/189 = 100%** | ≥95% |
 | identifier-fidelity — top-level declared names survive | **100%** (rescued inline) | ≥99% |
-| round-trip — `⟨ccr:hash⟩` recovers the original byte-for-byte | **100%** | 100% |
+| round-trip — `⟨recall:hash⟩` recovers the original byte-for-byte | **100%** | 100% |
 | never-expand — no compressed block got bigger | **100%** | 100% |
 
 Error lines, result summaries, and round-trip recovery are hard guarantees (always 100%). Identifier-fidelity runs ≥99% on normal corpora; on declaration-dense corpora a name in a very large block can land in an elided region — and even then it's **lossless** (the full block is one `knitbrain_retrieve` away). Holding the fidelity line costs ~1pp of savings; we pay it. Run `npx knitbrain evals` (exit code 1 on gate failure) for your own number.
@@ -90,9 +90,9 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
  │  prose  → sentence anchor (TOIN-gated)       │
  │  errors / result lines NEVER elided          │
  └────────────────────┬─────────────────────────┘
-                      ▼ skeleton + ⟨ccr:hash⟩
+                      ▼ skeleton + ⟨recall:hash⟩
  ┌──────────────────────────────────────────────┐     ┌─────────────────┐
- │ CCR store — lossless, content-addressed      │◀───▶│ live dashboard  │
+ │ Recall store — lossless, content-addressed      │◀───▶│ live dashboard  │
  │ (sha256 = handle) · integrity-checked reads  │     │ 127.0.0.1:8790  │
  │ hot → cold gzip → budgeted purge             │     └─────────────────┘
  └──────────────────────────────────────────────┘
@@ -102,10 +102,10 @@ Compression-only layers shrink tokens but remember nothing. Memory-only layers r
 
 **One brain, two doors, one lossless store:**
 
-- **MCP server** (`knitbrain`) — 27 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨ccr:hash⟩` handle.
+- **MCP server** (`knitbrain`) — 27 tools: memory (learnings, session handoff), knowledge graph (imports/exports/dependents), workflow classification with a self-healing false-positive loop (3 wrong-verdict votes shift the threshold), a `knitbrain_run` orchestrator (task → skill → agents → directive), an on-demand skills engine with an outcome signal (skills that keep failing are flagged needs-revision, failure notes fold into the playbook), project-specific agent generation, a shared team board, a **context-window meter** (warns and tells the agent to save a handoff before the window blows), and explicit `optimize`/`retrieve`. Every data payload flows through one dispatch chokepoint where it's compressed structure-preservingly and tagged with a `⟨recall:hash⟩` handle.
 - **Proxy** (`knitbrain-proxy`) — a loopback HTTP proxy in front of the LLM API (provider auto-detected per request: Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`). Compresses the full request — old turns harder than recent ones, exact repeats across turns collapsed to a marker, pasted bulk inside your message compressed while your directive stays verbatim — and streams the response back.
-- **CCR store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
-- **Live dashboard** — context meter, tokens saved, CCR tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
+- **Recall store** — content-addressed (SHA-256 = handle), integrity-checked on every read, atomic writes, tiered retention (hot → cold gzip archive → budgeted purge). The pristine original is always one `retrieve` away, which is what makes aggressive compression safe.
+- **Live dashboard** — context meter, tokens saved, Recall tiers, self-tuning stats, knowledge graph, skills, recent learnings, team board. All stores are cross-process fresh: what the agent writes, the dashboard shows on the next tick.
 
 ## Quickstart
 
@@ -147,13 +147,13 @@ The same router that powers the proxy and MCP server is importable directly — 
 ```ts
 import { createOptimizer } from "knitbrain";
 
-const kb = createOptimizer();                 // CCR store under ~/.knitbrain/ccr
+const kb = createOptimizer();                 // Recall store under ~/.knitbrain/ccr
 const r = kb.compress(bigToolOutput);          // detect → route → compress
 console.log(r.savedPct, r.contentType);        // e.g. 62.4 "json"
 // r.skeleton → hand to the model; kb.retrieve(r.handle) → exact original, byte-for-byte
 ```
 
-`compress()` is lossless (original always recoverable via the CCR handle) and guarded — if compression doesn't save at least 5%, the original passes through untouched.
+`compress()` is lossless (original always recoverable via the recall handle) and guarded — if compression doesn't save at least 5%, the original passes through untouched.
 
 ## If you pay per token
 
@@ -168,7 +168,7 @@ Run `knitbrain profile` to see the percentage on your own workload before believ
 
 ## Guarantees (enforced by gated tests, not promises)
 
-- **Lossless** — every compressed payload recovers byte-for-byte from CCR; the round-trip test gates the build.
+- **Lossless** — every compressed payload recovers byte-for-byte from the recall store; the round-trip test gates the build.
 - **Never-expand** — output tokens ≤ input tokens, always.
 - **Errors survive** — error/failure lines, result summaries, and top-level declarations are never elided; `knitbrain evals` gates this at 100%/≥95%/≥99% on real transcripts.
 - **Governance verbatim** — your instructions and protocol/classification text are never skeletonized.

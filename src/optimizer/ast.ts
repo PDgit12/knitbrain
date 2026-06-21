@@ -293,7 +293,7 @@ export function compressCodeAst(original: string, ccr: CCRStore): CompressResult
   parts.push(original.slice(cursor));
 
   const handle = ccr.put(original);
-  const marker = hashStyle ? `# ⟨ccr:${handle}⟩` : `// ⟨ccr:${handle}⟩`;
+  const marker = hashStyle ? `# ⟨recall:${handle}⟩` : `// ⟨recall:${handle}⟩`;
   const skeleton = `${parts.join("")}\n${marker}`;
   return { skeleton, handle, contentType: "code" };
 }

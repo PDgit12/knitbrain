@@ -90,7 +90,7 @@ function collectText(body: RequestBody): string {
 /**
  * Optimize an LLM request: protect the recent turns + the current intent +
  * the system prompt; compress large text blocks in older turns (original
- * preserved in CCR, recoverable via the ⟨ccr:hash⟩ the model sees). The system
+ * preserved in CCR, recoverable via the ⟨recall:hash⟩ the model sees). The system
  * prefix is whitespace-normalized (meaning-preserving) for KV-cache stability.
  */
 export function optimizeRequest(
@@ -126,7 +126,7 @@ export function optimizeRequest(
     ccr.put(text); // idempotent — guarantees the handle resolves
     blocksDeduped += 1;
     handles.push(hash);
-    return `⟪same as earlier ⟨ccr:${hash}⟩⟫`;
+    return `⟪same as earlier ⟨recall:${hash}⟩⟫`;
   };
 
   // OLD turns: compress the whole block (it already served its purpose).
