@@ -66,6 +66,7 @@ usage: knitbrain <command>
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
   loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --interactive)
+  fan <goal>   PARALLEL loop: N workers drain a checkbox queue concurrently, isolated in git worktrees (--workers, --verify, --max)
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
   terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
@@ -121,6 +122,10 @@ usage: knitbrain <command>
   if (process.argv[2] === "loop") {
     const { runLoop } = await import("./loop.js");
     process.exit(await runLoop(process.argv.slice(3)));
+  }
+  if (process.argv[2] === "fan") {
+    const { runFan } = await import("./fan.js");
+    process.exit(await runFan(process.argv.slice(3)));
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
