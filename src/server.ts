@@ -12,7 +12,7 @@ import { createMeter, type Meter } from "./engine/meter.js";
 import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
 import { createActivityLog, type ActivityLog } from "./engine/activity.js";
-import { randomBytes } from "node:crypto";
+import { agentLabel } from "./mcp/host.js";
 import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { INSTRUCTIONS } from "./mcp/instructions.js";
@@ -45,10 +45,9 @@ export function buildServer(
     // operating protocol with ZERO per-project file setup.
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
-  // Per-connection label so the activity feed can tell agents apart (each
-  // editor connection spawns its own knitbrain process).
-  const agentId = `agent-${randomBytes(3).toString("hex")}`;
-  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, agentId };
+  // agentId is set per-call from the MCP handshake + env (zero-setup platform +
+  // billing detection); see the CallTool handler below.
+  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({
@@ -67,6 +66,8 @@ export function buildServer(
       };
     }
     try {
+      // Zero-setup: label the agent by the connected client + its billing mode.
+      ctx.agentId = agentLabel(server.getClientVersion()?.name, process.env);
       const text = dispatch(tool, req.params.arguments ?? {}, ctx);
       return { content: [{ type: "text", text }] };
     } catch (err) {

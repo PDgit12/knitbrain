@@ -45,3 +45,18 @@ describe("activity log — live agent CRM feed", () => {
     expect(agents).toEqual(new Set(["agent-A", "agent-B"]));
   });
 });
+
+describe("activity rollup — universal per-agent meter (all platforms)", () => {
+  it("aggregates calls + saved tokens per agent", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-roll-"));
+    try {
+      const a = createActivityLog(r);
+      a.record({ agent: "cursor (api)", tool: "t", summary: "x", saved: 100 });
+      a.record({ agent: "cursor (api)", tool: "t", summary: "y", saved: 50 });
+      a.record({ agent: "claude-code (subscription)", tool: "t", summary: "z", saved: 30 });
+      const roll = a.rollup();
+      expect(roll[0]).toMatchObject({ agent: "cursor (api)", calls: 2, saved: 150 }); // biggest first
+      expect(roll.find((x) => x.agent === "claude-code (subscription)")).toMatchObject({ calls: 1, saved: 30 });
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+})

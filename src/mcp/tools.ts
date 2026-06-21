@@ -596,13 +596,15 @@ export function dispatch(
 ): string {
   const raw = tool.run(args, ctx);
   let out = raw;
+  let savedThisCall = 0;
   if (tool.output === "data") {
     // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
     if (!ctx.feedback.shouldSkip(detect(raw))) {
       const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (r.compressed) {
         ctx.feedback.onCompress(r.contentType, r.handle);
-        ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
+        savedThisCall = r.originalTokens - r.skeletonTokens;
+        ctx.meter.onSaved(savedThisCall);
         out = r.skeleton;
       }
     }
@@ -619,6 +621,7 @@ export function dispatch(
     agent: ctx.agentId ?? "agent",
     tool: tool.name,
     summary: raw.replace(/\s+/g, " ").trim().slice(0, 80),
+    saved: savedThisCall,
   });
   return out;
 }

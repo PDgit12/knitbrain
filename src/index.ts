@@ -165,6 +165,8 @@ usage: knitbrain <command>
       quota: () => fetchPlatformQuota(),
       // Live agent-activity feed (the CRM view).
       activity: () => activityLog.recent(30),
+      // Per-agent optimization rollup — universal meter across all platforms.
+      agents: () => activityLog.rollup(),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {

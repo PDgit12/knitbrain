@@ -9,7 +9,7 @@ import type { TeamBoard } from "./engine/teams.js";
 import type { Meter } from "./engine/meter.js";
 import type { PlatformUsage } from "./engine/usage.js";
 import type { PlatformQuota } from "./engine/quota.js";
-import type { ActivityEvent } from "./engine/activity.js";
+import type { ActivityEvent, AgentRollup } from "./engine/activity.js";
 
 export interface DashboardDeps {
   ccr: CCRStore;
@@ -28,6 +28,8 @@ export interface DashboardDeps {
   quota?: () => Promise<PlatformQuota | null>;
   /** Optional: recent agent activity events (the CRM feed). */
   activity?: () => ActivityEvent[];
+  /** Optional: per-agent optimization rollup (universal meter, all platforms). */
+  agents?: () => AgentRollup[];
 }
 
 /** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
@@ -48,6 +50,7 @@ export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
   return {
     meter,
     activity: deps.activity?.() ?? [],
+    agents: deps.agents?.() ?? [],
     platformUsage: deps.usage?.() ?? null,
     ccr: deps.ccr.stats(),
     feedback: deps.feedback.stats(),
@@ -89,7 +92,8 @@ const PAGE = `<!doctype html>
   <div class="card"><div class="label">Recall store (hot / cold)</div><div class="big" id="ccr">–</div></div>
   <div class="card"><div class="label">Learnings</div><div class="big" id="learnings">–</div></div>
 </div>
-<div class="card"><div class="label">Agents — live activity</div><table id="activity"></table></div>
+<div class="card"><div class="label">Per-agent optimization (every platform · auto-detected)</div><table id="agents"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Agents — live activity</div><table id="activity"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Subscription window (Pro/Max)</div><table id="quota"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Self-tuning (retrieval rate per kind)</div><table id="fb"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Knowledge graph (top blast radius)</div><div class="advice" id="kfiles"></div><table id="kg"></table></div>
@@ -121,6 +125,9 @@ async function tick() {
     document.getElementById("fb").innerHTML = "<tr><th>kind</th><th>compressed</th><th>retrieved</th><th>rate</th><th>state</th></tr>" +
       s.feedback.map(f => \`<tr><td>\${f.kind}</td><td>\${f.compressions}</td><td>\${f.retrievals}</td><td>\${f.rate}</td><td>\${f.skipping ? "backing off" : "active"}</td></tr>\`).join("");
     const esc = (v) => String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    document.getElementById("agents").innerHTML = (s.agents && s.agents.length)
+      ? "<tr><th>agent (platform · plan)</th><th>calls</th><th>tokens saved</th><th>last</th></tr>" + s.agents.map(a => \`<tr><td>\${esc(a.agent)}</td><td>\${a.calls}</td><td>\${a.saved.toLocaleString()}</td><td>\${esc(a.lastTs.slice(11,19))}</td></tr>\`).join("")
+      : "<tr><td>no agents yet — connect an MCP client</td></tr>";
     document.getElementById("activity").innerHTML = (s.activity && s.activity.length)
       ? "<tr><th>agent</th><th>tool</th><th>when</th><th>detail</th></tr>" + s.activity.map(a => \`<tr><td>\${esc(a.agent)}</td><td>\${esc(a.tool)}</td><td>\${esc(a.ts.slice(11,19))}</td><td>\${esc(a.summary)}</td></tr>\`).join("")
       : "<tr><td>no agent activity yet — run a knitbrain tool</td></tr>";
