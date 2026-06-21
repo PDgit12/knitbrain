@@ -8,6 +8,7 @@ import type { SkillsStore } from "./engine/skills.js";
 import type { TeamBoard } from "./engine/teams.js";
 import type { Meter } from "./engine/meter.js";
 import type { PlatformUsage } from "./engine/usage.js";
+import type { PlatformQuota } from "./engine/quota.js";
 
 export interface DashboardDeps {
   ccr: CCRStore;
@@ -22,6 +23,8 @@ export interface DashboardDeps {
   /** Optional: real platform token usage (from host transcripts), computed
    *  per-request so it reflects the live session as it grows. */
   usage?: () => PlatformUsage | null;
+  /** Optional: live subscription quota window (async; provider usage API). */
+  quota?: () => Promise<PlatformQuota | null>;
 }
 
 /** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
@@ -82,7 +85,8 @@ const PAGE = `<!doctype html>
   <div class="card"><div class="label">Recall store (hot / cold)</div><div class="big" id="ccr">–</div></div>
   <div class="card"><div class="label">Learnings</div><div class="big" id="learnings">–</div></div>
 </div>
-<div class="card"><div class="label">Self-tuning (retrieval rate per kind)</div><table id="fb"></table></div>
+<div class="card"><div class="label">Subscription window (Pro/Max)</div><table id="quota"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Self-tuning (retrieval rate per kind)</div><table id="fb"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Knowledge graph (top blast radius)</div><div class="advice" id="kfiles"></div><table id="kg"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Skills</div><table id="skills"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Recent learnings</div><table id="recent"></table></div>
@@ -112,6 +116,9 @@ async function tick() {
     document.getElementById("fb").innerHTML = "<tr><th>kind</th><th>compressed</th><th>retrieved</th><th>rate</th><th>state</th></tr>" +
       s.feedback.map(f => \`<tr><td>\${f.kind}</td><td>\${f.compressions}</td><td>\${f.retrievals}</td><td>\${f.rate}</td><td>\${f.skipping ? "backing off" : "active"}</td></tr>\`).join("");
     const esc = (v) => String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    document.getElementById("quota").innerHTML = (s.quota && s.quota.windows.length)
+      ? "<tr><th>window</th><th>used</th><th>resets</th></tr>" + s.quota.windows.map(w => \`<tr><td>\${esc(w.label)}</td><td>\${w.usedPct}%</td><td>\${w.resetsInMin != null ? w.resetsInMin + "m" : "—"}</td></tr>\`).join("")
+      : "<tr><td>no subscription source (using an API key, or platform has no usage API)</td></tr>";
     if (s.knowledge) {
       document.getElementById("kfiles").textContent = s.knowledge.files + " files indexed";
       document.getElementById("kg").innerHTML = "<tr><th>file</th><th>dependents</th></tr>" +
@@ -147,6 +154,8 @@ export function createDashboardServer(deps: DashboardDeps): Server {
             ...remote.filter((e) => !seen.has(e.id)).map((e) => ({ ...e, author: `${e.author} (hub)` })),
           ];
         }
+        // Subscription quota (async, best-effort — never blocks the response hard).
+        state["quota"] = deps.quota ? await deps.quota() : null;
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(state));
       })();

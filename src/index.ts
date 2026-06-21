@@ -142,6 +142,7 @@ usage: knitbrain <command>
       ]);
     const ccr = createFileCCRStore(paths.ccrRoot());
     const { readProjectUsage } = await import("./engine/usage.js");
+    const { fetchPlatformQuota } = await import("./engine/quota.js");
     const srv = createDashboardServer({
       ccr,
       memory: createMemory(paths.memoryRoot()),
@@ -153,6 +154,8 @@ usage: knitbrain <command>
       skills: createSkillsStore(paths.skillsRoot()),
       // Real platform token usage from the host's transcripts (live per request).
       usage: () => readProjectUsage(process.cwd()),
+      // Live subscription window (Pro/Max) when a provider usage source exists.
+      quota: () => fetchPlatformQuota(),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {
