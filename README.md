@@ -3,6 +3,16 @@
 <p align="center"><strong>The local-first brain for coding agents.</strong></p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/knitbrain"><img src="https://img.shields.io/npm/v/knitbrain?color=cb3837&logo=npm" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/knitbrain"><img src="https://img.shields.io/npm/dm/knitbrain?color=cb3837&logo=npm" alt="npm downloads"></a>
+  <a href="https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/knitbrain?color=blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/node/v/knitbrain?color=339933&logo=node.js" alt="Node version">
+  <img src="https://img.shields.io/badge/deps-3-brightgreen" alt="3 runtime dependencies">
+  <img src="https://img.shields.io/badge/tests-277%20passing-brightgreen" alt="277 tests passing">
+</p>
+
+<p align="center">
 Per-project memory · lossless context compression · tier-routed workflow · an autonomous build loop —
 for <em>any</em> MCP-speaking agent, with or without an API key.
 </p>
