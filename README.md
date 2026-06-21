@@ -65,8 +65,11 @@ The exact percentage moves with your workload; run `profile` for yours.
   false-positive loop.
 - **An autonomous loop.** Drive an agent through a task queue solo (`loop`) or fan work out to N
   isolated parallel workers (`fan`) — verify-gated, never auto-merging. See below.
-- **A live dashboard.** Watch agents work in real time, with the real token meter and (on a
-  subscription) your Pro/Max usage window.
+- **A live dashboard — zero setup.** Watch every connected agent work in real time, **auto-detected by
+  platform and plan** (from the MCP handshake + env — nothing to configure). A per-agent optimization
+  meter works on *any* MCP client (Cursor, VS Code, Codex, Copilot, Claude, …) because it measures
+  knitbrain's own throughput; native usage windows show where the provider exposes them (Claude OAuth,
+  Copilot quota).
 
 ## Loop engineering
 
