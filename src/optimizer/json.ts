@@ -61,7 +61,14 @@ function skeletonize(value: unknown): unknown {
  * structure-preserving skeleton tagged with the recovery handle.
  */
 export function compressJson(original: string, ccr: CCRStore): CompressResult {
-  const parsed: unknown = JSON.parse(original);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(original);
+  } catch {
+    // Callers should pre-check isJson, but the optimizer must NEVER throw on
+    // bad input — degrade to pass-through (never-expand guard handles the rest).
+    return { skeleton: original, handle: "", contentType: "json" };
+  }
   const skel = skeletonize(parsed);
   const handle = ccr.put(original);
   const skeleton = `${JSON.stringify(skel)} ⟨recall:${handle}⟩`;
