@@ -7,6 +7,7 @@ import type { Feedback } from "./engine/feedback.js";
 import type { SkillsStore } from "./engine/skills.js";
 import type { TeamBoard } from "./engine/teams.js";
 import type { Meter } from "./engine/meter.js";
+import type { PlatformUsage } from "./engine/usage.js";
 
 export interface DashboardDeps {
   ccr: CCRStore;
@@ -18,6 +19,9 @@ export interface DashboardDeps {
   knowledge?: Knowledge;
   /** Optional: skills store. */
   skills?: SkillsStore;
+  /** Optional: real platform token usage (from host transcripts), computed
+   *  per-request so it reflects the live session as it grows. */
+  usage?: () => PlatformUsage | null;
 }
 
 /** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
@@ -37,6 +41,7 @@ export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
   const learnings = deps.memory.listLearnings();
   return {
     meter,
+    platformUsage: deps.usage?.() ?? null,
     ccr: deps.ccr.stats(),
     feedback: deps.feedback.stats(),
     board: deps.team.board().map((e) => ({ id: e.id, author: e.author, ts: e.ts, summary: e.summary.slice(0, 200) })),
@@ -72,7 +77,8 @@ const PAGE = `<!doctype html>
   <div class="card"><div class="label">Context window</div><div class="big" id="pct">–</div>
     <div class="bar"><div class="fill ok" id="fill" style="width:0%"></div></div>
     <div class="advice" id="advice"></div></div>
-  <div class="card"><div class="label">Tokens saved (session)</div><div class="big" id="saved">–</div></div>
+  <div class="card"><div class="label">Tokens saved (optimizer)</div><div class="big" id="saved">–</div></div>
+  <div class="card"><div class="label">Platform tokens (real, this project)</div><div class="big" id="ptok">–</div><div class="advice" id="pbreak"></div></div>
   <div class="card"><div class="label">CCR store (hot / cold)</div><div class="big" id="ccr">–</div></div>
   <div class="card"><div class="label">Learnings</div><div class="big" id="learnings">–</div></div>
 </div>
@@ -91,6 +97,16 @@ async function tick() {
     fill.className = "fill " + s.meter.status;
     document.getElementById("advice").textContent = s.meter.advice;
     document.getElementById("saved").textContent = s.meter.savedTokens.toLocaleString();
+    if (s.platformUsage) {
+      const p = s.platformUsage;
+      document.getElementById("ptok").textContent = p.totalTokens.toLocaleString();
+      document.getElementById("pbreak").textContent =
+        "in " + p.inputTokens.toLocaleString() + " · out " + p.outputTokens.toLocaleString() +
+        " · cache " + (p.cacheReadTokens + p.cacheCreationTokens).toLocaleString() + " · " + p.messages + " msgs";
+    } else {
+      document.getElementById("ptok").textContent = "—";
+      document.getElementById("pbreak").textContent = "no sessions for this project yet";
+    }
     document.getElementById("ccr").textContent = s.ccr.hot + " / " + s.ccr.cold;
     document.getElementById("learnings").textContent = s.learnings;
     document.getElementById("fb").innerHTML = "<tr><th>kind</th><th>compressed</th><th>retrieved</th><th>rate</th><th>state</th></tr>" +

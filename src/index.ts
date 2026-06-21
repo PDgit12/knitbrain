@@ -141,6 +141,7 @@ usage: knitbrain <command>
         import("./paths.js"),
       ]);
     const ccr = createFileCCRStore(paths.ccrRoot());
+    const { readProjectUsage } = await import("./engine/usage.js");
     const srv = createDashboardServer({
       ccr,
       memory: createMemory(paths.memoryRoot()),
@@ -150,6 +151,8 @@ usage: knitbrain <command>
       // Project scope: the directory the dashboard was started in.
       knowledge: createKnowledge(process.cwd(), paths.knowledgeRoot()),
       skills: createSkillsStore(paths.skillsRoot()),
+      // Real platform token usage from the host's transcripts (live per request).
+      usage: () => readProjectUsage(process.cwd()),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {
