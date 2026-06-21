@@ -95,7 +95,7 @@ export function createMemory(root: string): Memory {
     recordLearning(input) {
       const all = load();
       const summary = input.summary.trim();
-      // Dedup by substring match on summary (mirrors engram behavior).
+      // Dedup by substring match on summary.
       const dup = all.find(
         (l) => l.summary.includes(summary) || summary.includes(l.summary),
       );

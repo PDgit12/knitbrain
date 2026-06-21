@@ -6,3 +6,10 @@ coverage/
 .env
 .env.*
 experiments.tsv
+
+# transient / local-only
+handoff.md
+AUDIT.md
+*.original
+.knitbrain/
+*.md.progress

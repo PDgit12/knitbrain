@@ -21,7 +21,7 @@ export interface PlatformUsage {
 /** Claude Code encodes a project's abs path as the transcript dir name,
  * replacing path separators and dots with dashes. */
 export function projectTranscriptDir(cwd: string, home: string = homedir()): string {
-  return join(home, ".claude", "projects", cwd.replace(/[/.]/g, "-"));
+  return join(home, ".claude", "projects", cwd.replace(/[/\\.]/g, "-")); // / \ . → - (Windows too)
 }
 
 const empty = (): PlatformUsage => ({

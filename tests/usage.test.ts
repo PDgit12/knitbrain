@@ -31,7 +31,8 @@ describe("usage — real platform token meter from transcripts", () => {
     expect(readUsageFromDir(join(dir, "empty"))).toBeNull();
   });
 
-  it("encodes the project path the way Claude Code does (/ and . → -)", () => {
-    expect(projectTranscriptDir("/Users/x/my.app", "/home")).toBe("/home/.claude/projects/-Users-x-my-app");
+  it("encodes the project path the way Claude Code does (/ \\ . → -)", () => {
+    // platform-agnostic: build the expected with join so it holds on Windows too
+    expect(projectTranscriptDir("/Users/x/my.app", "/home")).toBe(join("/home", ".claude", "projects", "-Users-x-my-app"));
   });
 });
