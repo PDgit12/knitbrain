@@ -111,7 +111,10 @@ export async function runLoop(args: string[]): Promise<number> {
         }
       }
 
-      writeFileSync(o.goalFile, text.replace(m[0], `- [x] ${task}`));
+      // Re-read before marking: the agent may have edited the goal file, and
+      // writing the pre-agent `text` back would clobber those edits.
+      const fresh = readFileSync(o.goalFile, "utf8");
+      writeFileSync(o.goalFile, fresh.replace(m[0], `- [x] ${task}`));
       appendFileSync(progressFile, `[${new Date().toISOString()}] done: ${task}\n`);
       done += 1;
     }
