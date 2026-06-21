@@ -51,3 +51,8 @@ export function skillsRoot(): string {
 export function calibrationRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "calibration");
 }
+
+/** Per-project live agent-activity log (the dashboard CRM feed). */
+export function activityRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "activity");
+}

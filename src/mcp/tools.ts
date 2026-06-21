@@ -7,6 +7,7 @@ import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
 import { classifyTask, type Tier } from "../engine/workflow.js";
 import type { Calibration } from "../engine/calibration.js";
+import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -29,6 +30,10 @@ export interface ToolContext {
   meter: Meter;
   skills: SkillsStore;
   calibration: Calibration;
+  /** Optional live activity log (dashboard CRM feed). */
+  activity?: ActivityLog;
+  /** Per-connection agent label for the activity feed. */
+  agentId?: string;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -609,5 +614,11 @@ export function dispatch(
   if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter") {
     out += `\n\n[knitbrain context-meter] ${reading.advice}`;
   }
+  // Live activity feed (best-effort; record() already swallows its own errors).
+  ctx.activity?.record({
+    agent: ctx.agentId ?? "agent",
+    tool: tool.name,
+    summary: raw.replace(/\s+/g, " ").trim().slice(0, 80),
+  });
   return out;
 }

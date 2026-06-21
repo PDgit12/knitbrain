@@ -143,6 +143,8 @@ usage: knitbrain <command>
     const ccr = createFileCCRStore(paths.ccrRoot());
     const { readProjectUsage } = await import("./engine/usage.js");
     const { fetchPlatformQuota } = await import("./engine/quota.js");
+    const { createActivityLog } = await import("./engine/activity.js");
+    const activityLog = createActivityLog(paths.activityRoot());
     const srv = createDashboardServer({
       ccr,
       memory: createMemory(paths.memoryRoot()),
@@ -156,6 +158,8 @@ usage: knitbrain <command>
       usage: () => readProjectUsage(process.cwd()),
       // Live subscription window (Pro/Max) when a provider usage source exists.
       quota: () => fetchPlatformQuota(),
+      // Live agent-activity feed (the CRM view).
+      activity: () => activityLog.recent(30),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {

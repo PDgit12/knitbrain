@@ -11,7 +11,9 @@ import { createTeamBoard, type TeamBoard } from "./engine/teams.js";
 import { createMeter, type Meter } from "./engine/meter.js";
 import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
-import { calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
+import { createActivityLog, type ActivityLog } from "./engine/activity.js";
+import { randomBytes } from "node:crypto";
+import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { INSTRUCTIONS } from "./mcp/instructions.js";
 import { SERVER_NAME, VERSION } from "./version.js";
@@ -35,6 +37,7 @@ export function buildServer(
   meter: Meter = createMeter(meterRoot()),
   skills: SkillsStore = createSkillsStore(skillsRoot()),
   calibration: Calibration = createCalibration(calibrationRoot()),
+  activity: ActivityLog = createActivityLog(activityRoot()),
 ): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
@@ -42,7 +45,10 @@ export function buildServer(
     // operating protocol with ZERO per-project file setup.
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
-  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration };
+  // Per-connection label so the activity feed can tell agents apart (each
+  // editor connection spawns its own knitbrain process).
+  const agentId = `agent-${randomBytes(3).toString("hex")}`;
+  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, agentId };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({
