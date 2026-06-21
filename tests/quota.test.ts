@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseClaudeUsage, readClaudeToken } from "../src/engine/quota.js";
+import { parseClaudeUsage, readClaudeToken, parseCopilotQuota, readGithubToken } from "../src/engine/quota.js";
 
 describe("quota — Claude subscription window parsing", () => {
   it("maps known windows with usedPct, used, limit, and reset minutes", () => {
@@ -46,5 +46,27 @@ describe("quota — token resolution (no network)", () => {
     expect(readClaudeToken(home)).toBe("env-tok");
     delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
     expect(readClaudeToken(home)).toBeNull();
+  });
+});
+
+describe("quota — Copilot (GitHub) source", () => {
+  it("parses copilot_internal/user snapshots into windows", () => {
+    const w = parseCopilotQuota({
+      quota_reset_date_utc: new Date(Date.now() + 3 * 86400000).toISOString(),
+      quota_snapshots: {
+        chat: { entitlement: 300, remaining: 75, percent_remaining: 25 },
+        premium_interactions: { unlimited: true },
+        completions: { entitlement: 1000, remaining: 1000 },
+      },
+    });
+    const chat = w.find((x) => x.label === "Copilot chat")!;
+    expect(chat).toMatchObject({ usedPct: 75, used: 225, limit: 300 });
+    expect(w.some((x) => x.label.includes("unlimited"))).toBe(true);
+  });
+  it("returns [] on junk and reads the github token from env (priority order)", () => {
+    expect(parseCopilotQuota(null)).toEqual([]);
+    expect(readGithubToken({ GITHUB_TOKEN: "ghx" })).toBe("ghx");
+    expect(readGithubToken({ GITHUB_COPILOT_GITHUB_TOKEN: "a", GITHUB_TOKEN: "b" })).toBe("a");
+    expect(readGithubToken({})).toBeNull();
   });
 });

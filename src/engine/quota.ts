@@ -108,8 +108,84 @@ export async function fetchClaudeQuota(home: string = homedir()): Promise<Platfo
   }
 }
 
-/** Resolve the active platform's quota. Extensible: add a source per platform
- *  that exposes one; returns null when no source is available (never faked). */
+// ── Copilot (GitHub) ──────────────────────────────────────────────────────
+const GH_TOKEN_VARS = [
+  "GITHUB_COPILOT_GITHUB_TOKEN",
+  "GITHUB_TOKEN",
+  "COPILOT_GITHUB_TOKEN",
+  "GITHUB_COPILOT_API_TOKEN",
+];
+
+/** First non-empty GitHub token from env (keychain is a future source). */
+export function readGithubToken(env: NodeJS.ProcessEnv): string | null {
+  for (const v of GH_TOKEN_VARS) {
+    const t = (env[v] ?? "").trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+interface CopilotSnap {
+  entitlement?: number;
+  remaining?: number;
+  quota_remaining?: number;
+  percent_remaining?: number;
+  unlimited?: boolean;
+}
+
+const COPILOT_CATS: Array<[string, string]> = [
+  ["chat", "Copilot chat"],
+  ["completions", "Copilot completions"],
+  ["premium_interactions", "Copilot premium"],
+];
+
+/** Map GitHub's /copilot_internal/user payload to our windows. Pure. */
+export function parseCopilotQuota(data: unknown): QuotaWindow[] {
+  if (!data || typeof data !== "object") return [];
+  const obj = data as { quota_reset_date_utc?: string; quota_snapshots?: Record<string, CopilotSnap> };
+  const reset = resetsInMin(obj.quota_reset_date_utc);
+  const out: QuotaWindow[] = [];
+  for (const [key, label] of COPILOT_CATS) {
+    const s = obj.quota_snapshots?.[key];
+    if (!s || typeof s !== "object") continue;
+    if (s.unlimited) {
+      out.push({ label: `${label} (unlimited)`, usedPct: 0, used: 0, limit: 0, resetsInMin: reset });
+      continue;
+    }
+    const ent = s.entitlement ?? 0;
+    const rem = s.remaining ?? s.quota_remaining ?? 0;
+    const usedPct =
+      typeof s.percent_remaining === "number"
+        ? Math.round((100 - s.percent_remaining) * 10) / 10
+        : ent > 0
+          ? Math.round((1 - rem / ent) * 1000) / 10
+          : 0;
+    out.push({ label, usedPct, used: Math.max(0, ent - rem), limit: ent, resetsInMin: reset });
+  }
+  return out;
+}
+
+/** Fetch Copilot's monthly quota. Never throws; null on any failure. */
+export async function fetchCopilotQuota(env: NodeJS.ProcessEnv = process.env): Promise<PlatformQuota | null> {
+  const token = readGithubToken(env);
+  if (!token) return null;
+  try {
+    const res = await fetch("https://api.github.com/copilot_internal/user", {
+      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const windows = parseCopilotQuota(await res.json());
+    if (windows.length === 0) return null;
+    return { platform: "copilot", windows, fetchedAt: new Date().toISOString() };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the active platform's quota — tries each provider source that
+ *  exposes one (Claude OAuth API, Copilot GitHub API). Returns the first with
+ *  data, or null when no source is available (never faked). */
 export async function fetchPlatformQuota(home: string = homedir()): Promise<PlatformQuota | null> {
-  return fetchClaudeQuota(home);
+  return (await fetchClaudeQuota(home)) ?? (await fetchCopilotQuota(process.env));
 }
