@@ -7,7 +7,6 @@
   <a href="https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/knitbrain/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/knitbrain?color=blue" alt="MIT license"></a>
   <img src="https://img.shields.io/node/v/knitbrain?color=339933&logo=node.js" alt="Node version">
-  <img src="https://img.shields.io/badge/deps-3-brightgreen" alt="3 runtime dependencies">
 </p>
 
 <p align="center">
