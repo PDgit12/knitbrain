@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
@@ -53,9 +53,13 @@ describe("knitbrain_read — universal optimized read (works on every MCP platfo
     expect(out).toBe(readFileSync("src/version.ts", "utf8"));
   });
 
-  it("SECURITY: refuses absolute paths and traversal out of the project", () => {
-    expect(read.run({ path: "/etc/passwd" }, ctx)).toContain("refused");
-    expect(read.run({ path: "../../etc/passwd" }, ctx)).toContain("refused");
+  it("accepts ABSOLUTE paths (drop-in for the host's raw Read) and errors on a missing file", () => {
+    // The host (Claude Code, etc.) passes absolute paths — these must work, or
+    // the tool is useless as a raw-Read replacement (the field bug it fixes).
+    const abs = join(root, "abs.ts");
+    writeFileSync(abs, "export const a = 1;\n");
+    expect(read.run({ path: abs }, ctx)).toContain("export const a");
+    expect(read.run({ path: join(root, "nope.ts") }, ctx)).toContain("no such file");
   });
 
   it("reports a clean miss for nonexistent files", () => {
