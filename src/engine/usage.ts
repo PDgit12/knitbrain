@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -70,4 +70,61 @@ export function readUsageFromDir(dir: string): PlatformUsage | null {
 /** Real usage for the project rooted at `cwd` (null if no transcripts yet). */
 export function readProjectUsage(cwd: string, home: string = homedir()): PlatformUsage | null {
   return readUsageFromDir(projectTranscriptDir(cwd, home));
+}
+
+/**
+ * The host's CURRENT context-window occupancy, read from the live transcript:
+ * the newest session's latest message input + cache tokens (= what the model
+ * actually saw this turn). Lets the context meter fire handoff advice on the
+ * REAL window, not just knitbrain's slice. Claude Code only — the one host with
+ * a readable per-message token transcript; null elsewhere (meter falls back).
+ */
+export function currentContextTokens(home: string = homedir()): number | null {
+  const dir = join(home, ".claude", "projects");
+  if (!existsSync(dir)) return null;
+  let newest: string | null = null;
+  let newestMtime = 0;
+  for (const proj of readdirSync(dir)) {
+    const pd = join(dir, proj);
+    let files: string[];
+    try {
+      if (!statSync(pd).isDirectory()) continue;
+      files = readdirSync(pd);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      try {
+        const m = statSync(join(pd, f)).mtimeMs;
+        if (m > newestMtime) {
+          newestMtime = m;
+          newest = join(pd, f);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  if (!newest) return null;
+  let content: string;
+  try {
+    content = readFileSync(newest, "utf8");
+  } catch {
+    return null;
+  }
+  const lines = content.split("\n").filter((l) => l.includes('"usage"'));
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let msg: { message?: { usage?: Record<string, number> } };
+    try {
+      msg = JSON.parse(lines[i]!);
+    } catch {
+      continue;
+    }
+    const u = msg.message?.usage;
+    if (u) {
+      return (u["input_tokens"] ?? 0) + (u["cache_read_input_tokens"] ?? 0) + (u["cache_creation_input_tokens"] ?? 0);
+    }
+  }
+  return null;
 }

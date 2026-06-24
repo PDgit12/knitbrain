@@ -12,6 +12,7 @@ import { createMeter, type Meter } from "./engine/meter.js";
 import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
 import { createActivityLog, type ActivityLog } from "./engine/activity.js";
+import { currentContextTokens } from "./engine/usage.js";
 import { agentLabel } from "./mcp/host.js";
 import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
@@ -34,7 +35,7 @@ export function buildServer(
   knowledge: Knowledge = createKnowledge(process.cwd(), knowledgeRoot()),
   feedback: Feedback = createFeedback(feedbackRoot()),
   team: TeamBoard = createTeamBoard(teamRoot(), ccr),
-  meter: Meter = createMeter(meterRoot()),
+  meter: Meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() }),
   skills: SkillsStore = createSkillsStore(skillsRoot()),
   calibration: Calibration = createCalibration(calibrationRoot()),
   activity: ActivityLog = createActivityLog(activityRoot()),

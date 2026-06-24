@@ -146,7 +146,7 @@ usage: knitbrain <command>
         import("./paths.js"),
       ]);
     const ccr = createFileCCRStore(paths.ccrRoot());
-    const { readProjectUsage } = await import("./engine/usage.js");
+    const { readProjectUsage, currentContextTokens } = await import("./engine/usage.js");
     const { fetchPlatformQuota } = await import("./engine/quota.js");
     const { createActivityLog } = await import("./engine/activity.js");
     const activityLog = createActivityLog(paths.activityRoot());
@@ -155,7 +155,7 @@ usage: knitbrain <command>
       memory: createMemory(paths.memoryRoot()),
       feedback: createFeedback(paths.feedbackRoot()),
       team: createTeamBoard(paths.teamRoot(), ccr),
-      meter: createMeter(paths.meterRoot()),
+      meter: createMeter(paths.meterRoot(), { realUsage: () => currentContextTokens() }),
       // Project scope: the directory the dashboard was started in.
       knowledge: createKnowledge(process.cwd(), paths.knowledgeRoot()),
       skills: createSkillsStore(paths.skillsRoot()),

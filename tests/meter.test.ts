@@ -93,3 +93,25 @@ describe("MCP-side savings accounting (dashboard tokens-saved tile)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe("meter realUsage probe — fire on the REAL host window, not just knitbrain's slice", () => {
+  it("uses the probe when it exceeds knitbrain's own tracking", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-rm-"));
+    try {
+      // knitbrain saw almost nothing, but the real window is 90% full
+      const m = createMeter(join(r, "m"), { windowTokens: 200000, realUsage: () => 180000 });
+      m.onToolOutput(500); // knitbrain's slice = tiny
+      const reading = m.read();
+      expect(reading.usedTokens).toBe(180000); // real window wins
+      expect(reading.status).toBe("handoff"); // fires correctly
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+  it("falls back to its own tracking when the probe returns null (other platforms)", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-rm2-"));
+    try {
+      const m = createMeter(join(r, "m"), { windowTokens: 200000, realUsage: () => null });
+      m.onToolOutput(1000);
+      expect(m.read().usedTokens).toBe(1000);
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+});

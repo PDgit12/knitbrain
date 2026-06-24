@@ -44,6 +44,13 @@ export interface MeterOptions {
   warnAt?: number;
   /** advise handoff+clear at this fraction. Default 0.85. */
   handoffAt?: number;
+  /**
+   * Probe for the host's REAL context-window occupancy (e.g. read from the
+   * live transcript). Without it the meter only sees knitbrain's own throughput
+   * and under-reports — handoff fires late or never. Returns null when no
+   * source is available (then the meter falls back to its own tracking).
+   */
+  realUsage?: () => number | null;
 }
 
 interface State {
@@ -97,7 +104,10 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
     },
     read() {
       reload();
-      const usedTokens = state.lastRequestTokens + state.toolTokens;
+      // Prefer the host's REAL window (transcript probe) when available; else
+      // fall back to knitbrain's own tracked throughput (under-counts, honest).
+      const real = opts.realUsage?.() ?? 0;
+      const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real);
       const usedPct = Math.min(100, Math.round((usedTokens / windowTokens) * 1000) / 10);
       const frac = usedTokens / windowTokens;
       const status: MeterReading["status"] =
