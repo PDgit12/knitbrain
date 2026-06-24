@@ -11,7 +11,9 @@
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
 import { createMemory } from "../engine/memory.js";
-import { memoryRoot } from "../paths.js";
+import { createMeter } from "../engine/meter.js";
+import { currentContextTokens } from "../engine/usage.js";
+import { memoryRoot, meterRoot } from "../paths.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 
@@ -31,6 +33,19 @@ async function main(): Promise<void> {
       const input = JSON.parse(await readStdin()) as PreToolUseInput;
       const decision = decidePreToolUse(input);
       if (decision) process.stdout.write(JSON.stringify(decision));
+      return;
+    }
+    if (mode === "userpromptsubmit") {
+      // Re-inject the protocol EVERY turn so the agent doesn't drift over a long
+      // session (SessionStart fires once; this fights mid-session forgetting —
+      // the way caveman/ponytail stay active). Kept short to cost ~nothing; the
+      // live real-window status only appends when the window is no longer "ok".
+      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
+      const r = meter.read();
+      let out =
+        "knitbrain active — classify_task before non-trivial edits · knitbrain_read for big files · verify claims with output (no yes-man) · record_learning before done.";
+      if (r.status !== "ok") out += `\n[context ${r.usedPct}%] ${r.advice}`;
+      process.stdout.write(out);
       return;
     }
     if (mode === "sessionstart") {

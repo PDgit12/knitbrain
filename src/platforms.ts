@@ -31,6 +31,12 @@ export const KNITBRAIN_HOOKS = {
       hooks: [{ type: "command", command: "knitbrain-hook sessionstart" }],
     },
   ],
+  UserPromptSubmit: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook userpromptsubmit" }],
+    },
+  ],
   PreToolUse: [
     {
       matcher: "Read",

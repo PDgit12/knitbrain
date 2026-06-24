@@ -110,9 +110,16 @@ describe("SessionStart hook (auto protocol + memory injection)", () => {
     expect(parsed.hookSpecificOutput.additionalContext.length).toBeGreaterThan(100);
   });
 
-  it("setup wires all four lifecycle hooks", () => {
-    expect(Object.keys(KNITBRAIN_HOOKS).sort()).toEqual(["PreCompact", "PreToolUse", "SessionStart", "Stop"]);
+  it("setup wires all lifecycle hooks (incl. per-turn UserPromptSubmit anti-drift)", () => {
+    expect(Object.keys(KNITBRAIN_HOOKS).sort()).toEqual([
+      "PreCompact",
+      "PreToolUse",
+      "SessionStart",
+      "Stop",
+      "UserPromptSubmit",
+    ]);
     expect(KNITBRAIN_HOOKS.SessionStart[0]!.hooks[0]!.command).toBe("knitbrain-hook sessionstart");
     expect(KNITBRAIN_HOOKS.Stop[0]!.hooks[0]!.command).toBe("knitbrain-hook stop");
+    expect(KNITBRAIN_HOOKS.UserPromptSubmit[0]!.hooks[0]!.command).toBe("knitbrain-hook userpromptsubmit");
   });
 });
