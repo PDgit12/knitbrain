@@ -21,3 +21,20 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run verify
+
+  # The live e2e + cold-start production-audit are NOT in `npm run verify`, so
+  # marker/format drift (e.g. the optimizer's recall-marker rename) once slipped
+  # through. This lane drives every tool over real stdio + a full clone→install→
+  # pack→install→drive cold-start, once (ubuntu/node 22) to keep CI fast.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run e2e
+      - run: node scripts/production-audit.mjs
