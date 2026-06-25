@@ -74,9 +74,11 @@ passed through.
 
 ## 2. The wiki
 
-Most agent setups re-read and re-derive context every session. The wiki is the opposite: a persistent,
-interlinked set of markdown files the agent **maintains as it works**, so knowledge is compiled once and
-kept current rather than rebuilt on every query.
+A small, local, per-project wiki — interlinked markdown notes and a session log, not an encyclopedia.
+Most agent setups re-read and re-derive context every session; this is the opposite: knowledge is filed
+once into linked pages and kept current rather than rebuilt on every query. knitbrain maintains the
+**bookkeeping** reliably (index, cross-links, log); the depth of each page is whatever the agent writes
+into it via `wiki_ingest`.
 
 It lives at `~/.knitbrain/projects/<id>/wiki/`:
 
