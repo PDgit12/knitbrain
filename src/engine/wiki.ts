@@ -47,6 +47,50 @@ export function slug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "page";
 }
 
+interface TranscriptLine {
+  type?: string;
+  message?: { content?: unknown };
+}
+
+/** Extract user/assistant text turns from a real host transcript (.jsonl). */
+export function parseTranscriptTurns(rawJsonl: string): Array<{ role: string; text: string }> {
+  const turns: Array<{ role: string; text: string }> = [];
+  for (const line of rawJsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let o: TranscriptLine;
+    try {
+      o = JSON.parse(line) as TranscriptLine;
+    } catch {
+      continue;
+    }
+    if (o.type !== "user" && o.type !== "assistant") continue;
+    const c = o.message?.content;
+    let text = "";
+    if (typeof c === "string") text = c;
+    else if (Array.isArray(c)) text = c.map((b) => (b && typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")).join(" ").trim();
+    if (text) turns.push({ role: o.type, text });
+  }
+  return turns;
+}
+
+/**
+ * Ingest a REAL host session transcript into the wiki: synthesize a terse
+ * session page (first prompt + turn count + files touched), cross-reference
+ * the files it mentions (stub pages), and log it. This is the whole-chat → wiki
+ * path; the per-turn live chronicle is the UserPromptSubmit hook.
+ */
+export function ingestTranscript(rawJsonl: string, wiki: WikiStore, title = `session ${today()}`): { page: string; turns: number; touched: string[] } {
+  const turns = parseTranscriptTurns(rawJsonl);
+  const firstPrompt = (turns.find((t) => t.role === "user")?.text ?? "session").replace(/\s+/g, " ").slice(0, 80);
+  const files = [...new Set([...rawJsonl.matchAll(/\b([\w.-]+\.(?:ts|tsx|js|mjs|py|go|rs|md|json))\b/g)].map((m) => m[1]!))].slice(0, 8);
+  const content =
+    `Session: ${firstPrompt}\n` +
+    `- claim: turns = ${turns.length}\n` +
+    `files: ${files.join(", ") || "(none)"}`;
+  const r = wiki.ingest({ title, kind: "session", content, links: files.map((f) => f.split("/").pop() ?? f) });
+  return { page: r.page, turns: turns.length, touched: r.touched };
+}
+
 const today = (): string => new Date().toISOString().slice(0, 10);
 
 interface ParsedPage {

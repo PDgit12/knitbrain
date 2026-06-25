@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWikiStore, slug } from "../src/engine/wiki.js";
+import { createWikiStore, slug, parseTranscriptTurns, ingestTranscript } from "../src/engine/wiki.js";
 import { countTokens } from "../src/tokenizer.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createMemory } from "../src/engine/memory.js";
@@ -117,5 +117,37 @@ describe("wiki-brain (leg 5) — ingest / index / log / cross-ref / lint", () =>
     // Leg 3: load_session surfaces the wiki log so a fresh session inherits it.
     const session = JSON.parse(call("knitbrain_load_session")) as { wikiRecent: string[] };
     expect(session.wikiRecent.some((l) => l.includes("P2 wiki-brain shipped"))).toBe(true);
+  });
+
+  it("ingests a REAL session transcript → page + index + log, load_session surfaces it (e2e)", () => {
+    // Genuine turns captured from an actual Claude Code session (.jsonl),
+    // checked in so CI is deterministic — real data, not synthetic pages.
+    const raw = readFileSync(join(process.cwd(), "tests/fixtures/real-transcript.jsonl"), "utf8");
+    const turns = parseTranscriptTurns(raw);
+    expect(turns.length).toBeGreaterThanOrEqual(2); // real user + assistant turns parsed
+
+    const ccr = createFileCCRStore(join(root, "ccr-tx"));
+    const wiki = createWikiStore(join(root, "wiki-tx"));
+    const r = ingestTranscript(raw, wiki, "real session 2026");
+    expect(r.turns).toBe(turns.length);
+    // page written, indexed, logged
+    expect(wiki.page(r.page)).toContain("Session:");
+    expect(wiki.index()).toContain(`[[${r.page}]]`);
+    expect(wiki.recentLog(5).some((l) => l.includes("real session 2026"))).toBe(true);
+
+    // load_session (real dispatch) surfaces the prior-session context from log.md
+    const ctx: ToolContext = {
+      ccr,
+      memory: createMemory(join(root, "mem-tx")),
+      knowledge: createKnowledge(root, join(root, "kb-tx")),
+      feedback: createFeedback(join(root, "fb-tx")),
+      team: createTeamBoard(join(root, "team-tx"), ccr),
+      meter: createMeter(join(root, "meter-tx")),
+      skills: createSkillsStore(join(root, "skills-tx")),
+      calibration: createCalibration(join(root, "cal-tx")),
+      wiki,
+    };
+    const session = JSON.parse(dispatch(TOOLS.find((t) => t.name === "knitbrain_load_session")!, {}, ctx)) as { wikiRecent: string[] };
+    expect(session.wikiRecent.some((l) => l.includes("real session 2026"))).toBe(true);
   });
 });

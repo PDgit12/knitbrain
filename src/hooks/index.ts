@@ -14,8 +14,9 @@
 import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
+import { createWikiStore } from "../engine/wiki.js";
 import { currentContextTokens } from "../engine/usage.js";
-import { ccrRoot, memoryRoot, meterRoot } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot, wikiRoot } from "../paths.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
@@ -51,6 +52,16 @@ async function main(): Promise<void> {
       return;
     }
     if (mode === "userpromptsubmit") {
+      // Whole-chat → wiki: append this turn to the wiki log (leg 5 real-time
+      // chronicle). Cheap, append-only, never blocks; synthesis pages stay
+      // LLM-driven via knitbrain_wiki_ingest.
+      try {
+        const input = JSON.parse(await readStdin()) as { prompt?: string };
+        const prompt = typeof input.prompt === "string" ? input.prompt.replace(/\s+/g, " ").trim() : "";
+        if (prompt) createWikiStore(wikiRoot()).log("turn", prompt.slice(0, 80));
+      } catch {
+        /* never break the host on a malformed prompt payload */
+      }
       // Re-inject the protocol EVERY turn so the agent doesn't drift over a long
       // session (SessionStart fires once; this fights mid-session forgetting —
       // the way caveman/ponytail stay active). Kept short to cost ~nothing; the

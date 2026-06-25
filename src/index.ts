@@ -149,6 +149,7 @@ usage: knitbrain <command>
     const { readProjectUsage, currentContextTokens } = await import("./engine/usage.js");
     const { fetchPlatformQuota } = await import("./engine/quota.js");
     const { createActivityLog } = await import("./engine/activity.js");
+    const { createWikiStore } = await import("./engine/wiki.js");
     const activityLog = createActivityLog(paths.activityRoot());
     const srv = createDashboardServer({
       ccr,
@@ -167,6 +168,8 @@ usage: knitbrain <command>
       activity: () => activityLog.recent(30),
       // Per-agent optimization rollup — universal meter across all platforms.
       agents: () => activityLog.rollup(),
+      // The compounding wiki-brain (leg 5).
+      wiki: createWikiStore(paths.wikiRoot()),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {

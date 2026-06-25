@@ -10,6 +10,7 @@ import type { Meter } from "./engine/meter.js";
 import type { PlatformUsage } from "./engine/usage.js";
 import type { PlatformQuota } from "./engine/quota.js";
 import type { ActivityEvent, AgentRollup } from "./engine/activity.js";
+import type { WikiStore } from "./engine/wiki.js";
 
 export interface DashboardDeps {
   ccr: CCRStore;
@@ -30,6 +31,8 @@ export interface DashboardDeps {
   activity?: () => ActivityEvent[];
   /** Optional: per-agent optimization rollup (universal meter, all platforms). */
   agents?: () => AgentRollup[];
+  /** Optional: the compounding wiki-brain (leg 5). */
+  wiki?: WikiStore;
 }
 
 /** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
@@ -58,6 +61,13 @@ export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
     learnings: learnings.length,
     recentLearnings: learnings.slice(-5).reverse().map((l) => ({ date: l.date, summary: l.summary.slice(0, 160) })),
     knowledge: deps.knowledge ? knowledgeSummary(deps.knowledge) : null,
+    wiki: deps.wiki
+      ? {
+          pages: (deps.wiki.index().match(/\[\[/g) ?? []).length,
+          recent: deps.wiki.recentLog(8),
+          lint: deps.wiki.lint(),
+        }
+      : null,
     skills: deps.skills
       ? deps.skills.list().map((s) => ({ name: s.name, uses: s.uses, triggers: s.triggers.slice(0, 6), updatedAt: s.updatedAt }))
       : null,
@@ -100,6 +110,7 @@ const PAGE = `<!doctype html>
 <div class="card" style="margin-top:.8rem"><div class="label">Skills</div><table id="skills"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Recent learnings</div><table id="recent"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Team board</div><table id="board"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">Wiki-brain (compounding · index + log + pages)</div><table id="wiki"></table></div>
 <script>
 async function tick() {
   try {
@@ -147,6 +158,10 @@ async function tick() {
       (s.recentLearnings.length ? s.recentLearnings.map(l => \`<tr><td>\${esc(l.date)}</td><td>\${esc(l.summary)}</td></tr>\`).join("") : "<tr><td colspan=2>—</td></tr>");
     document.getElementById("board").innerHTML = "<tr><th>who</th><th>when</th><th>finding</th></tr>" +
       (s.board.length ? s.board.map(b => \`<tr><td>\${esc(b.author)}</td><td>\${esc(b.ts.slice(11,19))}</td><td>\${esc(b.summary)}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
+    document.getElementById("wiki").innerHTML = s.wiki
+      ? \`<tr><th>pages</th><td>\${s.wiki.pages}</td></tr><tr><th>contradictions</th><td>\${s.wiki.lint.contradictions.length}</td></tr><tr><th>orphans</th><td>\${s.wiki.lint.orphans.length}</td></tr>\` +
+        (s.wiki.recent.length ? "<tr><th colspan=2>recent log</th></tr>" + s.wiki.recent.map(l => \`<tr><td colspan=2>\${esc(l)}</td></tr>\`).join("") : "")
+      : "<tr><td>no wiki yet — ingest with knitbrain_wiki_ingest</td></tr>";
   } catch {}
 }
 tick(); setInterval(tick, 2000);
