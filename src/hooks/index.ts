@@ -4,16 +4,19 @@
  * top of the universal knitbrain_read steering).
  *
  *   knitbrain-hook pretooluse    stdin: PreToolUse JSON → deny+redirect large raw Reads
+ *   knitbrain-hook posttooluse   stdin: PostToolUse JSON → skeletonize Bash/Grep/WebFetch output
  *   knitbrain-hook sessionstart  inject protocol + handoff + learnings into a new session
  *   knitbrain-hook precompact    auto-save a handoff BEFORE the host compacts
  *   knitbrain-hook stop          auto-save a resumable handoff at session end (non-clobbering)
  *
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
+import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
 import { currentContextTokens } from "../engine/usage.js";
-import { memoryRoot, meterRoot } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot } from "../paths.js";
+import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 
@@ -32,6 +35,18 @@ async function main(): Promise<void> {
     if (mode === "pretooluse") {
       const input = JSON.parse(await readStdin()) as PreToolUseInput;
       const decision = decidePreToolUse(input);
+      if (decision) process.stdout.write(JSON.stringify(decision));
+      return;
+    }
+    if (mode === "posttooluse") {
+      // Skeletonize the result of host tools PreToolUse can't redirect
+      // (Bash/Grep/Glob/WebFetch). Replaces the model-visible output via
+      // updatedToolOutput; the exact original lands in the shared CCR store so
+      // knitbrain_retrieve restores it. The subscription auto-compression path.
+      const input = JSON.parse(await readStdin()) as PostToolUseInput;
+      const ccr = createFileCCRStore(ccrRoot());
+      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
+      const decision = decidePostToolUse(input, ccr, (n) => meter.onSaved(n));
       if (decision) process.stdout.write(JSON.stringify(decision));
       return;
     }

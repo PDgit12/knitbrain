@@ -157,22 +157,39 @@ export function createDashboardServer(deps: DashboardDeps): Server {
   return createServer((req, res) => {
     if (req.url === "/api/state") {
       void (async () => {
-        const state = dashboardState(deps);
-        // COMMON view: merge the team hub's board (best-effort, never blocks long).
-        const hub = loadHubConfig();
-        if (hub) {
-          const remote = await fetchHubBoard(hub);
-          const local = state["board"] as Array<{ id: string }>;
-          const seen = new Set(local.map((e) => e.id));
-          state["board"] = [
-            ...local,
-            ...remote.filter((e) => !seen.has(e.id)).map((e) => ({ ...e, author: `${e.author} (hub)` })),
-          ];
+        try {
+          const state = dashboardState(deps);
+          // COMMON view: merge the team hub's board. Best-effort as the comment
+          // promises: a hub fetch failure degrades to the local board, never
+          // fails the whole response.
+          const hub = loadHubConfig();
+          if (hub) {
+            try {
+              const remote = await fetchHubBoard(hub);
+              const local = state["board"] as Array<{ id: string }>;
+              const seen = new Set(local.map((e) => e.id));
+              state["board"] = [
+                ...local,
+                ...remote.filter((e) => !seen.has(e.id)).map((e) => ({ ...e, author: `${e.author} (hub)` })),
+              ];
+            } catch {
+              /* hub unreachable — keep the local board */
+            }
+          }
+          // Subscription quota (async, best-effort — degrades to null on failure).
+          try {
+            state["quota"] = deps.quota ? await deps.quota() : null;
+          } catch {
+            state["quota"] = null;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(state));
+        } catch (err) {
+          // Anything unexpected: still END the request (an unhandled rejection
+          // here would otherwise hang the connection and the browser tick).
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: (err as Error).message }));
         }
-        // Subscription quota (async, best-effort — never blocks the response hard).
-        state["quota"] = deps.quota ? await deps.quota() : null;
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(state));
       })();
       return;
     }

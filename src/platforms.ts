@@ -23,7 +23,8 @@ export interface Artifact {
  * SessionStart hook makes the loop's first step automatic (protocol + memory
  * injected without the agent calling load_session); Stop keeps session-end
  * resumable; PreCompact saves before compaction; PreToolUse hard-redirects
- * large raw Reads to knitbrain_read. */
+ * large raw Reads to knitbrain_read; PostToolUse skeletonizes the output of
+ * the host tools PreToolUse can't redirect (Bash/Grep/Glob/WebFetch) inline. */
 export const KNITBRAIN_HOOKS = {
   SessionStart: [
     {
@@ -41,6 +42,12 @@ export const KNITBRAIN_HOOKS = {
     {
       matcher: "Read",
       hooks: [{ type: "command", command: "knitbrain-hook pretooluse" }],
+    },
+  ],
+  PostToolUse: [
+    {
+      matcher: "Bash|Grep|Glob|WebFetch|WebSearch",
+      hooks: [{ type: "command", command: "knitbrain-hook posttooluse" }],
     },
   ],
   PreCompact: [
