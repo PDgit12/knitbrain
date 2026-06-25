@@ -30,7 +30,7 @@ Memory layers remember but burn your context window. knitbrain is **one substrat
 plus the workflow layer that makes an agent actually use them, and an autonomous loop that runs the
 whole thing across fresh contexts.
 
-It ships as an **MCP server** (27 tools), so it works in every MCP client (Claude Code, Cursor, Codex,
+It ships as an **MCP server** (28 tools), so it works in every MCP client (Claude Code, Cursor, Codex,
 Copilot, Windsurf, Cline, and more) with one config line. **Pure Node, three dependencies, no Python, no ML
 runtime, nothing leaves your machine.**
 
@@ -47,17 +47,22 @@ Requires Node ≥ 18.
 
 ## The numbers
 
-We publish the number most tools won't: the **all-inclusive average** over real coding sessions —
-every tool-result token, *including* the small outputs that pass through uncompressed.
+These measure the **optimizer's reach over real tool output** — every tool-result token routed
+through the optimizer, *including* the small outputs that pass through uncompressed. Measured offline
+over real coding sessions; `knitbrain profile` reproduces them on yours.
 
-- **~46% saved** across ~3M real tool-result tokens (≈55% counting only blocks ≥ 400 chars).
+- **~46%** average reduction across ~3M real tool-result tokens (≈55% on blocks ≥ 400 chars).
 - **68%** on the weighted real-shape benchmark mix (code 67% · logs 97% · JSON 97% · diffs 71% · prose 80%).
 - **Lossless.** Every elision carries a `⟨recall:HASH⟩` handle that restores the exact original
   byte-for-byte. An answer-preservation suite (`knitbrain evals`) gates it: round-trip **100%**,
   identifier-fidelity **100%**, error/summary lines never dropped.
 
-All three are reproducible on your own machine — `knitbrain profile`, `knitbrain evals`, `npm run bench`.
-The exact percentage moves with your workload; run `profile` for yours.
+This is the **ceiling — what you save when output flows through knitbrain.** How much of your *live*
+traffic that covers depends on billing (see [How it works](#how-it-works)): with an API key the proxy
+routes ~everything; on a subscription it's what the MCP + hooks reach. Your **realized** number is the
+live meter (`knitbrain dashboard`), which counts only what actually passed through — not this ceiling.
+Run `profile` for your ceiling, watch the meter for your realized. All reproducible:
+`knitbrain profile`, `knitbrain evals`, `npm run bench`.
 
 ## What you get
 
@@ -110,10 +115,18 @@ workers and a human at the merge, not an infinite token loop.
                                                  dashboard ◄─ live
 ```
 
-Optional, for API-key users: a loopback proxy (`knitbrain wrap claude`) compresses the request
-on the wire too. On a subscription, that wire path can't apply (OAuth traffic can't be intercepted —
-true of every tool in this space) — but the main lever, tool-result compression, runs identically
-either way, no API key required.
+**Two compression paths, picked by billing — same optimizer, different reach:**
+
+- **API key** — a loopback proxy (`knitbrain wrap claude`) compresses every request on the wire:
+  *all* tool results in the transcript, automatically, no agent cooperation.
+- **Subscription** (OAuth traffic can't be intercepted — true of every tool in this space) —
+  knitbrain compresses through the **MCP + hook surface** instead: `knitbrain_read` for files, and on
+  Claude Code a **PostToolUse hook auto-skeletonizes Bash / Grep / Glob / WebFetch output inline**
+  (via `updatedToolOutput`), the exact original kept in the recall store. No API key, no proxy.
+
+The optimizer is identical; what differs is **reach** — the proxy covers everything; the hook path
+covers the host tools your platform lets a hook rewrite (full on Claude Code, narrower elsewhere).
+The dashboard meter shows your realized number either way.
 
 ## Commands
 

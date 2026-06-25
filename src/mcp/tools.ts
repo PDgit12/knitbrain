@@ -9,13 +9,14 @@ import { classifyTask, type Tier } from "../engine/workflow.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
+import { scanHost, composeSkill } from "../engine/host-scan.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
 import { slashCommands } from "../platforms.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve, isAbsolute } from "node:path";
+import { resolve, isAbsolute, join } from "node:path";
 import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
@@ -407,6 +408,11 @@ export const TOOLS: readonly ToolDef[] = [
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
       const cls = classifyTask(task, files, ctx.calibration.get().scopeAdjust);
 
+      // Legs 1+2: see what the user already has, so we dedupe (never re-propose
+      // an agent they already wrote) and can compose in their style.
+      const host = scanHost(join(process.cwd(), ".claude"));
+      const hostAgentNames = new Set(host.agents.map((a) => a.name.toLowerCase()));
+
       // SKILL: find-or-draft (skills made on-demand, persist, compound).
       const found = ctx.skills.find(task);
       const seed = ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
@@ -431,7 +437,10 @@ export const TOOLS: readonly ToolDef[] = [
       // findings flowing back through the team board.
       const agents =
         cls.tier === "complex"
-          ? proposeAgents(ctx.knowledge.listFiles()).slice(0, 4).map((p) => {
+          ? proposeAgents(ctx.knowledge.listFiles())
+              .filter((p) => !hostAgentNames.has(p.name.toLowerCase()))
+              .slice(0, 4)
+              .map((p) => {
               const file = writeAgent(process.cwd(), {
                 name: p.name,
                 scope: p.scope,
@@ -468,6 +477,11 @@ export const TOOLS: readonly ToolDef[] = [
       return JSON.stringify(
         {
           classification: cls,
+          existing: {
+            skills: host.skills.length,
+            agents: host.agents.length,
+            note: `found ${host.skills.length} existing skill(s) + ${host.agents.length} agent(s) in .claude — deduped against proposals; compose project-tailored ones with knitbrain_compose_skill`,
+          },
           skill,
           agents,
           host_commands: commands,
@@ -480,6 +494,30 @@ export const TOOLS: readonly ToolDef[] = [
         null,
         2,
       );
+    },
+  },
+  {
+    name: "knitbrain_compose_skill",
+    description:
+      "Compose a NEW project-tailored skill for a task in the USER'S OWN composition style (learned from their existing .claude/skills — length, terseness) and persist it. Use when no existing skill fits; refine the body, then knitbrain_skill_save to update.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "The task this skill is for." },
+        lessons: { type: "array", items: { type: "string" }, description: "Seed lessons; if omitted, pulled from memory." },
+      },
+      required: ["task"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const task = str(args, "task");
+      const lessons = Array.isArray(args["lessons"])
+        ? (args["lessons"] as string[])
+        : ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
+      const style = scanHost(join(process.cwd(), ".claude")).style;
+      const s = composeSkill(task, style, lessons, ctx.skills);
+      return `composed skill "${s.name}" (${s.body.length} chars${style.terse ? ", style-matched terse" : ""}) — refine the body, then knitbrain_skill_save to update.`;
     },
   },
   {
