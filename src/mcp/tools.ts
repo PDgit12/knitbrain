@@ -10,6 +10,7 @@ import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill } from "../engine/host-scan.js";
+import type { WikiStore } from "../engine/wiki.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
@@ -33,6 +34,8 @@ export interface ToolContext {
   calibration: Calibration;
   /** Optional live activity log (dashboard CRM feed). */
   activity?: ActivityLog;
+  /** Optional wiki-brain (leg 5) — compounding markdown knowledge base. */
+  wiki?: WikiStore;
   /** Per-connection agent label for the activity feed. */
   agentId?: string;
 }
@@ -235,7 +238,11 @@ export const TOOLS: readonly ToolDef[] = [
       ctx.meter.reset(); // new session starts a fresh window
       // (Knowledge self-heals lazily: the first graph query in a fresh
       // project triggers a scan automatically — no manual init step.)
-      return JSON.stringify(ctx.memory.loadSession(), null, 2);
+      const session = ctx.memory.loadSession();
+      // Leg 3: surface recent wiki-log entries so a fresh session inherits
+      // what prior sessions did (cross-session context), not just the handoff.
+      const wikiRecent = ctx.wiki ? ctx.wiki.recentLog(8) : [];
+      return JSON.stringify({ ...session, wikiRecent }, null, 2);
     },
   },
   {
@@ -617,6 +624,55 @@ export const TOOLS: readonly ToolDef[] = [
     run: (_args, ctx) => {
       ctx.team.clear();
       return "board cleared";
+    },
+  },
+  {
+    name: "knitbrain_wiki_ingest",
+    description:
+      "Ingest a synthesized note into the compounding wiki-brain: writes/updates a terse page, rebuilds the index, appends the log, and stubs any cross-referenced page. Use to compound knowledge across the session (entities, concepts, summaries, session notes) instead of letting it vanish into chat.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        kind: { type: "string", enum: ["session", "entity", "concept", "summary"] },
+        content: { type: "string", description: "Terse synthesis (not the raw source). Add `- claim: KEY = VALUE` lines for lint to track." },
+        links: { type: "array", items: { type: "string" }, description: "Other page titles this references." },
+      },
+      required: ["title", "kind", "content"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      if (!ctx.wiki) return "wiki unavailable";
+      const kind = str(args, "kind");
+      const r = ctx.wiki.ingest({
+        title: str(args, "title"),
+        kind: (["session", "entity", "concept", "summary"].includes(kind) ? kind : "summary") as "session" | "entity" | "concept" | "summary",
+        content: str(args, "content"),
+        ...(Array.isArray(args["links"]) ? { links: args["links"] as string[] } : {}),
+      });
+      return `wiki: page "${r.page}" written · touched ${r.touched.join(", ")} · index + log updated`;
+    },
+  },
+  {
+    name: "knitbrain_wiki_query",
+    description: "Query the wiki-brain: returns the index catalog + recent log so you can drill into the relevant pages (read them with knitbrain_read). File good answers back with knitbrain_wiki_ingest so explorations compound.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "data",
+    run: (_args, ctx) => {
+      if (!ctx.wiki) return "wiki unavailable";
+      return `${ctx.wiki.index()}\n\n## recent log\n${ctx.wiki.recentLog(10).join("\n")}`;
+    },
+  },
+  {
+    name: "knitbrain_wiki_lint",
+    description: "Health-check the wiki-brain: flags claim contradictions across pages (incl. stale claims superseded over time) and orphan pages nothing links to.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "verbatim",
+    run: (_args, ctx) => {
+      if (!ctx.wiki) return "wiki unavailable";
+      const r = ctx.wiki.lint();
+      return JSON.stringify(r, null, 2);
     },
   },
 ];

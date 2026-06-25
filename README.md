@@ -30,7 +30,7 @@ Memory layers remember but burn your context window. knitbrain is **one substrat
 plus the workflow layer that makes an agent actually use them, and an autonomous loop that runs the
 whole thing across fresh contexts.
 
-It ships as an **MCP server** (28 tools), so it works in every MCP client (Claude Code, Cursor, Codex,
+It ships as an **MCP server** (31 tools), so it works in every MCP client (Claude Code, Cursor, Codex,
 Copilot, Windsurf, Cline, and more) with one config line. **Pure Node, three dependencies, no Python, no ML
 runtime, nothing leaves your machine.**
 

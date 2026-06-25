@@ -12,9 +12,10 @@ import { createMeter, type Meter } from "./engine/meter.js";
 import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
 import { createActivityLog, type ActivityLog } from "./engine/activity.js";
+import { createWikiStore, type WikiStore } from "./engine/wiki.js";
 import { currentContextTokens } from "./engine/usage.js";
 import { agentLabel } from "./mcp/host.js";
-import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot } from "./paths.js";
+import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot, wikiRoot } from "./paths.js";
 import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
 import { INSTRUCTIONS } from "./mcp/instructions.js";
 import { SERVER_NAME, VERSION } from "./version.js";
@@ -39,6 +40,7 @@ export function buildServer(
   skills: SkillsStore = createSkillsStore(skillsRoot()),
   calibration: Calibration = createCalibration(calibrationRoot()),
   activity: ActivityLog = createActivityLog(activityRoot()),
+  wiki: WikiStore = createWikiStore(wikiRoot()),
 ): Server {
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
@@ -48,7 +50,7 @@ export function buildServer(
   );
   // agentId is set per-call from the MCP handshake + env (zero-setup platform +
   // billing detection); see the CallTool handler below.
-  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity };
+  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, wiki };
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({
