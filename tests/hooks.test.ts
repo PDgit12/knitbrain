@@ -82,6 +82,60 @@ describe("settings.json hooks wiring (non-clobbering)", () => {
 
 import { buildSessionStartContext, sessionStartOutput } from "../src/hooks/sessionstart.js";
 import { KNITBRAIN_HOOKS } from "../src/platforms.js";
+import { decidePostToolUse, POSTTOOL_MIN_CHARS } from "../src/hooks/posttooluse.js";
+import { createFileCCRStore } from "../src/ccr/store.js";
+
+describe("PostToolUse hook (subscription auto-compression of host tool output)", () => {
+  const withStore = <T>(fn: (ccr: ReturnType<typeof createFileCCRStore>) => T): T => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-ccr-"));
+    try {
+      return fn(createFileCCRStore(root));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it("skeletonizes large Bash output and round-trips the exact original via CCR", () => {
+    withStore((ccr) => {
+      // A big, compressible build log (repeated lines → high redundancy).
+      const original = Array.from({ length: 400 }, (_, i) => `  at frame ${i} module/path/file-${i}.ts:${i}:10`).join("\n");
+      let saved = 0;
+      const d = decidePostToolUse({ tool_name: "Bash", tool_response: { stdout: original } }, ccr, (n) => (saved += n))!;
+      expect(d).not.toBeNull();
+      const out = (d["hookSpecificOutput"] as Record<string, string>)["updatedToolOutput"]!;
+      expect(out).toContain("knitbrain: Bash output");
+      expect(out).toContain("⟨recall:");
+      expect(saved).toBeGreaterThan(0);
+      // Lossless: the handle in the skeleton restores the exact original bytes.
+      const handle = out.match(/⟨recall:([a-f0-9]+)⟩/)![1]!;
+      expect(ccr.get(handle)).toBe(original);
+    });
+  });
+
+  it("passes small output through untouched (never-expand)", () => {
+    withStore((ccr) => {
+      expect(decidePostToolUse({ tool_name: "Bash", tool_response: { stdout: "ok" } }, ccr)).toBeNull();
+      expect(decidePostToolUse({ tool_name: "Bash", tool_response: "x".repeat(POSTTOOL_MIN_CHARS - 1) }, ccr)).toBeNull();
+    });
+  });
+
+  it("ignores non-target tools and already-compressed output", () => {
+    withStore((ccr) => {
+      const big = "y".repeat(POSTTOOL_MIN_CHARS + 500);
+      expect(decidePostToolUse({ tool_name: "Read", tool_response: big }, ccr)).toBeNull();
+      expect(decidePostToolUse({ tool_name: "Edit", tool_response: big }, ccr)).toBeNull();
+      expect(decidePostToolUse({ tool_name: "Bash", tool_response: `${big} ⟨recall:abc⟩` }, ccr)).toBeNull();
+    });
+  });
+
+  it("never throws on unknown response shapes (hooks must not break the host)", () => {
+    withStore((ccr) => {
+      expect(decidePostToolUse({ tool_name: "Bash", tool_response: { weird: 1 } }, ccr)).toBeNull();
+      expect(decidePostToolUse({ tool_name: "Bash" }, ccr)).toBeNull();
+      expect(decidePostToolUse({}, ccr)).toBeNull();
+    });
+  });
+});
 
 describe("SessionStart hook (auto protocol + memory injection)", () => {
   it("injects the full operating protocol so load_session isn't agent-dependent", () => {
@@ -112,12 +166,15 @@ describe("SessionStart hook (auto protocol + memory injection)", () => {
 
   it("setup wires all lifecycle hooks (incl. per-turn UserPromptSubmit anti-drift)", () => {
     expect(Object.keys(KNITBRAIN_HOOKS).sort()).toEqual([
+      "PostToolUse",
       "PreCompact",
       "PreToolUse",
       "SessionStart",
       "Stop",
       "UserPromptSubmit",
     ]);
+    expect(KNITBRAIN_HOOKS.PostToolUse[0]!.hooks[0]!.command).toBe("knitbrain-hook posttooluse");
+    expect(KNITBRAIN_HOOKS.PostToolUse[0]!.matcher).toBe("Bash|Grep|Glob|WebFetch|WebSearch");
     expect(KNITBRAIN_HOOKS.SessionStart[0]!.hooks[0]!.command).toBe("knitbrain-hook sessionstart");
     expect(KNITBRAIN_HOOKS.Stop[0]!.hooks[0]!.command).toBe("knitbrain-hook stop");
     expect(KNITBRAIN_HOOKS.UserPromptSubmit[0]!.hooks[0]!.command).toBe("knitbrain-hook userpromptsubmit");

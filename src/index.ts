@@ -127,6 +127,10 @@ usage: knitbrain <command>
     const { runFan } = await import("./fan.js");
     process.exit(await runFan(process.argv.slice(3)));
   }
+  if (process.argv[2] === "orchestrate") {
+    const { runOrchestrate } = await import("./orchestrate.js");
+    process.exit(runOrchestrate(process.argv.slice(3)));
+  }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
     await runLearn(process.argv.slice(3));
@@ -149,6 +153,7 @@ usage: knitbrain <command>
     const { readProjectUsage, currentContextTokens } = await import("./engine/usage.js");
     const { fetchPlatformQuota } = await import("./engine/quota.js");
     const { createActivityLog } = await import("./engine/activity.js");
+    const { createWikiStore } = await import("./engine/wiki.js");
     const activityLog = createActivityLog(paths.activityRoot());
     const srv = createDashboardServer({
       ccr,
@@ -167,6 +172,8 @@ usage: knitbrain <command>
       activity: () => activityLog.recent(30),
       // Per-agent optimization rollup — universal meter across all platforms.
       agents: () => activityLog.rollup(),
+      // The compounding wiki-brain (leg 5).
+      wiki: createWikiStore(paths.wikiRoot()),
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {

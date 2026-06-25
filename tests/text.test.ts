@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
 import { compressText, compressShortProse } from "../src/optimizer/text.js";
+import { PARAMS, setParams } from "../src/optimizer/params.js";
 
 describe("optimizer/text — prose compression (direct coverage)", () => {
   let root: string;
@@ -24,5 +25,22 @@ describe("optimizer/text — prose compression (direct coverage)", () => {
 
   it("compressShortProse returns null when there's nothing to anchor", () => {
     expect(compressShortProse("x", ccr)).toBeNull();
+  });
+
+  it("does not crash when minSentences is swept below the structural floor", () => {
+    // The research harness can set minSentences low via KNITBRAIN_MIN_SENTENCES.
+    // Two sentences is below HEAD(2)+TAIL(1)=3 boundaries, so the anchor reads
+    // would go out of bounds without the structural guard — must return null,
+    // never throw.
+    const prior = PARAMS.minSentences;
+    setParams({ minSentences: 1 });
+    try {
+      // No sentence boundaries → without the structural guard, the tail/head
+      // anchor reads index past the empty bounds array and throw.
+      expect(() => compressShortProse("a short line with no sentence split", ccr)).not.toThrow();
+      expect(compressShortProse("a short line with no sentence split", ccr)).toBeNull();
+    } finally {
+      setParams({ minSentences: prior });
+    }
   });
 });

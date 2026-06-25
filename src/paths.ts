@@ -56,3 +56,8 @@ export function calibrationRoot(): string {
 export function activityRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "activity");
 }
+
+/** Per-project wiki-brain (index.md · log.md · pages/) — the compounding brain. */
+export function wikiRoot(): string {
+  return join(knitbrainHome(), "projects", projectId(), "wiki");
+}

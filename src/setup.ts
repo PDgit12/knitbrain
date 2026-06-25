@@ -14,6 +14,9 @@ import {
   copilotSnippet,
 } from "./platforms.js";
 import { applyGlobalConfig, type GlobalConfigKind } from "./global-config.js";
+import { scanHost, registerHostSkills } from "./engine/host-scan.js";
+import { createSkillsStore } from "./engine/skills.js";
+import { skillsRoot } from "./paths.js";
 
 export type Platform =
   | "claude-code"
@@ -120,6 +123,17 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
   // Universal AGENTS.md (every setup; never clobbers an existing one).
   for (const path of applyArtifacts(cwd, universalArtifacts(), cfg)) console.log(`  ✓ wrote ${path}`);
+
+  // Legs 1+2: scan the project's existing .claude skills/agents so knitbrain
+  // sees what the user already has — register skills into the store (deduped,
+  // never clobbering), and learn the composition style for future authoring.
+  const scan = scanHost(join(cwd, ".claude"));
+  if (scan.skills.length || scan.agents.length) {
+    const { added, skipped } = registerHostSkills(scan.skills, createSkillsStore(skillsRoot()));
+    console.log(
+      `  scanned .claude — ${scan.skills.length} skill(s), ${scan.agents.length} agent(s); registered ${added} new (${skipped} already known)`,
+    );
+  }
   // Global-config platforms: with --yes we WRITE the config (backed up,
   // non-clobbering); otherwise we print the snippet to paste (safe default).
   const snippets: Partial<Record<Platform, () => string>> = {

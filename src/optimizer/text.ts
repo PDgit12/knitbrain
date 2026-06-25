@@ -104,6 +104,12 @@ export function compressShortProse(original: string, ccr: CCRStore): CompressRes
     bounds.push({ end: m.index, next: m.index + m[0].length });
   }
   if (bounds.length + 1 < PARAMS.minSentences) return null;
+  // Structural floor, independent of the tunable minSentences above: the
+  // head/tail anchors below read bounds[HEAD_SENTENCES-1] and
+  // bounds[length-TAIL_SENTENCES]. A param sweep (KNITBRAIN_MIN_SENTENCES) can
+  // set minSentences below HEAD+TAIL, which would put those reads out of
+  // bounds; this guard keeps the non-null assertions provably safe.
+  if (bounds.length < HEAD_SENTENCES + TAIL_SENTENCES) return null;
 
   // Snap both boundaries to LINE breaks: a sentence boundary can land
   // mid-line (": 1"), and splitting a line across the elision turns one

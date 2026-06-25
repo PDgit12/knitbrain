@@ -217,7 +217,7 @@ async function fullMcpSession(bin, cwd) {
 
     const list = await rpc("tools/list", {});
     const names = (list.result?.tools ?? []).map((t) => t.name);
-    ok(names.length === 27, `tools/list advertises exactly 27 tools (got ${names.length})`);
+    ok(names.length === 31, `tools/list advertises exactly 31 tools (got ${names.length})`);
 
     const call = (name, args = {}) => rpc("tools/call", { name, arguments: args });
 
@@ -339,6 +339,6 @@ console.log("\n[audit] ──────────── PRODUCTION AUDIT REP
 for (const r of results) console.log(`[audit] ${r}`);
 console.log(`[audit] ${results.length} checks · ${results.length - failures} passed · ${failures} failed`);
 console.log(failures === 0
-  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 27 tools + proxy + hook + dashboard + hub work."
+  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 31 tools + proxy + hook + dashboard + hub work."
   : "[audit] VERDICT: FAIL");
 process.exit(failures === 0 ? 0 : 1);

@@ -4,16 +4,20 @@
  * top of the universal knitbrain_read steering).
  *
  *   knitbrain-hook pretooluse    stdin: PreToolUse JSON → deny+redirect large raw Reads
+ *   knitbrain-hook posttooluse   stdin: PostToolUse JSON → skeletonize Bash/Grep/WebFetch output
  *   knitbrain-hook sessionstart  inject protocol + handoff + learnings into a new session
  *   knitbrain-hook precompact    auto-save a handoff BEFORE the host compacts
  *   knitbrain-hook stop          auto-save a resumable handoff at session end (non-clobbering)
  *
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
+import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
+import { createWikiStore } from "../engine/wiki.js";
 import { currentContextTokens } from "../engine/usage.js";
-import { memoryRoot, meterRoot } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot, wikiRoot } from "../paths.js";
+import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 
@@ -35,7 +39,29 @@ async function main(): Promise<void> {
       if (decision) process.stdout.write(JSON.stringify(decision));
       return;
     }
+    if (mode === "posttooluse") {
+      // Skeletonize the result of host tools PreToolUse can't redirect
+      // (Bash/Grep/Glob/WebFetch). Replaces the model-visible output via
+      // updatedToolOutput; the exact original lands in the shared CCR store so
+      // knitbrain_retrieve restores it. The subscription auto-compression path.
+      const input = JSON.parse(await readStdin()) as PostToolUseInput;
+      const ccr = createFileCCRStore(ccrRoot());
+      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
+      const decision = decidePostToolUse(input, ccr, (n) => meter.onSaved(n));
+      if (decision) process.stdout.write(JSON.stringify(decision));
+      return;
+    }
     if (mode === "userpromptsubmit") {
+      // Whole-chat → wiki: append this turn to the wiki log (leg 5 real-time
+      // chronicle). Cheap, append-only, never blocks; synthesis pages stay
+      // LLM-driven via knitbrain_wiki_ingest.
+      try {
+        const input = JSON.parse(await readStdin()) as { prompt?: string };
+        const prompt = typeof input.prompt === "string" ? input.prompt.replace(/\s+/g, " ").trim() : "";
+        if (prompt) createWikiStore(wikiRoot()).log("turn", prompt.slice(0, 80));
+      } catch {
+        /* never break the host on a malformed prompt payload */
+      }
       // Re-inject the protocol EVERY turn so the agent doesn't drift over a long
       // session (SessionStart fires once; this fights mid-session forgetting —
       // the way caveman/ponytail stay active). Kept short to cost ~nothing; the
