@@ -246,11 +246,14 @@ async function fullMcpSession(bin, cwd) {
     ok(text(await call("knitbrain_query_dependents", { file: "src/app.ts" })).includes("src/util.ts"), "query_dependents (blast radius)");
     // 13 classify
     ok(text(await call("knitbrain_classify_task", { description: "refactor the architecture" })).includes("complex"), "classify_task governance");
+    // A hot context window appends a text advisory after a tool's JSON (by
+    // design — a drift nudge agents read fine). Strict JSON.parse must drop it.
+    const jparse = (s) => JSON.parse(s.split("\n\n[knitbrain context-meter]")[0]);
     // 14 metrics
-    const metrics = JSON.parse(text(await call("knitbrain_metrics")));
+    const metrics = jparse(text(await call("knitbrain_metrics")));
     ok(typeof metrics.ccr?.total === "number" && Array.isArray(metrics.feedback), "metrics (CCR + TOIN telemetry)");
     // 14b context meter
-    const meterReading = JSON.parse(text(await call("knitbrain_context_meter")));
+    const meterReading = jparse(text(await call("knitbrain_context_meter")));
     ok(typeof meterReading.usedPct === "number" && typeof meterReading.advice === "string", "context_meter (window % + advice)");
     // 15-16 agents
     ok(text(await call("knitbrain_propose_agents")).includes("src"), "propose_agents from knowledge graph");
@@ -267,7 +270,11 @@ async function fullMcpSession(bin, cwd) {
     ok(fuzzOk && text(await call("knitbrain_ping")).includes("pong"), `input fuzz: all ${names.length} tools survive missing + wrong-typed args; server alive`);
     // knitbrain_read deep checks through the installed binary
     ok(text(await call("knitbrain_read", { path: "src/app.ts" })).includes("main"), "knitbrain_read: small file exact");
-    ok(text(await call("knitbrain_read", { path: "../../etc/passwd" })).includes("refused"), "knitbrain_read: traversal refused (installed binary)");
+    // knitbrain_read is intentionally UNscoped: the agent already has the host's
+    // raw Read, so path-scoping adds no security — and it broke the absolute
+    // paths the host passes. Verify an absolute path is served (parity), not
+    // spuriously refused.
+    ok(text(await call("knitbrain_read", { path: join(cwd, "src", "app.ts") })).includes("main"), "knitbrain_read: absolute path served (intentionally unscoped, parity with host raw Read)");
 
     // 17-20 teams
     ok(text(await call("knitbrain_team_post", { author: "auditor", content: payload })).includes("posted"), "team_post");
