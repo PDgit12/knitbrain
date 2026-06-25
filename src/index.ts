@@ -127,6 +127,10 @@ usage: knitbrain <command>
     const { runFan } = await import("./fan.js");
     process.exit(await runFan(process.argv.slice(3)));
   }
+  if (process.argv[2] === "orchestrate") {
+    const { runOrchestrate } = await import("./orchestrate.js");
+    process.exit(runOrchestrate(process.argv.slice(3)));
+  }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
     await runLearn(process.argv.slice(3));
