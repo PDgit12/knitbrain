@@ -75,7 +75,7 @@ let dedupSaved = 0;
 for (const file of files) {
   // Cross-turn dedup is per session: every request re-sends the history, so a
   // block whose exact text already appeared earlier in this transcript would
-  // collapse to a ⟪same as ⟨ccr:hash⟩⟫ marker in the proxy.
+  // collapse to a ⟪same as ⟨recall:hash⟩⟫ marker in the proxy.
   const seen = new Set();
   const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -96,7 +96,7 @@ for (const file of files) {
         const r = compress(t, ccr);
         let after = r.skeletonTokens;
         if (repeat) {
-          const marker = countTokens(`⟪same as earlier ⟨ccr:${hash}⟩⟫`);
+          const marker = countTokens(`⟪same as earlier ⟨recall:${hash}⟩⟫`);
           if (marker < after) {
             dedupN++; dedupSaved += after - marker;
             after = marker;

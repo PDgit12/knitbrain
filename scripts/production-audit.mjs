@@ -226,7 +226,7 @@ async function fullMcpSession(bin, cwd) {
     // 2-3 optimize → retrieve (lossless loop)
     const payload = JSON.stringify({ items: Array.from({ length: 40 }, (_, i) => ({ i, blob: "p".repeat(60) })) }, null, 2);
     const optText = text(await call("knitbrain_optimize", { text: payload }));
-    const handle = optText.match(/⟨ccr:([0-9a-f]{64})⟩/)?.[1];
+    const handle = optText.match(/⟨recall:([0-9a-f]{64})⟩/)?.[1];
     ok(Boolean(handle) && optText.length < payload.length, "optimize → smaller skeleton + handle");
     ok(text(await call("knitbrain_retrieve", { handle })) === payload, "retrieve → EXACT original (lossless in production install)");
     // 4-8 memory
@@ -324,7 +324,7 @@ async function proxyLoop(binProxy, cwd) {
     const fwd = JSON.parse(received[0]);
     const fwdFirst = fwd.messages[0].content;
     const fwdFirstText = typeof fwdFirst === "string" ? fwdFirst : fwdFirst.map((b) => b.text ?? "").join("");
-    ok(fwdFirstText.includes("⟨ccr:"), "request compressed ON THE WIRE (old bulk → skeleton)");
+    ok(fwdFirstText.includes("⟨recall:"), "request compressed ON THE WIRE (old bulk → skeleton)");
     ok(JSON.stringify(fwd).includes("cache_control"), "CacheAligner inserted a cache_control breakpoint (client had none)");
     ok(fwd.messages[2].content === "fix the bug", "user intent reached upstream VERBATIM");
     ok(JSON.stringify(fwd).length < JSON.stringify({ system: "rules", messages: [{ role: "user", content: oldBulk }] }).length, "forwarded request is smaller than original");
