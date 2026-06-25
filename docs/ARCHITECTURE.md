@@ -137,20 +137,20 @@ All 27 now have direct handler tests (the 14 previously-untested were covered th
 
 Build order is locked: **P1 setup-scan → P2 wiki-brain → P3 closed-loop.** Each phase ships only when its gate passes with **captured real output** (no mocks, no asserted-green).
 
-### P1 — Existing-setup scan + custom composition (legs 1+2) 🔭 *first, smallest, concrete*
+### P1 — Existing-setup scan + custom composition (legs 1+2) ✅ *shipped (PR #2)*
 - **New:** `src/engine/host-scan.ts` — at `knitbrain setup`, read the host's `.claude/skills/*/SKILL.md` and `.claude/agents/*.md`; parse each (name, triggers, frontmatter, body/composition style).
 - **Wire:** register scanned skills/agents into knitbrain's stores so they're **visible** (dedupe vs knitbrain's own); learn the composition style so `create_agent`/new `compose_skill` produce artifacts **consistent with how the user writes theirs**.
 - **Surface:** `knitbrain_run` reports "found N existing skills, M agents; composed K project-tailored" instead of proposing from scratch.
 - **Gate:** unit tests for parser (real SKILL.md/agent.md fixtures), e2e that scans a seeded `.claude/skills`+`.claude/agents` and asserts knitbrain surfaces + composes from them, 4 gates green. Scope ~1–2 sessions.
 
-### P2 — Wiki-brain + session log (leg 5 + leg 3 gap) 🔭 *the centerpiece*
+### P2 — Wiki-brain + session log (leg 5 + leg 3 gap) ✅ *shipped (PR #2)*
 - **New:** `~/.knitbrain/projects/<id>/wiki/` = `index.md` (catalog) + `log.md` (append-only `## [date] event | title`) + `pages/` (entity/concept/summary). Ingests the **whole chat**, not just MCP-flow.
 - **Real-time:** each input/output updates the wiki (via hook + MCP write path); user can watch (dashboard panel renders the wiki + graph of links).
 - **Operations:** ingest (read source → summary page → update index + cross-refs + log), query (read index → drill pages → answer, file good answers back), lint (contradictions, stale claims, orphans).
 - **Memory leg 3:** the `log.md` IS the structured per-session log; cross-session context surfaces from it at `load_session`.
 - **Gate:** ingest a real session transcript → assert index/log/pages updated + cross-refs present; lint catches a seeded contradiction; caveman/terse keeps pages compact (token-measured). Multi-session.
 
-### P3 — Closed-loop orchestrator (goal→judge→iterate→grade→review→repeat) 🔭
+### P3 — Closed-loop orchestrator (goal→judge→iterate→grade→review→repeat) ✅ *shipped (PR #2)*
 - **New:** inner GAN-style loop on top of `loop.ts`/`fan.ts`: a **judge** (goal/spec clarity), a **grade** (verify-gate, already real), a **review** (evaluator scores vs rubric), repeat until goal met.
 - **Orchestration:** by **project intensity** (tier classifier) → assemble the right skills+agents and run the loop; token-budgeted at each step (compress between steps, meter shown).
 - **Gate:** a real goal file driven to "met" through ≥2 judge/grade/review cycles with **real tokens measured live** (not pre-counted), no false green, full audit trail in the wiki. Builds on verified P1+P2.
