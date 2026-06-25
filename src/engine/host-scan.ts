@@ -150,6 +150,8 @@ export interface StyleProfile {
   terse: boolean;
   /** User's agents carry a `model:` frontmatter line. */
   usesModel: boolean;
+  /** The dominant `model:` value across the user's agents (e.g. "opus"), if any. */
+  model?: string;
   /** User's skills carry an explicit `triggers:` line. */
   usesTriggers: boolean;
   /** Common `## ` section headers seen across bodies (most frequent first). */
@@ -175,10 +177,16 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
   const terse = totalLines > 0 && bulletLines / totalLines > 0.25;
   const headers = [...headerCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([h]) => h);
 
+  // Dominant model across the user's agents (most frequent non-empty value).
+  const modelCount = new Map<string, number>();
+  for (const a of agents) if (a.model) modelCount.set(a.model, (modelCount.get(a.model) ?? 0) + 1);
+  const model = [...modelCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
   return {
     medianBodyLen,
     terse,
     usesModel: agents.some((a) => a.model.length > 0),
+    ...(model ? { model } : {}),
     usesTriggers: skills.some((s) => s.triggers.length > 0 && s.triggers[0] !== ""),
     headers,
   };

@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
 import { dirname, join } from "node:path";
+import type { StyleProfile } from "./host-scan.js";
 
 /** Domains that warrant a mandatory review/verify gate before edits. */
 const SENSITIVE = /\b(auth|security|secret|payment|billing|crypto|db|database|migration|schema)\b/i;
@@ -31,6 +32,10 @@ export interface AgentSpec {
    * (sub-agents start cold; the brief is their whole task-specific context,
    * so it's optimized prompt-by-prompt like everything else). */
   brief?: string;
+  /** Optional `model:` frontmatter value (emitted only when the style uses it). */
+  model?: string;
+  /** Optional `triggers:` (emitted only when the style uses it). */
+  triggers?: string[];
 }
 
 const DEFAULT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"];
@@ -71,7 +76,7 @@ export function proposeAgents(files: string[]): DomainProposal[] {
  * Render a project-specific subagent definition with all four guardrails baked
  * in: file/domain scope, allowed-tools allowlist, review gate, context budget.
  */
-export function generateAgentMarkdown(spec: AgentSpec): string {
+export function generateAgentMarkdown(spec: AgentSpec, style?: StyleProfile): string {
   const tools = (spec.tools ?? DEFAULT_TOOLS).join(", ");
   const scope = spec.scope ?? "(whole project)";
   const budget = spec.contextBudget ?? 8000;
@@ -79,11 +84,15 @@ export function generateAgentMarkdown(spec: AgentSpec): string {
   const gate = spec.reviewGate
     ? "- **Review gate:** this is a sensitive domain — before any edit, re-verify the exact source (knitbrain_query_dependents + read the real file via knitbrain_retrieve) and have the change reviewed.\n"
     : "";
+  // Style-match: mirror the frontmatter shape the user's own agents use, so a
+  // generated agent looks like theirs, not a fixed template.
+  const modelLine = style?.usesModel ? `model: ${spec.model ?? style.model ?? "inherit"}\n` : "";
+  const triggersLine = style?.usesTriggers ? `triggers: ${(spec.triggers?.length ? spec.triggers : [spec.name]).join(", ")}\n` : "";
   return `---
 name: ${spec.name}
 description: ${description}
 tools: ${tools}
----
+${modelLine}${triggersLine}---
 
 You are the **${spec.name}** agent for this project.
 
@@ -101,7 +110,7 @@ ${spec.brief ? `## Mission brief (telegraphic — full context one retrieve away
 }
 
 /** Write a generated agent to the project's .claude/agents directory. */
-export function writeAgent(projectRoot: string, spec: AgentSpec): string {
+export function writeAgent(projectRoot: string, spec: AgentSpec, style?: StyleProfile): string {
   // SECURITY: the name becomes a filename — restrict to a safe slug so it can
   // never escape .claude/agents (no separators, dots, or empty names).
   const safeName = spec.name.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "");
@@ -110,6 +119,6 @@ export function writeAgent(projectRoot: string, spec: AgentSpec): string {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${safeName}.md`);
   spec = { ...spec, name: safeName };
-  writeAtomic(path, generateAgentMarkdown(spec));
+  writeAtomic(path, generateAgentMarkdown(spec, style));
   return path;
 }
