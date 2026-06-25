@@ -80,6 +80,12 @@ describe("closed-loop e2e — real goal driven to met (real verify, ≥2 cycles,
   it("drives a real goal to met in 2 cycles, no false green, full wiki trail + token readings", () => {
     const out = join(dir, "out.txt");
     writeFileSync(join(dir, "goal.md"), "- [ ] accumulate two lines of output\n");
+    // Cross-platform real verify (node exists everywhere; no unix `wc`/`test`):
+    // exits 0 only when out.txt has >= 2 non-empty lines.
+    writeFileSync(
+      join(dir, "check.js"),
+      "try{const n=require('fs').readFileSync('out.txt','utf8').split('\\n').filter(Boolean).length;process.exit(n>=2?0:1)}catch{process.exit(1)}",
+    );
     const wiki = createWikiStore(join(dir, "wiki"));
     const run = (cmd: string): boolean => spawnSync(cmd, { shell: true, cwd: dir, stdio: "ignore" }).status === 0;
 
@@ -88,8 +94,8 @@ describe("closed-loop e2e — real goal driven to met (real verify, ≥2 cycles,
         judge: () => defaultJudge(readFileSync(join(dir, "goal.md"), "utf8")),
         // the "agent" does real work: appends one line per pass
         iterate: () => appendFileSync(out, "work\n"),
-        // REAL verify via the shell: needs >= 2 lines
-        grade: makeGrade(`test "$(wc -l < out.txt 2>/dev/null || echo 0)" -ge 2`, run),
+        // REAL verify (cross-platform): needs >= 2 lines
+        grade: makeGrade("node check.js", run),
         review: makeReview(), // met == grade pass
         // audit trail → wiki log (P2)
         onCycle: (c) => wiki.log("cycle", `iter ${c.iter} · grade=${c.graded.pass} · met=${c.met}`),
