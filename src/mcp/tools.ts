@@ -382,14 +382,20 @@ export const TOOLS: readonly ToolDef[] = [
     },
     output: "verbatim",
     run: (args, ctx) => {
-      const path = writeAgent(process.cwd(), {
-        name: str(args, "name"),
-        ...(typeof args["description"] === "string" ? { description: args["description"] } : {}),
-        ...(typeof args["scope"] === "string" ? { scope: args["scope"] } : {}),
-        ...(Array.isArray(args["tools"]) ? { tools: args["tools"] as string[] } : {}),
-        ...(typeof args["reviewGate"] === "boolean" ? { reviewGate: args["reviewGate"] } : {}),
-        ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
-      });
+      // Style-match: generated agents mirror the user's existing .claude/agents.
+      const style = scanHost(join(process.cwd(), ".claude")).style;
+      const path = writeAgent(
+        process.cwd(),
+        {
+          name: str(args, "name"),
+          ...(typeof args["description"] === "string" ? { description: args["description"] } : {}),
+          ...(typeof args["scope"] === "string" ? { scope: args["scope"] } : {}),
+          ...(Array.isArray(args["tools"]) ? { tools: args["tools"] as string[] } : {}),
+          ...(typeof args["reviewGate"] === "boolean" ? { reviewGate: args["reviewGate"] } : {}),
+          ...(typeof args["contextBudget"] === "number" ? { contextBudget: args["contextBudget"] } : {}),
+        },
+        style,
+      );
       const ev = ctx.team.post("knitbrain", `agent created: ${str(args, "name")} · scope ${typeof args["scope"] === "string" ? args["scope"] : "(whole project)"}`);
       const hubCfg = loadHubConfig();
       if (hubCfg) mirrorToHub(hubCfg, { author: "knitbrain", summary: ev.summary, original: `agent created at ${path}` });
@@ -459,7 +465,7 @@ export const TOOLS: readonly ToolDef[] = [
                     ? `CONSTRAINTS (non-negotiable):\n${skill.constraints.map((c) => `- ${c}`).join("\n")}\n`
                     : "") +
                   skill.body,
-              });
+              }, host.style);
               // Agent lifecycle is team-visible: the creation event lands on
               // the board (and mirrors to the hub when joined), so individual
               // and team views see which agents exist, for what, and where.

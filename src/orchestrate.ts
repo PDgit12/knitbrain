@@ -2,8 +2,48 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { runClosedLoop, defaultJudge, makeGrade, makeReview } from "./engine/closed-loop.js";
 import { createWikiStore } from "./engine/wiki.js";
-import { wikiRoot } from "./paths.js";
+import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
+import { createKnowledge, type Knowledge } from "./engine/knowledge.js";
+import { proposeAgents } from "./engine/agents.js";
+import { classifyTask } from "./engine/workflow.js";
+import { wikiRoot, skillsRoot, knowledgeRoot } from "./paths.js";
 import { currentContextTokens } from "./engine/usage.js";
+
+/**
+ * Plan for one orchestration cycle — orchestration scales with project
+ * INTENSITY: trivial/standard tasks get the matched skill only; complex tasks
+ * also get guardrailed agent proposals briefed into the prompt. Pure (stores
+ * injected) so the prompt composition is testable without spawning an agent.
+ */
+export interface CyclePlan {
+  tier: string;
+  skillName: string | null;
+  agentNames: string[];
+  prompt: string;
+}
+
+export function buildCyclePlan(goalText: string, skills: SkillsStore, knowledge: Knowledge): CyclePlan {
+  const cls = classifyTask(goalText, []);
+  const skill = skills.find(goalText);
+  const agents = cls.tier === "complex" ? proposeAgents(knowledge.listFiles()).slice(0, 4) : [];
+
+  let prompt = `Goal:\n${goalText}\n\n`;
+  if (skill) {
+    prompt += `SKILL — ${skill.name}:\n${skill.body}\n`;
+    if (skill.constraints.length) prompt += `CONSTRAINTS (non-negotiable):\n${skill.constraints.map((c) => `- ${c}`).join("\n")}\n`;
+    prompt += "\n";
+  }
+  if (agents.length) {
+    prompt += `AGENTS to orchestrate (complex task — spawn via your host's sub-agent mechanism):\n`;
+    prompt += agents
+      .map((a) => `- ${a.name}: scope \`${a.scope}\` · tools ${a.tools.join("/")}${a.reviewGate ? " · REVIEW-GATED" : ""}`)
+      .join("\n");
+    prompt += "\n\n";
+  }
+  prompt += "Make progress, then stop. Do NOT declare the goal met yourself — the loop grades (verify) + reviews. Do NOT commit, push, or deploy.";
+
+  return { tier: cls.tier, skillName: skill?.name ?? null, agentNames: agents.map((a) => a.name), prompt };
+}
 
 /**
  * `knitbrain orchestrate <goalfile>` — the closed-loop orchestrator (P3).
@@ -37,17 +77,6 @@ function parseArgs(args: string[]): Opts {
 const run = (cmd: string, input?: string): boolean =>
   spawnSync(cmd, { shell: true, input, stdio: input === undefined ? "inherit" : ["pipe", "inherit", "inherit"] }).status === 0;
 
-function prompt(goalText: string, iter: number): string {
-  return [
-    `You are cycle ${iter} of an autonomous closed loop. Make progress toward this goal, then stop:`,
-    "",
-    goalText,
-    "",
-    "Follow the knitbrain protocol. Do NOT declare the goal met yourself — the loop grades (verify)",
-    "and reviews it. Do NOT commit, push, or deploy.",
-  ].join("\n");
-}
-
 export function runOrchestrate(args: string[]): number {
   const o = parseArgs(args);
   if (!o.goalFile || !existsSync(o.goalFile)) {
@@ -58,6 +87,9 @@ export function runOrchestrate(args: string[]): number {
   const goalText = readFileSync(o.goalFile, "utf8");
   const verify = o.verify ?? (existsSync("package.json") ? "npm test" : "");
   const wiki = createWikiStore(wikiRoot());
+  // Intensity-based orchestration: the classifier + skill + agents drive the prompt.
+  const skills = createSkillsStore(skillsRoot());
+  const knowledge = createKnowledge(process.cwd(), knowledgeRoot());
 
   console.log(`[orchestrate] goal: ${o.goalFile} · verify: ${verify || "(none)"} · max ${o.max} cycles`);
 
@@ -65,8 +97,9 @@ export function runOrchestrate(args: string[]): number {
     {
       judge: () => defaultJudge(goalText),
       iterate: (iter) => {
-        console.log(`[orchestrate] cycle ${iter}: iterate`);
-        run(o.agent, prompt(goalText, iter));
+        const plan = buildCyclePlan(goalText, skills, knowledge);
+        console.log(`[orchestrate] cycle ${iter}: iterate · tier=${plan.tier} · skill=${plan.skillName ?? "none"} · agents=${plan.agentNames.length}`);
+        run(o.agent, plan.prompt);
       },
       grade: makeGrade(verify, (cmd) => run(cmd)),
       review: makeReview(),
