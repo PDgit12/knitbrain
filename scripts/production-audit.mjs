@@ -226,7 +226,7 @@ async function fullMcpSession(bin, cwd) {
     // 2-3 optimize → retrieve (lossless loop)
     const payload = JSON.stringify({ items: Array.from({ length: 40 }, (_, i) => ({ i, blob: "p".repeat(60) })) }, null, 2);
     const optText = text(await call("knitbrain_optimize", { text: payload }));
-    const handle = optText.match(/⟨ccr:([0-9a-f]{64})⟩/)?.[1];
+    const handle = optText.match(/⟨recall:([0-9a-f]{64})⟩/)?.[1];
     ok(Boolean(handle) && optText.length < payload.length, "optimize → smaller skeleton + handle");
     ok(text(await call("knitbrain_retrieve", { handle })) === payload, "retrieve → EXACT original (lossless in production install)");
     // 4-8 memory
@@ -246,11 +246,14 @@ async function fullMcpSession(bin, cwd) {
     ok(text(await call("knitbrain_query_dependents", { file: "src/app.ts" })).includes("src/util.ts"), "query_dependents (blast radius)");
     // 13 classify
     ok(text(await call("knitbrain_classify_task", { description: "refactor the architecture" })).includes("complex"), "classify_task governance");
+    // A hot context window appends a text advisory after a tool's JSON (by
+    // design — a drift nudge agents read fine). Strict JSON.parse must drop it.
+    const jparse = (s) => JSON.parse(s.split("\n\n[knitbrain context-meter]")[0]);
     // 14 metrics
-    const metrics = JSON.parse(text(await call("knitbrain_metrics")));
+    const metrics = jparse(text(await call("knitbrain_metrics")));
     ok(typeof metrics.ccr?.total === "number" && Array.isArray(metrics.feedback), "metrics (CCR + TOIN telemetry)");
     // 14b context meter
-    const meterReading = JSON.parse(text(await call("knitbrain_context_meter")));
+    const meterReading = jparse(text(await call("knitbrain_context_meter")));
     ok(typeof meterReading.usedPct === "number" && typeof meterReading.advice === "string", "context_meter (window % + advice)");
     // 15-16 agents
     ok(text(await call("knitbrain_propose_agents")).includes("src"), "propose_agents from knowledge graph");
@@ -267,7 +270,11 @@ async function fullMcpSession(bin, cwd) {
     ok(fuzzOk && text(await call("knitbrain_ping")).includes("pong"), `input fuzz: all ${names.length} tools survive missing + wrong-typed args; server alive`);
     // knitbrain_read deep checks through the installed binary
     ok(text(await call("knitbrain_read", { path: "src/app.ts" })).includes("main"), "knitbrain_read: small file exact");
-    ok(text(await call("knitbrain_read", { path: "../../etc/passwd" })).includes("refused"), "knitbrain_read: traversal refused (installed binary)");
+    // knitbrain_read is intentionally UNscoped: the agent already has the host's
+    // raw Read, so path-scoping adds no security — and it broke the absolute
+    // paths the host passes. Verify an absolute path is served (parity), not
+    // spuriously refused.
+    ok(text(await call("knitbrain_read", { path: join(cwd, "src", "app.ts") })).includes("main"), "knitbrain_read: absolute path served (intentionally unscoped, parity with host raw Read)");
 
     // 17-20 teams
     ok(text(await call("knitbrain_team_post", { author: "auditor", content: payload })).includes("posted"), "team_post");
@@ -324,7 +331,7 @@ async function proxyLoop(binProxy, cwd) {
     const fwd = JSON.parse(received[0]);
     const fwdFirst = fwd.messages[0].content;
     const fwdFirstText = typeof fwdFirst === "string" ? fwdFirst : fwdFirst.map((b) => b.text ?? "").join("");
-    ok(fwdFirstText.includes("⟨ccr:"), "request compressed ON THE WIRE (old bulk → skeleton)");
+    ok(fwdFirstText.includes("⟨recall:"), "request compressed ON THE WIRE (old bulk → skeleton)");
     ok(JSON.stringify(fwd).includes("cache_control"), "CacheAligner inserted a cache_control breakpoint (client had none)");
     ok(fwd.messages[2].content === "fix the bug", "user intent reached upstream VERBATIM");
     ok(JSON.stringify(fwd).length < JSON.stringify({ system: "rules", messages: [{ role: "user", content: oldBulk }] }).length, "forwarded request is smaller than original");

@@ -119,7 +119,7 @@ const main = async () => {
     console.log("[e2e-tools] optimize / retrieve (the lossless loop)");
     const big = JSON.stringify({ rows: Array.from({ length: 120 }, (_, i) => ({ id: i, name: `row-${i}`, ok: i % 2 === 0 })) }, null, 2);
     const optText = (await call("knitbrain_optimize", { text: big })).text;
-    const handle = /⟨ccr:([0-9a-f]{64})⟩/.exec(optText)?.[1] ?? "";
+    const handle = /⟨recall:([0-9a-f]{64})⟩/.exec(optText)?.[1] ?? "";
     const savings = /optimized: (\d+)→(\d+) tokens, saved ([\d.]+)%/.exec(optText);
     const savedTok = savings ? Number(savings[1]) - Number(savings[2]) : 0;
     ok(handle.length === 64 && savings && Number(savings[3]) > 30, `optimize compresses real JSON (saved ${savings?.[3]}%)`);

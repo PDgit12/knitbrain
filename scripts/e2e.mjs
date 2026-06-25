@@ -96,8 +96,8 @@ async function mcpSession() {
     const opt = await rpc("tools/call", { name: "knitbrain_optimize", arguments: { text: payload } });
     const optText = text(opt);
     ok(optText.length < payload.length, "optimize → skeleton smaller than original");
-    const handle = optText.match(/⟨ccr:([0-9a-f]{64})⟩/)?.[1];
-    ok(Boolean(handle), "optimize → returns a ⟨ccr:hash⟩ handle");
+    const handle = optText.match(/⟨recall:([0-9a-f]{64})⟩/)?.[1];
+    ok(Boolean(handle), "optimize → returns a ⟨recall:hash⟩ handle");
 
     const ret = await rpc("tools/call", { name: "knitbrain_retrieve", arguments: { handle } });
     ok(text(ret) === payload, "retrieve(handle) → recovers the exact original over stdio");

@@ -710,9 +710,13 @@ export function dispatch(
   }
   // Context meter: account what we emit; when the window runs hot, tell the
   // agent to save a handoff and clear — automatically, on any tool response.
+  // EXCEPT the exact-recovery tools: knitbrain_retrieve / knitbrain_team_get
+  // return the original byte-for-byte (their whole contract is losslessness),
+  // so appending an advisory would corrupt the recovered content.
   ctx.meter.onToolOutput(countTokens(out));
   const reading = ctx.meter.read();
-  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter") {
+  const EXACT_OUTPUT = tool.name === "knitbrain_retrieve" || tool.name === "knitbrain_team_get";
+  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT) {
     out += `\n\n[knitbrain context-meter] ${reading.advice}`;
   }
   // Live activity feed (best-effort; record() already swallows its own errors).
