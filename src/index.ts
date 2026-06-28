@@ -2,6 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildServer } from "./server.js";
 import { runSetup } from "./setup.js";
+import { VERSION } from "./version.js";
 
 /** Compact token count for the statusline: 12.4k / 1.2M. */
 function fmtTokens(n: number): string {
@@ -11,6 +12,10 @@ function fmtTokens(n: number): string {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "--version" || process.argv[2] === "-v" || process.argv[2] === "version") {
+    console.log(VERSION);
+    return;
+  }
   if (process.argv[2] === "setup") {
     process.exit(runSetup());
   }

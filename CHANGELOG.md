@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- `knitbrain --version` / `-v` now prints the version (was unhandled — printed nothing).
+
 ## 0.5.0
 
 The orchestrator release: knitbrain becomes a closed-loop orchestrator on top of
