@@ -1,69 +1,54 @@
-# knitbrain roadmap — (b) live agent CRM · (c) parallel orchestration
+# knitbrain roadmap — the brain architecture + gap register
 
-Context: v1 (this branch) ships compression + memory + workflow + autonomous loop +
-parity visibility, all gated. These two are the bigger v2 builds, planned so they're
-executed cleanly. Both follow Matt Pocock's framing: it's a **queue with workers +
-human-in-loop checkpoints**, not magic — and knitbrain stays the *substrate*, never
-spawning host agents it can't control.
+Target: knitbrain is a **closed-loop orchestrator powered by one brain**, organized as 4
+layers — **CAPTURE → PROTECT → BRAIN ← FETCH** + behaviour steering. The loop is the
+frame; PROTECT is where the protections execute; the brain is the substrate. This file
+is the canonical list of what's done, what's a real gap to fix, and what's a physics
+ceiling (so no one tries to "fix" the impossible). See `ARCHITECTURE.md` for the full map.
 
----
+Design decision (locked): **Model B** — the brain is one *interface* over typed backends
+(memory=BM25, knowledge=graph, ccr=content-addressed, skills, team) + the **wiki as the
+human-readable spine/timeline**. Do NOT flatten the typed stores into markdown.
 
-## (b) CRM for AI agents — live activity stream
-
-**Goal:** the dashboard shows agents working in real time — a per-agent rollup + a
-live action feed — not just state snapshots.
-
-**Source of truth:** the MCP dispatch chokepoint. Every tool call is an event.
-
-**Design**
-- `src/engine/activity.ts` (new): bounded append-only log (ring buffer, last ~200
-  events) on disk via `writeAtomic`. `record({ts, agent, tool, summary})` +
-  `recent(n)`. Bounded so it never grows unbounded (the staleness lesson).
-- **Agent identity** (honest limit): MCP gives no stable agent id. Label by host id
-  (`src/mcp/host.ts` handshake) + a per-process session id; if joined to a hub, use
-  the member name. Best-effort, documented.
-- **Wire:** in the MCP dispatch (`src/mcp/handlers.ts`/`tools.ts`), after each tool
-  runs, `activity.record(...)`. Cheap, non-blocking, never throws (must not break a
-  tool call).
-- **Dashboard:** new "Agents (live)" card — table `agent · last action · when` +
-  a recent-events feed. Reuse the 2s poll; upgrade to SSE only if instant matters.
-
-**Scope/risk:** ~1 session. Low risk (additive, read-only view). Honest limit: agent
-identity is best-effort, not cryptographic.
-
-**Verify:** activity.record/recent unit test (bounded eviction); dashboard `/api/state`
-exposes `activity`; e2e — run a few MCP tools, see them in the feed.
+Anti-stale discipline (standing rule): consolidate, don't duplicate; every new module has
+a caller + a test before it lands (0 dead exports); each phase ships only when
+typecheck/lint/test/build/consistency/bench + e2e + production-audit are green with
+captured real-data proof. No half-built layer in the tree.
 
 ---
 
-## (c) Multi-agent parallel orchestration — queue + N workers
+## Gap register
 
-**Goal:** fan a goal's tasks to N workers in parallel, isolated, coordinated, merged.
-The parallel version of the loop driver (which is the single-worker case).
+| # | Gap | Layer | Fix | Hardness | Phase |
+|---|-----|-------|-----|----------|-------|
+| 1 | Wiki is a silo — most tools write their own store, not the brain timeline | BRAIN | significant tool events also `wiki.log(...)` → one unified spine | mechanical | A |
+| 2 | Meter is tool-throughput, not live conversation-relative | FETCH | show savings as `saved / (liveWindow + saved)`, surfaced each turn | mechanical | A |
+| 3 | Dashboard wiki panel is a counts table, not browsable | FETCH/view | page list → click → md→HTML render + `[[links]]` + backlinks + SVG link graph (mechanical render, zero agent tokens; no new dep) | mechanical | A |
+| 4 | **Adherence** — nothing enforces classify-before-learn | PROTECT | soft-gate at `dispatch()`: `record_learning`/`skill_save`/`save_handoff` blocked unless `classify_task`/`run` ran this session; strictness off\|warn\|**block** (default block); NEVER gate loop-entry or exact-recovery | **HARD** | B |
+| 5 | No hard claim-checking (anti-hallucination on the claim side) | PROTECT | add `verify_claim`: parse a stated codebase fact, check against the knowledge graph → verified/contradicted | **HARD** (claim side) | B |
+| 6 | CAPTURE is scattered (hooks + dispatch + posttooluse), not a named layer | CAPTURE | consolidate the existing entry points into one `capture` path; delete the scattered bits | refactor | B |
+| 7 | PROTECT not consolidated (staleness/drift/sycophancy logic scattered) | PROTECT | name the layer; route every brain read/write through the one gate; delete duplicates | refactor | B |
+| 8 | No brain facade (unified read/write over typed stores) | BRAIN | thin `brain` interface: read = search across stores; write = route to store + log spine | medium | C |
 
-**Design** — `knitbrain fan <goalfile> --workers N [--agent cmd] [--verify cmd] [--max M]`
-- **Queue:** the `- [ ]` checkbox tasks (same shape as `loop`).
-- **Claim atomicity:** a worker claims the next task by atomically marking it
-  `- [~] (worker-k)` (write-if-unchanged via a lock file or compare-and-set on the
-  goalfile) so two workers never grab the same task.
-- **Isolation:** each worker runs its agent in its own **git worktree**
-  (`git worktree add`), so parallel edits don't collide on disk.
-- **Coordinate:** workers post progress/findings to the existing **team board**.
-- **Merge:** each worker commits in its worktree; a merge step brings branches back.
-  **v1 simplification:** require tasks to name disjoint domains/files → no merge
-  conflicts by construction; defer automatic conflict resolution to v2.
-- **Safety:** global `--max` iteration cap; **never auto-merge to main / never push**;
-  human gate at merge. Re-read goalfile before marking (the loop's stale-write fix).
+## Released / verified (done)
 
-**Scope/risk:** ~2 sessions. Hard parts: claim atomicity, worktree lifecycle, merge.
-Honest: ship v1 = N workers on disjoint domains (conflict-free), defer conflict-merge.
+- `knitbrain --version`/`-v` — fixed in 0.5.1 (was unhandled). Tagged + GitHub release.
+- PostToolUse host-apply — **live-verified** in a restarted Claude Code session (`ping → v0.5.1`, wiki/compose tools work in-session).
+- Full ship audit green: gate chain (330 tests) + production-audit 50/50 + e2e + evals 100% + the 3 review skills (ponytail/cso/mcp). CI `e2e` lane added.
+- **OPEN (user action):** `npm publish` for 0.5.1 — registry is still 0.5.0; local global is 0.5.1.
 
-**Verify:** mock agents (cross-platform `node -e`); assert N workers drain the queue
-with no double-claim, each in its own worktree, `--max` respected, nothing pushed.
+## Ceilings — NOT gaps (physics; do not try to "fix")
 
----
+| Ceiling | Why | Consequence |
+|---|---|---|
+| Subscription can't see the assistant's prose | no hook fires on assistant messages; OAuth wire can't be intercepted | capture = prompts (hook) + tool output (PostToolUse, the big lever) + tool I/O; assistant prose is uncapturable on subscription (small + low-value). Full transcript only via the proxy on API-key. |
+| Can't post-edit the model's output | nothing lets an MCP rewrite an assistant sentence mid-generation | anti-drift / no-sycophancy / anti-hallucination on the **prose** side are steer-only (re-inject + nudge). The **brain** side goes hard: gate the writes/claims so bad output never enters the brain. |
 
-## Positioning note (from the value-prop check)
-Lead the README/launch with the **closed autonomous loop** (the loop-engineering
-wedge), not just "compression + memory" — that's what differentiates knitbrain from
-Headroom (compress-only) and caveman (output-only).
+The principle: **hard-gate everything at the brain boundary; steer everything on the
+model-behaviour side.** The model can say anything; the brain stays clean by force.
+
+## Phasing
+
+- **A (additive, low-risk):** wiki spine (#1) + live meter (#2) + browsable dashboard-wiki (#3).
+- **B (consolidation — removes scatter):** adherence gate (#4, hard) + verify_claim (#5, hard) + name/consolidate CAPTURE (#6) and PROTECT (#7). This phase deletes more than it adds.
+- **C:** the brain facade (#8).
