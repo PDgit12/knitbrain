@@ -20,6 +20,12 @@ export interface MeterReading {
   usedPct: number;
   /** Tokens the optimizer saved this session (before − after). */
   savedTokens: number;
+  /**
+   * Optimization as a fraction of the LIVE conversation window:
+   * `saved / (liveWindow + saved)` — i.e. how much smaller the live context is
+   * than it would have been without knitbrain. 0–100. (gap #2)
+   */
+  optimizationPct: number;
   status: "ok" | "warn" | "handoff";
   /** Human advice matching the status. */
   advice: string;
@@ -118,7 +124,14 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
           : status === "warn"
             ? `Context ${usedPct}% full — finish the current step, then consider knitbrain_save_handoff before starting anything large.`
             : `Context ${usedPct}% full — healthy.`;
-      return { usedTokens, windowTokens, usedPct, savedTokens: state.savedTokens, status, advice };
+      // Conversation-relative optimization: what the live window saved vs. the
+      // unoptimized counterfactual (liveWindow + saved). usedTokens is the live
+      // window (realUsage probe or tracked throughput).
+      const optimizationPct =
+        state.savedTokens > 0
+          ? Math.round((state.savedTokens / (usedTokens + state.savedTokens)) * 1000) / 10
+          : 0;
+      return { usedTokens, windowTokens, usedPct, savedTokens: state.savedTokens, optimizationPct, status, advice };
     },
     reset() {
       state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens };

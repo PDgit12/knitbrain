@@ -11,7 +11,8 @@ import { createFeedback } from "../src/engine/feedback.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
-import { createDashboardServer, dashboardState, type DashboardDeps } from "../src/dashboard.js";
+import { createWikiStore } from "../src/engine/wiki.js";
+import { createDashboardServer, dashboardState, renderMarkdown, type DashboardDeps } from "../src/dashboard.js";
 
 describe("dashboard (rung 17)", () => {
   let root: string;
@@ -64,6 +65,58 @@ describe("dashboard (rung 17)", () => {
     const sk = s["skills"] as Array<{ name: string; uses: number }>;
     expect(sk.length).toBe(1);
     expect(sk[0]!.name).toBe("deploy-checklist");
+  });
+
+  // Gap #3: hand-rolled markdown → HTML render (mechanical, no new dep).
+  it("renderMarkdown turns a [[link]] into a clickable in-panel anchor and escapes HTML", () => {
+    const html = renderMarkdown("# Title\n\n- a bullet with [[Some Page]]\n\n`code` and <script>");
+    expect(html).toContain('<a href="#" data-slug="some-page">Some Page</a>');
+    expect(html).toContain("<h3>Title</h3>");
+    expect(html).toContain("<li>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).toContain("&lt;script&gt;"); // escaped, not injected
+  });
+
+  // Gap #3: browsable wiki state — rendered pages + correct backlinks + graph edges.
+  it("wiki state exposes rendered pages, backlinks, and link-graph edges", () => {
+    const wiki = createWikiStore(join(root, "wiki"));
+    // alpha links to beta → beta has a backlink from alpha, and an edge alpha→beta.
+    wiki.ingest({ title: "Beta", kind: "concept", content: "the beta page" });
+    wiki.ingest({ title: "Alpha", kind: "concept", content: "alpha refers to [[Beta]]", links: ["Beta"] });
+    const s = dashboardState({ ...deps, wiki });
+    const w = s["wiki"] as {
+      pages: Array<{ slug: string; bodyHtml: string; links: string[]; backlinks: string[] }>;
+      edges: Array<{ from: string; to: string }>;
+    };
+    const beta = w.pages.find((p) => p.slug === "beta")!;
+    const alpha = w.pages.find((p) => p.slug === "alpha")!;
+    expect(alpha.bodyHtml).toContain('data-slug="beta"');
+    expect(alpha.links).toContain("beta");
+    expect(beta.backlinks).toContain("alpha");
+    expect(w.edges).toContainEqual({ from: "alpha", to: "beta" });
+  });
+
+  it("serves a real seeded wiki over /api/state with bodyHtml + backlinks + edge + log", async () => {
+    const wiki = createWikiStore(join(root, "wiki"));
+    wiki.ingest({ title: "Beta", kind: "concept", content: "the beta page" });
+    wiki.ingest({ title: "Alpha", kind: "concept", content: "see [[Beta]]", links: ["Beta"] });
+    srv = createDashboardServer({ ...deps, wiki });
+    const port: number = await new Promise((r) =>
+      srv!.listen(0, "127.0.0.1", () => r((srv!.address() as { port: number }).port)),
+    );
+    const api = (await (await fetch(`http://127.0.0.1:${port}/api/state`)).json()) as {
+      wiki: {
+        pages: Array<{ slug: string; bodyHtml: string; links: string[]; backlinks: string[] }>;
+        edges: Array<{ from: string; to: string }>;
+        recent: string[];
+      };
+    };
+    const alpha = api.wiki.pages.find((p) => p.slug === "alpha")!;
+    expect(alpha.bodyHtml).toContain('data-slug="beta"');
+    expect(alpha.links).toContain("beta");
+    expect(api.wiki.pages.find((p) => p.slug === "beta")!.backlinks).toContain("alpha");
+    expect(api.wiki.edges).toContainEqual({ from: "alpha", to: "beta" });
+    expect(api.wiki.recent.length).toBeGreaterThan(0); // log present
   });
 
   it("serves the page and the JSON API over HTTP", async () => {
