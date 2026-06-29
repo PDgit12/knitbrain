@@ -58,6 +58,14 @@ describe("context meter (rung 15)", () => {
     expect(r.savedTokens).toBe(500);
   });
 
+  // Gap #2: optimization as a fraction of the LIVE window: saved / (live + saved).
+  it("optimizationPct is the live-window ratio", () => {
+    const m = createMeter(join(root, "m"), { windowTokens: 100000 });
+    expect(m.read().optimizationPct).toBe(0); // nothing saved yet
+    m.onRequest(3000, 1000); // live window = 1000, saved = 2000
+    expect(m.read().optimizationPct).toBe(66.7); // 2000 / (1000 + 2000)
+  });
+
   it("dispatch AUTOMATICALLY appends handoff advice to tool output when hot", () => {
     const ccr = createFileCCRStore(join(root, "ccr"));
     const ctx: ToolContext = {

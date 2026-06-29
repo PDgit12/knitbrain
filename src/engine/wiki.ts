@@ -34,11 +34,24 @@ export interface LintReport {
   orphans: string[];
 }
 
+/** One parsed page, exposed for the browsable dashboard view (gap #3). */
+export interface WikiPage {
+  slug: string;
+  kind: string;
+  title: string;
+  /** Raw markdown body (no frontmatter). Rendered to HTML mechanically by the view. */
+  body: string;
+  /** Slugs this page links to via `[[…]]`. */
+  links: string[];
+}
+
 export interface WikiStore {
   ingest(input: IngestInput): { page: string; touched: string[] };
   log(event: string, title: string): void;
   recentLog(n: number): string[];
   page(slug: string): string | null;
+  /** All pages parsed (slug/kind/title/body/links) — for the browsable view. */
+  listPages(): WikiPage[];
   index(): string;
   lint(): LintReport;
 }
@@ -196,6 +209,10 @@ export function createWikiStore(root: string): WikiStore {
     page(s) {
       const p = pagePath(slug(s));
       return existsSync(p) ? readFileSync(p, "utf8") : null;
+    },
+
+    listPages() {
+      return allPages().map((p) => ({ slug: p.slug, kind: p.kind, title: p.title, body: p.body, links: p.links }));
     },
 
     index() {

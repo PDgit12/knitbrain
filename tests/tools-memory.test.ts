@@ -10,6 +10,7 @@ import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
+import { createWikiStore } from "../src/engine/wiki.js";
 import { TOOLS, dispatch, type ToolContext } from "../src/mcp/tools.js";
 
 // Direct handler coverage for the memory tools through real dispatch: seed a
@@ -62,5 +63,23 @@ describe("MCP memory tools (search_learnings/get_learning/save_handoff)", () => 
   it("save_handoff persists state that loadSession restores", () => {
     expect(call("knitbrain_save_handoff", { state: "goal: ship v1; next: audit the proxy" })).toBe("handoff saved");
     expect(memory.loadSession().handoff).toContain("ship v1");
+  });
+
+  // Gap #1: capture tools drop ONE line into the wiki log (unified spine).
+  it("record_learning + save_handoff append lines to the wiki spine", () => {
+    const wiki = createWikiStore(join(root, "wiki"));
+    ctx = { ...ctx, wiki };
+    expect(wiki.recentLog(10).length).toBe(0);
+    call("knitbrain_record_learning", { summary: "spine entry one", lesson: "x" });
+    call("knitbrain_save_handoff", { state: "spine handoff state" });
+    const log = wiki.recentLog(10);
+    expect(log.length).toBe(2);
+    expect(log.some((l) => l.includes("learning") && l.includes("spine entry one"))).toBe(true);
+    expect(log.some((l) => l.includes("handoff"))).toBe(true);
+  });
+
+  // Best-effort: a missing wiki must never break the capture tool (gap #1).
+  it("record_learning succeeds with no wiki in context", () => {
+    expect(call("knitbrain_record_learning", { summary: "no wiki here", lesson: "y" })).toContain("recorded learning");
   });
 });

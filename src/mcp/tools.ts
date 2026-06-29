@@ -45,6 +45,20 @@ function str(args: Record<string, unknown>, key: string): string {
 }
 
 /**
+ * Wiki spine (gap #1): significant capture-tool events drop ONE line into the
+ * wiki log so the brain has a unified timeline alongside the typed stores. The
+ * typed store stays source of truth; this is best-effort and must NEVER break
+ * the tool — a wiki/disk error here is swallowed.
+ */
+function wikiLog(ctx: ToolContext, event: string, title: string): void {
+  try {
+    ctx.wiki?.log(event, title);
+  } catch {
+    /* spine is best-effort */
+  }
+}
+
+/**
  * Output discipline at the dispatch chokepoint:
  *  - "data"     → auto-compressed (skeleton + ⟨recall:hash⟩), original in CCR.
  *  - "verbatim" → returned exactly as-is (governance/protocol/control output
@@ -159,6 +173,7 @@ export const TOOLS: readonly ToolDef[] = [
         lesson: str(args, "lesson"),
         tags,
       });
+      if (!duplicate) wikiLog(ctx, "learning", str(args, "summary"));
       return duplicate ? `duplicate of existing learning ${id}` : `recorded learning ${id}`;
     },
   },
@@ -226,6 +241,7 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       ctx.memory.saveHandoff(str(args, "state"));
+      wikiLog(ctx, "handoff", "session handoff");
       return "handoff saved";
     },
   },
@@ -343,6 +359,7 @@ export const TOOLS: readonly ToolDef[] = [
         return "refused: claimed_tier and actual_tier must be valid tiers and differ.";
       }
       const r = ctx.calibration.recordFalsePositive(claimed, actual);
+      wikiLog(ctx, "false-positive", `${claimed}→${actual}`);
       const pending = r.fpDirections[`${claimed}-was-${actual}`] ?? 0;
       return r.shifted
         ? `recorded — threshold SHIFTED (scopeAdjust=${r.scopeAdjust}); the classifier now requires ${Math.max(2, 4 + r.scopeAdjust)} files for complex.`
@@ -397,6 +414,7 @@ export const TOOLS: readonly ToolDef[] = [
         style,
       );
       const ev = ctx.team.post("knitbrain", `agent created: ${str(args, "name")} · scope ${typeof args["scope"] === "string" ? args["scope"] : "(whole project)"}`);
+      wikiLog(ctx, "agent", str(args, "name"));
       const hubCfg = loadHubConfig();
       if (hubCfg) mirrorToHub(hubCfg, { author: "knitbrain", summary: ev.summary, original: `agent created at ${path}` });
       return `created agent at ${path}${hubCfg ? " (announced on hub)" : ""}`;
@@ -530,6 +548,7 @@ export const TOOLS: readonly ToolDef[] = [
         : ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
       const style = scanHost(join(process.cwd(), ".claude")).style;
       const s = composeSkill(task, style, lessons, ctx.skills);
+      wikiLog(ctx, "skill", s.name);
       return `composed skill "${s.name}" (${s.body.length} chars${style.terse ? ", style-matched terse" : ""}) — refine the body, then knitbrain_skill_save to update.`;
     },
   },
@@ -552,6 +571,7 @@ export const TOOLS: readonly ToolDef[] = [
       const triggers = Array.isArray(args["triggers"]) ? (args["triggers"] as string[]) : [];
       const constraints = Array.isArray(args["constraints"]) ? (args["constraints"] as string[]) : [];
       const s = ctx.skills.save({ name: str(args, "name"), body: str(args, "body"), triggers, constraints });
+      wikiLog(ctx, "skill", s.name);
       return `skill "${s.name}" saved (uses=${s.uses}, wins=${s.wins}/losses=${s.losses}, constraints: ${s.constraints.length}, triggers: ${s.triggers.join(", ")})`;
     },
   },
@@ -596,6 +616,7 @@ export const TOOLS: readonly ToolDef[] = [
         return "refused: team_post needs non-empty `author` and `content`.";
       }
       const e = ctx.team.post(author, content);
+      wikiLog(ctx, "team", `${author}: ${content.slice(0, 60)}`);
       // Shared sessions: mirror to the team hub when joined — fire-and-forget,
       // a dead hub never blocks local work.
       const hub = loadHubConfig();
