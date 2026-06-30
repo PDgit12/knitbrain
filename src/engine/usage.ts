@@ -19,9 +19,10 @@ export interface PlatformUsage {
 }
 
 /** Claude Code encodes a project's abs path as the transcript dir name,
- * replacing path separators and dots with dashes. */
+ * replacing path separators, dots, AND the Windows drive colon with dashes
+ * (a raw `C:` in a dir name is an illegal Windows path → mkdir/readdir fail). */
 export function projectTranscriptDir(cwd: string, home: string = homedir()): string {
-  return join(home, ".claude", "projects", cwd.replace(/[/\\.]/g, "-")); // / \ . → - (Windows too)
+  return join(home, ".claude", "projects", cwd.replace(/[/\\.:]/g, "-")); // / \ . : → -
 }
 
 const empty = (): PlatformUsage => ({
