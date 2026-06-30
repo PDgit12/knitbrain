@@ -13,6 +13,8 @@ import { scanHost, composeSkill } from "../engine/host-scan.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
+import { scanAndIngest, persistIntent, INTENT_QUESTIONS } from "../engine/onboard.js";
+import { terseStore } from "../compress-file.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
@@ -103,8 +105,8 @@ function strictness(): Strictness {
 }
 /** Writes that must be preceded by classification this session. */
 const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff"]);
-/** Tools that mark the session as classified. */
-const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run"]);
+/** Tools that mark the session as classified (loop-entry → opens the gate). */
+const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run", "knitbrain_onboard"]);
 // Per-session state keyed by the connection's ToolContext (one ctx per MCP
 // connection = one session; fresh ctx per test → no cross-test leak).
 const sessionState = new WeakMap<ToolContext, { classified: boolean }>();
@@ -226,7 +228,8 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const tags = Array.isArray(args["tags"]) ? (args["tags"] as string[]) : [];
       // Routed through the brain facade: recordLearning + spine line in one call.
-      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: str(args, "summary"), lesson: str(args, "lesson"), tags });
+      // Storage-side terse (reuses compressProse; default off → no change).
+      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: terseStore(str(args, "summary")), lesson: terseStore(str(args, "lesson")), tags });
       return duplicate ? `duplicate of existing learning ${id}` : `recorded learning ${id}`;
     },
   },
@@ -623,7 +626,7 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const triggers = Array.isArray(args["triggers"]) ? (args["triggers"] as string[]) : [];
       const constraints = Array.isArray(args["constraints"]) ? (args["constraints"] as string[]) : [];
-      const s = ctx.skills.save({ name: str(args, "name"), body: str(args, "body"), triggers, constraints });
+      const s = ctx.skills.save({ name: str(args, "name"), body: terseStore(str(args, "body")), triggers, constraints });
       wikiLog(ctx, "skill", s.name);
       return `skill "${s.name}" saved (uses=${s.uses}, wins=${s.wins}/losses=${s.losses}, constraints: ${s.constraints.length}, triggers: ${s.triggers.join(", ")})`;
     },
@@ -782,6 +785,39 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const limit = typeof args["limit"] === "number" ? args["limit"] : 8;
       return JSON.stringify(brainOf(ctx).read(str(args, "query"), limit), null, 2);
+    },
+  },
+  {
+    name: "knitbrain_onboard",
+    description:
+      "The front door: onboard a project into the brain. Call with NO args first — it scans the repo + imports this project's past sessions into the wiki, then returns 5 intent questions; ask the user those IN CHAT, then call again with `answers` (array, in order) to write a Project Charter + constraints that shape the loop and re-surface every session. Run once per project after setup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        answers: { type: "array", items: { type: "string" }, description: "The 5 interview answers, in order. Omit on the first call." },
+      },
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const answers = Array.isArray(args["answers"]) ? (args["answers"] as string[]) : null;
+      if (answers && answers.length > 0) {
+        if (!ctx.wiki) return "wiki unavailable — cannot persist the Project Charter.";
+        const r = persistIntent(answers, { wiki: ctx.wiki, memory: ctx.memory, skills: ctx.skills });
+        return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") written. knitbrain_load_session now surfaces your intent every session.`;
+      }
+      if (!ctx.wiki) return "wiki unavailable — onboard needs the wiki store.";
+      const imp = scanAndIngest(process.cwd(), { knowledge: ctx.knowledge, wiki: ctx.wiki });
+      return JSON.stringify(
+        {
+          greeting: `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned.`,
+          questions: INTENT_QUESTIONS,
+          directive:
+            "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
+        },
+        null,
+        2,
+      );
     },
   },
 ];

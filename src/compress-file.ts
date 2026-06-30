@@ -52,6 +52,21 @@ export function compressProse(text: string): string {
   return masked.replace(new RegExp(`${SENT}(\\d+)${SENT}`, "g"), (_, i) => saved[Number(i)]!);
 }
 
+/**
+ * Storage-side terse: the SAME compressProse transform, applied to brain-write
+ * prose (learning summaries/lessons, skill bodies) to cut what every future
+ * recall surfaces. Reuses compressProse (no second implementation). Gated:
+ *   - default OFF (KNITBRAIN_TERSE_STORE !== "1") → byte-identical to today;
+ *   - structured text with `- claim:` lines (the Project Charter) is NEVER
+ *     rewritten — the lint/charter depend on those lines verbatim.
+ * Output-side terse stays separate (the prompt-level TERSE_MODE in platforms.ts).
+ */
+export function terseStore(text: string): string {
+  if (process.env["KNITBRAIN_TERSE_STORE"] !== "1") return text;
+  if (/^\s*[-*]\s*claim:/im.test(text)) return text;
+  return compressProse(text);
+}
+
 /** CLI: compress a file in place, keeping a verbatim `.original` backup. */
 export function runCompressFile(args: string[]): number {
   const force = args.includes("--force");
