@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0
+
+The brain release: the 4-layer brain (CAPTURE → PROTECT → BRAIN ← FETCH) wired
+end to end. 33 MCP tools (was 31). Backward-compatible.
+
+- **Wiki spine** — the close-the-loop tools (record_learning, skill_save,
+  compose_skill, team_post, create_agent, save_handoff, record_false_positive)
+  also drop a line into the wiki log, so the brain has one unified timeline.
+- **Live meter** — `optimizationPct = saved / (liveWindow + saved)` shows
+  optimization as a fraction of the live conversation window, surfaced each turn.
+- **Browsable dashboard wiki** — the wiki panel renders pages (hand-rolled
+  markdown→HTML, no new dependency), `[[links]]`, backlinks, and an SVG link
+  graph; loopback-only.
+- **Adherence gate (hard)** — `KNITBRAIN_STRICTNESS` (off|warn|**block**,
+  default block): close-the-loop writes are blocked unless the session ran
+  `knitbrain_run`/`knitbrain_classify_task` first. Reads, loop-entry, and the
+  exact-recovery tools are never gated.
+- **`knitbrain_verify_claim`** — parse a stated codebase fact and check it
+  against the knowledge graph → verified | contradicted | unparseable.
+- **`knitbrain_brain_search`** — unified recall that fans a query across the
+  typed stores (learnings/wiki/knowledge) and returns ranked hits tagged with
+  their source store, over the new `src/engine/brain.ts` facade.
+
 ## 0.5.1
 
 - `knitbrain --version` / `-v` now prints the version (was unhandled — printed nothing).

@@ -17,25 +17,25 @@ captured real-data proof. No half-built layer in the tree.
 
 ---
 
-## Gap register
+## Gap register — ALL 8 FIXED (Phases A–C shipped + merged to main)
 
-| # | Gap | Layer | Fix | Hardness | Phase |
-|---|-----|-------|-----|----------|-------|
-| 1 | Wiki is a silo — most tools write their own store, not the brain timeline | BRAIN | significant tool events also `wiki.log(...)` → one unified spine | mechanical | A |
-| 2 | Meter is tool-throughput, not live conversation-relative | FETCH | show savings as `saved / (liveWindow + saved)`, surfaced each turn | mechanical | A |
-| 3 | Dashboard wiki panel is a counts table, not browsable | FETCH/view | page list → click → md→HTML render + `[[links]]` + backlinks + SVG link graph (mechanical render, zero agent tokens; no new dep) | mechanical | A |
-| 4 | **Adherence** — nothing enforces classify-before-learn | PROTECT | soft-gate at `dispatch()`: `record_learning`/`skill_save`/`save_handoff` blocked unless `classify_task`/`run` ran this session; strictness off\|warn\|**block** (default block); NEVER gate loop-entry or exact-recovery | **HARD** | B |
-| 5 | No hard claim-checking (anti-hallucination on the claim side) | PROTECT | add `verify_claim`: parse a stated codebase fact, check against the knowledge graph → verified/contradicted | **HARD** (claim side) | B |
-| 6 | CAPTURE is scattered (hooks + dispatch + posttooluse), not a named layer | CAPTURE | consolidate the existing entry points into one `capture` path; delete the scattered bits | refactor | B |
-| 7 | PROTECT not consolidated (staleness/drift/sycophancy logic scattered) | PROTECT | name the layer; route every brain read/write through the one gate; delete duplicates | refactor | B |
-| 8 | No brain facade (unified read/write over typed stores) | BRAIN | thin `brain` interface: read = search across stores; write = route to store + log spine | medium | C |
+| # | Gap | Layer | Fix | Phase | Status |
+|---|-----|-------|-----|-------|--------|
+| 1 | Wiki is a silo — most tools write their own store, not the brain timeline | BRAIN | 7 capture tools also `wiki.log(...)` → one unified spine | A | ✅ FIXED (#7) |
+| 2 | Meter is tool-throughput, not live conversation-relative | FETCH | `MeterReading.optimizationPct = saved / (liveWindow + saved)`, surfaced in the per-turn hook line | A | ✅ FIXED (#7) |
+| 3 | Dashboard wiki panel is a counts table, not browsable | FETCH/view | hand-rolled md→HTML (`renderMarkdown`, no new dep) + `[[links]]` + backlinks + SVG link graph; `listPages()`/`wikiState()` | A | ✅ FIXED (#7) |
+| 4 | **Adherence** — nothing enforces classify-before-learn | PROTECT | hard-gate at `dispatch()`: `record_learning`/`skill_save`/`save_handoff` blocked unless `classify_task`/`run` ran; `KNITBRAIN_STRICTNESS` off\|warn\|**block** (default block); loop-entry + exact-recovery never gated | B | ✅ FIXED (#8) |
+| 5 | No hard claim-checking (anti-hallucination on the claim side) | PROTECT | `knitbrain_verify_claim`: parse a codebase fact, check the knowledge graph → verified/contradicted/unparseable | B | ✅ FIXED (#8) |
+| 6 | CAPTURE is scattered, not a named layer | CAPTURE | named `capture()` seam in `dispatch()` (compress+meter); prompts+tool-output+spine all reach the brain | B | ✅ FIXED (#8) |
+| 7 | PROTECT not consolidated | PROTECT | `dispatch()` is the one named gate (`protectGate` pre + `capture` post); every tool routes through it (server.ts:74) | B | ✅ FIXED (#8) |
+| 8 | No brain facade (unified read/write over typed stores) | BRAIN | `src/engine/brain.ts` — read fans across stores (sourced ranked hits) + `knitbrain_brain_search`; write routes to store + logs spine | C | ✅ FIXED (#9) |
 
 ## Released / verified (done)
 
+- Gaps #1–#8 — shipped across Phases A (PR #7), B (PR #8), C (PR #9), all merged to main. Phase D audit verified the full architecture below.
+- **Phase D full audit (ship-readiness) — all green, captured:** gate chain (typecheck+lint+test **348**+build+consistency **33 tools**+bench) · production-audit **50/50** · e2e (per-tool, all 33 live) · evals **100%** (2524 real blocks: round-trip/identifier/error/summary/never-expand) · 4-layer coherence (every tool through the one `dispatch()` chokepoint) · adherence proven HARD (block→`protocol_required`; retrieve/team_get byte-exact under block) · ponytail-audit (lean) · cso (renderMarkdown XSS-safe, dashboard loopback-only) · mcp-server-patterns (schemas/errors/idempotency) · cross-platform (no unix-only shell).
 - `knitbrain --version`/`-v` — fixed in 0.5.1 (was unhandled). Tagged + GitHub release.
-- PostToolUse host-apply — **live-verified** in a restarted Claude Code session (`ping → v0.5.1`, wiki/compose tools work in-session).
-- Full ship audit green: gate chain (330 tests) + production-audit 50/50 + e2e + evals 100% + the 3 review skills (ponytail/cso/mcp). CI `e2e` lane added.
-- **OPEN (user action):** `npm publish` for 0.5.1 — registry is still 0.5.0; local global is 0.5.1.
+- **OPEN (user action):** `npm publish` for the current version — registry is still 0.5.0; local is ahead.
 
 ## Ceilings — NOT gaps (physics; do not try to "fix")
 
@@ -47,8 +47,9 @@ captured real-data proof. No half-built layer in the tree.
 The principle: **hard-gate everything at the brain boundary; steer everything on the
 model-behaviour side.** The model can say anything; the brain stays clean by force.
 
-## Phasing
+## Phasing — COMPLETE
 
-- **A (additive, low-risk):** wiki spine (#1) + live meter (#2) + browsable dashboard-wiki (#3).
-- **B (consolidation — removes scatter):** adherence gate (#4, hard) + verify_claim (#5, hard) + name/consolidate CAPTURE (#6) and PROTECT (#7). This phase deletes more than it adds.
-- **C:** the brain facade (#8).
+- **A (additive, low-risk):** wiki spine (#1) + live meter (#2) + browsable dashboard-wiki (#3). ✅ shipped (PR #7).
+- **B (consolidation — removes scatter):** adherence gate (#4, hard) + verify_claim (#5, hard) + named CAPTURE (#6) and PROTECT (#7). ✅ shipped (PR #8).
+- **C:** the brain facade (#8). ✅ shipped (PR #9).
+- **D:** full-architecture ship-readiness audit + this doc updated. ✅ done — all gates green, gaps marked fixed above.

@@ -86,7 +86,9 @@ export function createBrain(stores: BrainStores): Brain {
       const files = stores.knowledge.listFiles();
       for (const f of files) {
         const base = f.toLowerCase();
-        if ([...terms].some((t) => t === base || base.endsWith(`/${t}`) || base.endsWith(t))) {
+        // Match a token to a file by exact path or trailing path segment — NOT a
+        // bare suffix (which over-matches, e.g. token "ts" hitting every *.ts).
+        if ([...terms].some((t) => t === base || base.endsWith(`/${t}`))) {
           const imports = stores.knowledge.queryImports(f)?.length ?? 0;
           const dependents = stores.knowledge.queryDependents(f).length;
           raw.push({ source: "knowledge", id: f, title: `imports ${imports} · dependents ${dependents}`, score: 1 + dependents });
