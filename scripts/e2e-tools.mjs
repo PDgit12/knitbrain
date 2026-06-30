@@ -76,7 +76,9 @@ const main = async () => {
 
   const proc = spawn("node", [join(ROOT, "dist", "index.js")], {
     cwd: proj,
-    env: { ...process.env, HOME: home },
+    // Tool-mechanics harness (records before classifying) — relax the adherence
+    // gate unless explicitly overridden; the gate matrix is unit-tested.
+    env: { KNITBRAIN_STRICTNESS: "off", ...process.env, HOME: home },
     stdio: ["pipe", "pipe", "inherit"],
   });
   const { rpc } = makeClient(proc);
@@ -95,7 +97,7 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 31, `tools/list advertises exactly 31 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 32, `tools/list advertises exactly 32 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
@@ -202,7 +204,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 31 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 32 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

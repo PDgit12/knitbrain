@@ -67,7 +67,9 @@ async function mcpSession() {
   const home = mkdtempSync(join(tmpdir(), "knitbrain-home-"));
   const proc = spawn("node", [server], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, KNITBRAIN_HOME: home },
+    // This harness records a learning before classifying (it tests tool
+    // mechanics, not the adherence gate) — relax the gate unless overridden.
+    env: { KNITBRAIN_STRICTNESS: "off", ...process.env, KNITBRAIN_HOME: home },
   });
   try {
     const { rpc, notify } = makeClient(proc);

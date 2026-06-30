@@ -208,7 +208,7 @@ function text(r) {
 }
 
 async function fullMcpSession(bin, cwd) {
-  const proc = spawn(bin, [], { cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, KNITBRAIN_HOME: HOME_ISOLATED } });
+  const proc = spawn(bin, [], { cwd, stdio: ["pipe", "pipe", "pipe"], env: { KNITBRAIN_STRICTNESS: "off", ...process.env, KNITBRAIN_HOME: HOME_ISOLATED } });
   try {
     const { rpc, notify } = makeClient(proc);
     const init = await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "prod-audit", version: "1" } });
@@ -217,7 +217,7 @@ async function fullMcpSession(bin, cwd) {
 
     const list = await rpc("tools/list", {});
     const names = (list.result?.tools ?? []).map((t) => t.name);
-    ok(names.length === 31, `tools/list advertises exactly 31 tools (got ${names.length})`);
+    ok(names.length === 32, `tools/list advertises exactly 32 tools (got ${names.length})`);
 
     const call = (name, args = {}) => rpc("tools/call", { name, arguments: args });
 
@@ -346,6 +346,6 @@ console.log("\n[audit] ──────────── PRODUCTION AUDIT REP
 for (const r of results) console.log(`[audit] ${r}`);
 console.log(`[audit] ${results.length} checks · ${results.length - failures} passed · ${failures} failed`);
 console.log(failures === 0
-  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 31 tools + proxy + hook + dashboard + hub work."
+  ? "[audit] VERDICT: PASS — cold-start portable: clone → install → gates → packed install → all 32 tools + proxy + hook + dashboard + hub work."
   : "[audit] VERDICT: FAIL");
 process.exit(failures === 0 ? 0 : 1);
