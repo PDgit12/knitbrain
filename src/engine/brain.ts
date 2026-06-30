@@ -1,6 +1,7 @@
 import type { Memory } from "./memory.js";
 import type { Knowledge } from "./knowledge.js";
 import type { WikiStore, PageKind } from "./wiki.js";
+import { logSpine } from "./wiki.js";
 import type { SkillsStore } from "./skills.js";
 
 /**
@@ -51,15 +52,6 @@ export interface BrainStores {
 
 const tokenize = (s: string): string[] => s.toLowerCase().match(/[a-z0-9_.-]+/g) ?? [];
 
-/** Best-effort spine line — a wiki/disk error must never break the route. */
-function logSpine(stores: BrainStores, event: string, title: string): void {
-  try {
-    stores.wiki?.log(event, title);
-  } catch {
-    /* spine is best-effort */
-  }
-}
-
 export function createBrain(stores: BrainStores): Brain {
   return {
     read(query, limit = 8) {
@@ -86,7 +78,9 @@ export function createBrain(stores: BrainStores): Brain {
       const files = stores.knowledge.listFiles();
       for (const f of files) {
         const base = f.toLowerCase();
-        if ([...terms].some((t) => t === base || base.endsWith(`/${t}`) || base.endsWith(t))) {
+        // Match a token to a file by exact path or trailing path segment — NOT a
+        // bare suffix (which over-matches, e.g. token "ts" hitting every *.ts).
+        if ([...terms].some((t) => t === base || base.endsWith(`/${t}`))) {
           const imports = stores.knowledge.queryImports(f)?.length ?? 0;
           const dependents = stores.knowledge.queryDependents(f).length;
           raw.push({ source: "knowledge", id: f, title: `imports ${imports} · dependents ${dependents}`, score: 1 + dependents });
@@ -112,12 +106,12 @@ export function createBrain(stores: BrainStores): Brain {
     write(input) {
       if (input.kind === "learning") {
         const { id, duplicate } = stores.memory.recordLearning({ summary: input.summary, lesson: input.lesson, ...(input.tags ? { tags: input.tags } : {}) });
-        if (!duplicate) logSpine(stores, "learning", input.summary); // no spine line for a dedupe
+        if (!duplicate) logSpine(stores.wiki, "learning", input.summary); // no spine line for a dedupe
         return { source: "memory", id, duplicate };
       }
       if (input.kind === "skill") {
         const s = stores.skills!.save({ name: input.name, body: input.body, ...(input.triggers ? { triggers: input.triggers } : {}), ...(input.constraints ? { constraints: input.constraints } : {}) });
-        logSpine(stores, "skill", s.name);
+        logSpine(stores.wiki, "skill", s.name);
         return { source: "skills", id: s.name };
       }
       // wiki: ingest already appends its own spine line — do NOT double-log.

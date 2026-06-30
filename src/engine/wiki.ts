@@ -60,6 +60,19 @@ export function slug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "page";
 }
 
+/**
+ * Best-effort spine line: append to the wiki log without ever breaking the
+ * caller (a wiki/disk error is swallowed). The one place capture tools and the
+ * brain facade both route their spine writes through.
+ */
+export function logSpine(wiki: WikiStore | undefined, event: string, title: string): void {
+  try {
+    wiki?.log(event, title);
+  } catch {
+    /* spine is best-effort */
+  }
+}
+
 interface TranscriptLine {
   type?: string;
   message?: { content?: unknown };
