@@ -79,6 +79,52 @@ function normalizeHandle(raw: string): string {
   return raw.replace(/[⟨⟩]/g, "").replace(/^(recall|ccr):/, "").trim(); // accept legacy ccr: too
 }
 
+// ─── PROTECT layer (gap #4/#7) ──────────────────────────────────────────────
+// The brain boundary is hard-gated at the ONE chokepoint (dispatch). Adherence:
+// close-the-loop WRITES never enter the brain unless the session was classified
+// (knitbrain_run / knitbrain_classify_task ran). Reads, loop-entry, and the
+// exact-recovery tools are NEVER gated — gating them would break the loop or
+// corrupt byte-exact recovery.
+type Strictness = "off" | "warn" | "block";
+function strictness(): Strictness {
+  const v = (process.env["KNITBRAIN_STRICTNESS"] ?? "block").toLowerCase();
+  return v === "off" || v === "warn" ? v : "block";
+}
+/** Writes that must be preceded by classification this session. */
+const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff"]);
+/** Tools that mark the session as classified. */
+const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run"]);
+// Per-session state keyed by the connection's ToolContext (one ctx per MCP
+// connection = one session; fresh ctx per test → no cross-test leak).
+const sessionState = new WeakMap<ToolContext, { classified: boolean }>();
+function sessionOf(ctx: ToolContext): { classified: boolean } {
+  let s = sessionState.get(ctx);
+  if (!s) {
+    s = { classified: false };
+    sessionState.set(ctx, s);
+  }
+  return s;
+}
+interface GateDecision {
+  blocked: boolean;
+  message: string;
+  warn: boolean;
+}
+/** Adherence pre-gate: decide block / warn / pass for a tool before it runs. */
+function protectGate(tool: ToolDef, ctx: ToolContext): GateDecision {
+  if (!GATED_WRITES.has(tool.name) || sessionOf(ctx).classified) return { blocked: false, message: "", warn: false };
+  const mode = strictness();
+  if (mode === "off") return { blocked: false, message: "", warn: false };
+  if (mode === "block")
+    return {
+      blocked: true,
+      message:
+        "protocol_required: call knitbrain_run or knitbrain_classify_task first. Unclassified close-the-loop writes are blocked so unverified output never enters the brain (KNITBRAIN_STRICTNESS=block, the default). Set KNITBRAIN_STRICTNESS=warn or off to relax.",
+      warn: false,
+    };
+  return { blocked: false, message: "", warn: true };
+}
+
 export const TOOLS: readonly ToolDef[] = [
   {
     name: "knitbrain_ping",
@@ -702,50 +748,132 @@ export const TOOLS: readonly ToolDef[] = [
       return JSON.stringify(r, null, 2);
     },
   },
+  {
+    name: "knitbrain_verify_claim",
+    description:
+      "Hard claim-check (anti-hallucination): parse a stated codebase fact and check it against the knowledge graph. Supported shapes: \"<A> imports <B>\", \"<A> exports <B>\", \"<A> is a dependent of <B>\" / \"<A> depends on <B>\". Returns verified | contradicted | unparseable so a claim is settled by the graph, not by assertion.",
+    inputSchema: {
+      type: "object",
+      properties: { claim: { type: "string", description: "e.g. 'src/mcp/server.ts imports tools.js'" } },
+      required: ["claim"],
+      additionalProperties: false,
+    },
+    output: "verbatim", // a governance check — never skeletonized
+    run: (args, ctx) => JSON.stringify(verifyClaim(str(args, "claim"), ctx.knowledge), null, 2),
+  },
 ];
 
 /**
- * The ONE chokepoint: run a tool, then apply output discipline. Data outputs
- * are compressed through the optimizer (original preserved in CCR); verbatim
- * outputs pass through untouched.
+ * Parse + check a codebase claim against the import/export knowledge graph
+ * (gap #5). A read query auto-heals a stale/empty index (lazy scan), so the
+ * graph is current. Conservative parser: only the three unambiguous shapes —
+ * anything else is `unparseable` (honest > a forced false verdict).
+ */
+export function verifyClaim(claim: string, knowledge: Knowledge): { verdict: "verified" | "contradicted" | "unparseable"; claim: string; detail: string } {
+  const c = claim.trim();
+  const mention = (s: string): string => s.trim().replace(/^[`'"]+|[`'".,]+$/g, ""); // keep dots inside filenames
+  const hit = (hay: string, needle: string): boolean => {
+    const n = needle.toLowerCase();
+    const base = n.replace(/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/, "");
+    const h = hay.toLowerCase();
+    return h.includes(n) || h.includes(base);
+  };
+
+  let m = /^(.+?)\s+imports\s+(.+)$/i.exec(c);
+  if (m) {
+    const a = mention(m[1]!), b = mention(m[2]!);
+    const edges = knowledge.queryImports(a);
+    if (edges === null) return { verdict: "unparseable", claim, detail: `no graph node for "${a}" (not a scanned file)` };
+    const found = edges.some((e) => hit(e.from, b) || e.names.some((n) => hit(n, b)));
+    return { verdict: found ? "verified" : "contradicted", claim, detail: found ? `${a} imports ${b}` : `${a} does not import ${b} (imports: ${edges.map((e) => e.from).join(", ") || "none"})` };
+  }
+
+  m = /^(.+?)\s+exports\s+(.+)$/i.exec(c);
+  if (m) {
+    const a = mention(m[1]!), b = mention(m[2]!);
+    const exports = knowledge.queryExports(a);
+    if (exports === null) return { verdict: "unparseable", claim, detail: `no graph node for "${a}" (not a scanned file)` };
+    const found = exports.some((e) => hit(e, b));
+    return { verdict: found ? "verified" : "contradicted", claim, detail: found ? `${a} exports ${b}` : `${a} does not export ${b} (exports: ${exports.join(", ") || "none"})` };
+  }
+
+  // "<A> is a dependent of <B>" / "<A> depends on <B>" → A imports B (A in deps(B)).
+  m = /^(.+?)\s+(?:is\s+a\s+dependent\s+of|depends\s+on)\s+(.+)$/i.exec(c);
+  if (m) {
+    const a = mention(m[1]!), b = mention(m[2]!);
+    const deps = knowledge.queryDependents(b);
+    const found = deps.some((d) => hit(d, a));
+    return { verdict: found ? "verified" : "contradicted", claim, detail: found ? `${a} depends on ${b}` : `${a} is not a dependent of ${b} (dependents: ${deps.join(", ") || "none"})` };
+  }
+
+  return { verdict: "unparseable", claim, detail: "expected '<A> imports <B>', '<A> exports <B>', or '<A> depends on <B>'" };
+}
+
+/**
+ * CAPTURE layer (gap #6): the ONE sink for every tool result. Compresses data
+ * outputs through the optimizer (original preserved in CCR) and accounts the
+ * emitted tokens on the meter. Verbatim outputs pass through uncompressed. The
+ * other capture entry points (UserPromptSubmit prompt-log, PostToolUse, the
+ * wiki spine) all land in the same wiki.log / CCR stores — this is the in-server
+ * leg of that one path.
+ */
+function capture(tool: ToolDef, raw: string, ctx: ToolContext): { out: string; saved: number } {
+  let out = raw;
+  let saved = 0;
+  if (tool.output === "data" && !ctx.feedback.shouldSkip(detect(raw))) {
+    // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
+    const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
+    if (r.compressed) {
+      ctx.feedback.onCompress(r.contentType, r.handle);
+      saved = r.originalTokens - r.skeletonTokens;
+      ctx.meter.onSaved(saved);
+      out = r.skeleton;
+    }
+  }
+  ctx.meter.onToolOutput(countTokens(out));
+  return { out, saved };
+}
+
+/**
+ * The ONE chokepoint. Both brain-boundary layers pass through here:
+ *   PROTECT — the adherence pre-gate (close-the-loop writes need classification)
+ *   CAPTURE — compress + meter + activity on every result
+ * Reads, loop-entry, and the exact-recovery tools (retrieve/team_get) are never
+ * gated and never get an advisory appended — their contract is byte-exact.
  */
 export function dispatch(
   tool: ToolDef,
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): string {
+  // PROTECT: hard-gate the brain boundary before the tool runs.
+  const gate = protectGate(tool, ctx);
+  if (gate.blocked) return gate.message;
+
   const raw = tool.run(args, ctx);
-  let out = raw;
-  let savedThisCall = 0;
-  if (tool.output === "data") {
-    // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
-    if (!ctx.feedback.shouldSkip(detect(raw))) {
-      const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
-      if (r.compressed) {
-        ctx.feedback.onCompress(r.contentType, r.handle);
-        savedThisCall = r.originalTokens - r.skeletonTokens;
-        ctx.meter.onSaved(savedThisCall);
-        out = r.skeleton;
-      }
-    }
-  }
-  // Context meter: account what we emit; when the window runs hot, tell the
-  // agent to save a handoff and clear — automatically, on any tool response.
-  // EXCEPT the exact-recovery tools: knitbrain_retrieve / knitbrain_team_get
-  // return the original byte-for-byte (their whole contract is losslessness),
-  // so appending an advisory would corrupt the recovered content.
-  ctx.meter.onToolOutput(countTokens(out));
+  if (CLASSIFIERS.has(tool.name)) sessionOf(ctx).classified = true;
+
+  // CAPTURE: compress + account.
+  const { out: captured, saved } = capture(tool, raw, ctx);
+  let out = captured;
+
+  // Context meter advisory — except the exact-recovery tools, whose whole
+  // contract is losslessness, and the meter tool itself.
   const reading = ctx.meter.read();
   const EXACT_OUTPUT = tool.name === "knitbrain_retrieve" || tool.name === "knitbrain_team_get";
   if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT) {
     out += `\n\n[knitbrain context-meter] ${reading.advice}`;
   }
+  if (gate.warn) {
+    out += `\n\n[knitbrain] protocol nudge: classify_task/run wasn't called this session — run it so writes are classified (KNITBRAIN_STRICTNESS=warn).`;
+  }
+
   // Live activity feed (best-effort; record() already swallows its own errors).
   ctx.activity?.record({
     agent: ctx.agentId ?? "agent",
     tool: tool.name,
     summary: raw.replace(/\s+/g, " ").trim().slice(0, 80),
-    saved: savedThisCall,
+    saved,
   });
   return out;
 }

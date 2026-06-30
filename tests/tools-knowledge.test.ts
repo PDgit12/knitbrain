@@ -65,4 +65,16 @@ describe("MCP knowledge tools (query_imports/exports/dependents + scan)", () => 
     const deps = JSON.parse(call("knitbrain_query_dependents", { file: "b.ts" })) as string[];
     expect(deps).toContain("a.ts");
   });
+
+  // Gap #5: verify_claim settles a stated codebase fact against the graph.
+  it("verify_claim: verified for a true graph fact, contradicted for a false one, unparseable for garbage", () => {
+    call("knitbrain_scan");
+    const v = (claim: string) => JSON.parse(call("knitbrain_verify_claim", { claim })) as { verdict: string };
+    expect(v("a.ts imports b.js").verdict).toBe("verified");
+    expect(v("b.ts imports a.js").verdict).toBe("contradicted");
+    expect(v("b.ts exports foo").verdict).toBe("verified");
+    expect(v("b.ts exports nope").verdict).toBe("contradicted");
+    expect(v("a.ts depends on b.ts").verdict).toBe("verified");
+    expect(v("the sky is blue").verdict).toBe("unparseable");
+  });
 });
