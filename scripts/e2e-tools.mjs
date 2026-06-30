@@ -97,7 +97,7 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 33, `tools/list advertises exactly 33 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 34, `tools/list advertises exactly 34 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
@@ -145,6 +145,11 @@ const main = async () => {
     // tags each hit with its source — the learning surfaces under source:memory.
     const brain = await call("knitbrain_brain_search", { query: "validation src/util.ts" });
     ok(/"source"\s*:\s*"memory"/.test(brain.text) && brain.text.includes("validation"), "brain_search fans across stores, sourced (memory hit present)");
+    // onboard front door: no args → greeting + 5 intent questions; answers → charter.
+    const onboard1 = JSON.parse((await call("knitbrain_onboard")).text);
+    ok(Array.isArray(onboard1.questions) && onboard1.questions.length === 5 && /Imported/.test(onboard1.greeting), "onboard (no args) → greeting + 5 intent questions");
+    const onboard2 = await call("knitbrain_onboard", { answers: ["a token brain", "gates green", "never force-push", "npm test", "ship onboard"] });
+    ok(/Project Charter/.test(onboard2.text) && /complete/i.test(onboard2.text), "onboard (answers) → Project Charter written");
     const learningId = (JSON.parse(search.text)[0] ?? {}).id;
     if (learningId) {
       const got = await call("knitbrain_get_learning", { id: learningId });
@@ -208,7 +213,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 33 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 34 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

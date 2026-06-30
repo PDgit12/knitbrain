@@ -6,7 +6,9 @@ import { createKnowledge } from "../src/engine/knowledge.js";
 import { createWikiStore } from "../src/engine/wiki.js";
 import { createMemory } from "../src/engine/memory.js";
 import { projectTranscriptDir } from "../src/engine/usage.js";
-import { runOnboard } from "../src/engine/onboard.js";
+import { createSkillsStore } from "../src/engine/skills.js";
+import { runOnboard, persistIntent, INTENT_QUESTIONS } from "../src/engine/onboard.js";
+import { terseStore } from "../src/compress-file.js";
 
 // Phase 2: the onboard import half — scan the repo + ingest this project's PAST
 // transcripts into the wiki + mine learnings. Real files on disk, no mocks.
@@ -70,5 +72,57 @@ describe("onboard import (runOnboard): present scan + past ingest", () => {
     const r = await runOnboard(empty, deps(), home);
     expect(r.sessionsIngested).toBe(0);
     expect(r.filesScanned).toBeGreaterThanOrEqual(1);
+  });
+
+  // Phase 3: the intent interview persists a Charter + constraints skill into the brain.
+  it("persistIntent writes a Project Charter page, an intent learning, and a constraints skill", () => {
+    const d = deps();
+    const skills = createSkillsStore(join(root, "skills"));
+    expect(INTENT_QUESTIONS.length).toBe(5);
+    const answers = ["a token-optimizing brain", "all gates green", "never force-push\nnever publish without OK", "npm test", "ship the onboard arc"];
+    const r = persistIntent(answers, { wiki: d.wiki, memory: d.memory, skills });
+    // Charter wiki page with claim: lines
+    const page = d.wiki.page(r.page);
+    expect(page).toContain("claim: project = a token-optimizing brain");
+    expect(page).toContain("claim: dod = all gates green");
+    expect(page).toContain("claim: goal = ship the onboard arc");
+    // intent learning searchable
+    expect(d.memory.searchLearnings("token-optimizing brain", 5).some((h) => h.id === r.learningId)).toBe(true);
+    // constraints skill carries the Q3 lines as guardrails
+    const skill = skills.list().find((s) => s.name === r.skill);
+    expect(skill).toBeDefined();
+    expect(skill!.constraints).toContain("never force-push");
+    expect(skill!.constraints).toContain("never publish without OK");
+  });
+});
+
+// Phase 3: storage-side terse REUSES compressProse, gated + claim-safe.
+describe("terseStore (brain-write terse, reuse compress-file)", () => {
+  let prev: string | undefined;
+  beforeEach(() => {
+    prev = process.env["KNITBRAIN_TERSE_STORE"];
+  });
+  afterEach(() => {
+    if (prev === undefined) delete process.env["KNITBRAIN_TERSE_STORE"];
+    else process.env["KNITBRAIN_TERSE_STORE"] = prev;
+  });
+
+  it("default OFF → byte-identical", () => {
+    delete process.env["KNITBRAIN_TERSE_STORE"];
+    const t = "The reason that the component re-renders is basically that you are creating a new object.";
+    expect(terseStore(t)).toBe(t);
+  });
+
+  it("ON → shortens prose (fewer chars) but never touches claim: lines or code", () => {
+    process.env["KNITBRAIN_TERSE_STORE"] = "1";
+    const prose = "The reason that the component re-renders is basically that you are creating a new object on each render.";
+    const out = terseStore(prose);
+    expect(out.length).toBeLessThan(prose.length); // filler dropped
+    // structured text with claim: lines is returned UNCHANGED
+    const charter = "- claim: project = the brain\n- claim: verify = npm test";
+    expect(terseStore(charter)).toBe(charter);
+    // a path/identifier survives
+    const withPath = "validation helpers basically live in src/util.ts now";
+    expect(terseStore(withPath)).toContain("src/util.ts");
   });
 });
