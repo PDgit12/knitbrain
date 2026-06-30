@@ -1,6 +1,7 @@
 import type { Memory } from "./memory.js";
 import type { Knowledge } from "./knowledge.js";
 import type { WikiStore, PageKind } from "./wiki.js";
+import { logSpine } from "./wiki.js";
 import type { SkillsStore } from "./skills.js";
 
 /**
@@ -50,15 +51,6 @@ export interface BrainStores {
 }
 
 const tokenize = (s: string): string[] => s.toLowerCase().match(/[a-z0-9_.-]+/g) ?? [];
-
-/** Best-effort spine line — a wiki/disk error must never break the route. */
-function logSpine(stores: BrainStores, event: string, title: string): void {
-  try {
-    stores.wiki?.log(event, title);
-  } catch {
-    /* spine is best-effort */
-  }
-}
 
 export function createBrain(stores: BrainStores): Brain {
   return {
@@ -114,12 +106,12 @@ export function createBrain(stores: BrainStores): Brain {
     write(input) {
       if (input.kind === "learning") {
         const { id, duplicate } = stores.memory.recordLearning({ summary: input.summary, lesson: input.lesson, ...(input.tags ? { tags: input.tags } : {}) });
-        if (!duplicate) logSpine(stores, "learning", input.summary); // no spine line for a dedupe
+        if (!duplicate) logSpine(stores.wiki, "learning", input.summary); // no spine line for a dedupe
         return { source: "memory", id, duplicate };
       }
       if (input.kind === "skill") {
         const s = stores.skills!.save({ name: input.name, body: input.body, ...(input.triggers ? { triggers: input.triggers } : {}), ...(input.constraints ? { constraints: input.constraints } : {}) });
-        logSpine(stores, "skill", s.name);
+        logSpine(stores.wiki, "skill", s.name);
         return { source: "skills", id: s.name };
       }
       // wiki: ingest already appends its own spine line — do NOT double-log.

@@ -11,6 +11,7 @@ import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill } from "../engine/host-scan.js";
 import type { WikiStore } from "../engine/wiki.js";
+import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -48,15 +49,10 @@ function str(args: Record<string, unknown>, key: string): string {
 /**
  * Wiki spine (gap #1): significant capture-tool events drop ONE line into the
  * wiki log so the brain has a unified timeline alongside the typed stores. The
- * typed store stays source of truth; this is best-effort and must NEVER break
- * the tool — a wiki/disk error here is swallowed.
+ * typed store stays source of truth; the shared logSpine is best-effort.
  */
 function wikiLog(ctx: ToolContext, event: string, title: string): void {
-  try {
-    ctx.wiki?.log(event, title);
-  } catch {
-    /* spine is best-effort */
-  }
+  logSpine(ctx.wiki, event, title);
 }
 
 /**
