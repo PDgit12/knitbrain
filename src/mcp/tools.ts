@@ -11,6 +11,7 @@ import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill } from "../engine/host-scan.js";
 import type { WikiStore } from "../engine/wiki.js";
+import { createBrain, type Brain } from "../engine/brain.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
@@ -56,6 +57,20 @@ function wikiLog(ctx: ToolContext, event: string, title: string): void {
   } catch {
     /* spine is best-effort */
   }
+}
+
+/**
+ * The brain facade (gap #8) over this connection's typed stores. Stateless and
+ * cheap — built per call from ctx, so no extra construction wiring. Reads fan
+ * across stores; writes route + log the spine in one call.
+ */
+function brainOf(ctx: ToolContext): Brain {
+  return createBrain({
+    memory: ctx.memory,
+    knowledge: ctx.knowledge,
+    ...(ctx.wiki ? { wiki: ctx.wiki } : {}),
+    skills: ctx.skills,
+  });
 }
 
 /**
@@ -214,12 +229,8 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       const tags = Array.isArray(args["tags"]) ? (args["tags"] as string[]) : [];
-      const { id, duplicate } = ctx.memory.recordLearning({
-        summary: str(args, "summary"),
-        lesson: str(args, "lesson"),
-        tags,
-      });
-      if (!duplicate) wikiLog(ctx, "learning", str(args, "summary"));
+      // Routed through the brain facade: recordLearning + spine line in one call.
+      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: str(args, "summary"), lesson: str(args, "lesson"), tags });
       return duplicate ? `duplicate of existing learning ${id}` : `recorded learning ${id}`;
     },
   },
@@ -760,6 +771,22 @@ export const TOOLS: readonly ToolDef[] = [
     },
     output: "verbatim", // a governance check — never skeletonized
     run: (args, ctx) => JSON.stringify(verifyClaim(str(args, "claim"), ctx.knowledge), null, 2),
+  },
+  {
+    name: "knitbrain_brain_search",
+    description:
+      "Unified brain recall (gap #8): fan a query across ALL typed stores — learnings (BM25), the wiki, and the knowledge graph — and return ranked hits each tagged with the store it came from. One call instead of search_learnings + wiki_query + query_* separately. Drill into a hit with the matching typed tool (knitbrain_get_learning / knitbrain_read / knitbrain_query_*).",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" }, limit: { type: "number" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    output: "data",
+    run: (args, ctx) => {
+      const limit = typeof args["limit"] === "number" ? args["limit"] : 8;
+      return JSON.stringify(brainOf(ctx).read(str(args, "query"), limit), null, 2);
+    },
   },
 ];
 

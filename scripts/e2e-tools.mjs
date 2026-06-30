@@ -97,7 +97,7 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 32, `tools/list advertises exactly 32 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 33, `tools/list advertises exactly 33 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
@@ -141,6 +141,10 @@ const main = async () => {
     ok(!rec.isError, "record_learning persists");
     const search = await call("knitbrain_search_learnings", { query: "validation helpers" });
     ok(search.text.includes("validation"), "search_learnings finds it (BM25 over real store)");
+    // gap #8: the brain facade fans the same query across the typed stores and
+    // tags each hit with its source — the learning surfaces under source:memory.
+    const brain = await call("knitbrain_brain_search", { query: "validation src/util.ts" });
+    ok(/"source"\s*:\s*"memory"/.test(brain.text) && brain.text.includes("validation"), "brain_search fans across stores, sourced (memory hit present)");
     const learningId = (JSON.parse(search.text)[0] ?? {}).id;
     if (learningId) {
       const got = await call("knitbrain_get_learning", { id: learningId });
@@ -204,7 +208,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 32 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 33 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });
