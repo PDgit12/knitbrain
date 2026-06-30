@@ -68,6 +68,7 @@ usage: knitbrain <command>
   profile      measure savings on YOUR real transcripts (run before installing anything)
   wrap <agent> launch claude/codex/aider/copilot with the optimizer proxy wired in
   evals        answer-preservation gates on your transcripts (exit 1 on failure)
+  onboard      import this project's past sessions + scan the repo into the brain (run once after setup)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
   loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --interactive)
@@ -139,6 +140,27 @@ usage: knitbrain <command>
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");
     await runLearn(process.argv.slice(3));
+    return;
+  }
+
+  if (process.argv[2] === "onboard") {
+    // The front door: scan the repo + import this project's past sessions into
+    // the brain (the intent interview runs via the agent tool — Phase 3).
+    const [{ runOnboard }, { createKnowledge }, { createMemory }, { createWikiStore }, paths] = await Promise.all([
+      import("./engine/onboard.js"),
+      import("./engine/knowledge.js"),
+      import("./engine/memory.js"),
+      import("./engine/wiki.js"),
+      import("./paths.js"),
+    ]);
+    const r = await runOnboard(process.cwd(), {
+      knowledge: createKnowledge(process.cwd(), paths.knowledgeRoot()),
+      memory: createMemory(paths.memoryRoot()),
+      wiki: createWikiStore(paths.wikiRoot()),
+    });
+    console.log(`knitbrain onboard`);
+    console.log(`  Imported ${r.sessionsIngested} past session(s), ${r.filesScanned} file(s), ${r.learningsMined} learning(s).`);
+    console.log(`  Next: the intent interview (5 questions that shape the loop to this project) runs via your agent — ask it to call knitbrain_onboard.`);
     return;
   }
   if (process.argv[2] === "dashboard") {

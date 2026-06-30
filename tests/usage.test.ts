@@ -35,4 +35,9 @@ describe("usage — real platform token meter from transcripts", () => {
     // platform-agnostic: build the expected with join so it holds on Windows too
     expect(projectTranscriptDir("/Users/x/my.app", "/home")).toBe(join("/home", ".claude", "projects", "-Users-x-my-app"));
   });
+
+  it("strips the Windows drive colon (C: → C-) so the dir name is legal on Windows", () => {
+    // a raw colon in a path component is illegal on Windows → mkdir/readdir ENOENT
+    expect(projectTranscriptDir("C:\\Users\\x\\proj", "/home")).toBe(join("/home", ".claude", "projects", "C--Users-x-proj"));
+  });
 });
