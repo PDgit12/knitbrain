@@ -65,8 +65,15 @@ interface State {
   savedTokens: number;
 }
 
+/** Standard context-window tiers (tokens). The smallest tier ≥ observed usage
+ *  is the honest effective window when the configured one is stale. */
+const WINDOW_TIERS = [200_000, 1_000_000];
+
 export function createMeter(root: string, opts: MeterOptions = {}): Meter {
-  const windowTokens = opts.windowTokens ?? 200_000;
+  // Configured window: env override → option → 200k default. Hardcoding 200k
+  // pinned usedPct at 100% on bigger models (false handoff) — env + auto-heal fix it.
+  const envWindow = Number(process.env["KNITBRAIN_WINDOW_TOKENS"]);
+  const windowTokens = (Number.isFinite(envWindow) && envWindow > 0 ? envWindow : undefined) ?? opts.windowTokens ?? 200_000;
   const warnAt = opts.warnAt ?? 0.7;
   const handoffAt = opts.handoffAt ?? 0.85;
   mkdirSync(root, { recursive: true });
@@ -114,8 +121,15 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       // fall back to knitbrain's own tracked throughput (under-counts, honest).
       const real = opts.realUsage?.() ?? 0;
       const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real);
-      const usedPct = Math.min(100, Math.round((usedTokens / windowTokens) * 1000) / 10);
-      const frac = usedTokens / windowTokens;
+      // Auto-heal: if observed usage exceeds the configured window, the window
+      // is stale (large-context model) — use the smallest standard tier that
+      // actually fits, so usedPct/status are honest instead of pinned at 100%.
+      const effectiveWindow =
+        usedTokens > windowTokens
+          ? WINDOW_TIERS.find((t) => t >= usedTokens) ?? Math.ceil(usedTokens / 1_000_000) * 1_000_000
+          : windowTokens;
+      const usedPct = Math.min(100, Math.round((usedTokens / effectiveWindow) * 1000) / 10);
+      const frac = usedTokens / effectiveWindow;
       const status: MeterReading["status"] =
         frac >= handoffAt ? "handoff" : frac >= warnAt ? "warn" : "ok";
       const advice =
@@ -131,7 +145,9 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
         state.savedTokens > 0
           ? Math.round((state.savedTokens / (usedTokens + state.savedTokens)) * 1000) / 10
           : 0;
-      return { usedTokens, windowTokens, usedPct, savedTokens: state.savedTokens, optimizationPct, status, advice };
+      // Report the EFFECTIVE window so the dashboard/meter show the honest
+      // denominator (e.g. "420k / 1M"), not the stale configured 200k.
+      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, status, advice };
     },
     reset() {
       state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens };

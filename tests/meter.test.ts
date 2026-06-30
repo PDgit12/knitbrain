@@ -66,6 +66,42 @@ describe("context meter (rung 15)", () => {
     expect(m.read().optimizationPct).toBe(66.7); // 2000 / (1000 + 2000)
   });
 
+  // Honest window: a large-context model (415k observed) must NOT pin to 100% /
+  // handoff on the stale 200k default — auto-heal to the next standard tier (1M).
+  it("auto-heals the effective window when observed usage exceeds the configured one", () => {
+    const m = createMeter(join(root, "m"), { realUsage: () => 415_000 }); // default 200k window
+    const r = m.read();
+    expect(r.usedTokens).toBe(415_000);
+    expect(r.windowTokens).toBe(1_000_000); // healed to the tier that fits
+    expect(r.usedPct).toBe(41.5); // 415k / 1M, not capped 100
+    expect(r.status).toBe("ok"); // NOT a false handoff
+    expect(r.advice).toContain("healthy");
+  });
+
+  it("respects KNITBRAIN_WINDOW_TOKENS env override", () => {
+    const prev = process.env["KNITBRAIN_WINDOW_TOKENS"];
+    process.env["KNITBRAIN_WINDOW_TOKENS"] = "1000000";
+    try {
+      const m = createMeter(join(root, "m2"), { realUsage: () => 415_000 });
+      const r = m.read();
+      expect(r.windowTokens).toBe(1_000_000);
+      expect(r.usedPct).toBe(41.5);
+      expect(r.status).toBe("ok");
+    } finally {
+      if (prev === undefined) delete process.env["KNITBRAIN_WINDOW_TOKENS"];
+      else process.env["KNITBRAIN_WINDOW_TOKENS"] = prev;
+    }
+  });
+
+  it("small windows still escalate ok→warn→handoff (no regression)", () => {
+    const m = createMeter(join(root, "m3"), { windowTokens: 1000, warnAt: 0.7, handoffAt: 0.85 });
+    m.onToolOutput(600);
+    expect(m.read().status).toBe("ok");
+    expect(m.read().windowTokens).toBe(1000); // not healed — fits
+    m.onToolOutput(300); // 90%
+    expect(m.read().status).toBe("handoff");
+  });
+
   it("dispatch AUTOMATICALLY appends handoff advice to tool output when hot", () => {
     const ccr = createFileCCRStore(join(root, "ccr"));
     const ctx: ToolContext = {
