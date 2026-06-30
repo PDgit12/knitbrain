@@ -157,6 +157,9 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   }
   if (printedGlobalHint) console.log("  (tip: knitbrain setup --yes writes these for you, backed up + non-clobbering)");
   console.log("");
+  console.log("  Next: run `knitbrain onboard` (or ask your agent to call knitbrain_onboard) —");
+  console.log("  it imports your past sessions + scans the repo so the brain starts grounded.");
+  console.log("");
   console.log("  The operating protocol itself needs NO setup: it rides the MCP handshake");
   console.log("  (any MCP client gets it). For platforms without MCP-instructions support,");
   console.log("  paste the output of:  knitbrain prompt");
