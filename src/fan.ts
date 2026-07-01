@@ -64,7 +64,9 @@ function worktreeFor(id: number, isolate: boolean): string {
   if (existsSync(dir)) return dir;
   mkdirSync(join(process.cwd(), ".knitbrain", "worktrees"), { recursive: true });
   const branch = `knit/fan-worker-${id}`;
-  const ok = spawnSyncQuiet(`git worktree add -b ${branch} "${dir}" 2>/dev/null || git worktree add "${dir}" "${branch}" 2>/dev/null`);
+  // stdio:"ignore" (in spawnSyncQuiet) already suppresses output — no unix-only
+  // `2>/dev/null` needed; `||` works under cmd.exe too, so this stays cross-platform.
+  const ok = spawnSyncQuiet(`git worktree add -b ${branch} "${dir}" || git worktree add "${dir}" "${branch}"`);
   return ok && existsSync(dir) ? dir : process.cwd();
 }
 

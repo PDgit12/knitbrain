@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0
+
+The onboard release: the brain stops waking up blank. **34 MCP tools** (was 33).
+Backward-compatible.
+
+- **`knitbrain onboard`** — the front door. The CLI scans the repo + imports this
+  project's past Claude sessions into the wiki (pages + spine) and mines
+  learnings. The new **`knitbrain_onboard`** MCP tool adds the agent-driven
+  intent interview: it returns 5 questions; the agent asks them, then writes a
+  **Project Charter** (claim-lined wiki page surfaced every session) + a
+  constraints skill whose guardrails propagate to spawned agents — so the loop
+  is shaped to your project, not generic. (Fixes the old silent `onboard` no-op.)
+- **Honest context meter** — the window is now configurable
+  (`KNITBRAIN_WINDOW_TOKENS`) and auto-heals: on a large-context model the meter
+  no longer pins to a false 100% / handoff. The token count was always real;
+  now the % is too.
+- **Terse brain-writes** — opt-in (`KNITBRAIN_TERSE_STORE=1`, default off): learning
+  summaries and skill bodies are terse-rewritten before persist, **reusing** the
+  existing `compressProse` (no second transform), and never touching code, paths,
+  or `claim:` lines. Output-side terse stays the separate prompt-level mode.
+- Cross-platform fix: `projectTranscriptDir` now strips the Windows drive colon;
+  `fan` worktree creation no longer uses a unix-only redirect. Removed a dead
+  test export.
+
 ## 0.6.0
 
 The brain release: the 4-layer brain (CAPTURE → PROTECT → BRAIN ← FETCH) wired

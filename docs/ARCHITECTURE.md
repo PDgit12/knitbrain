@@ -116,20 +116,24 @@ flowchart TD
 
 ---
 
-## 6. Every tool — what happens inside (27 tools, grouped)
+## 6. Every tool — what happens inside (34 tools, grouped)
 
 | Group | Tools | Inside |
 |---|---|---|
-| **Compression / CCR** ✅ | `knitbrain_read`, `knitbrain_optimize`, `knitbrain_retrieve`, `knitbrain_metrics`, `knitbrain_context_meter` | route→compress (lossless skeleton + `⟨recall:HASH⟩`), restore exact original, ccr/feedback/calibration rollup, token-window read · `optimizer/router` + `ccr/store` + `meter` |
-| **Memory** ✅ | `record_learning`, `search_learnings`, `get_learning`, `learning_outcome`, `save_handoff`, `load_session` | learnings (BM25, outcome-ranked), handoff persist/restore · `engine/memory` |
+| **Compression / CCR** ✅ | `knitbrain_read`, `knitbrain_optimize`, `knitbrain_retrieve`, `knitbrain_metrics`, `knitbrain_context_meter` | route→compress (lossless skeleton + `⟨recall:HASH⟩`), restore exact original, ccr/feedback/calibration rollup, token-window read (honest auto-healing window) · `optimizer/router` + `ccr/store` + `meter` |
+| **Memory** ✅ | `record_learning`, `search_learnings`, `get_learning`, `learning_outcome`, `save_handoff`, `load_session` | learnings (BM25, outcome-ranked), handoff persist/restore; writes optionally terse (reuse `compressProse`) · `engine/memory` |
 | **Knowledge graph** ✅ | `scan`, `query_imports`, `query_exports`, `query_dependents` | import/export/dependents edges, blast-radius · `engine/knowledge` |
-| **Workflow** ✅ | `classify_task`, `run`, `record_false_positive` | tier classify (inquiry/trivial/standard/complex) + phases; `run` = orchestrator entrypoint · `engine/workflow` |
-| **Skills** ✅ | `skill_save`, `skill_outcome` | persist/score playbooks (wins/losses/health) · `engine/skills`. **🔭 P1 adds: scan host `.claude/skills`, compose custom** |
-| **Agents** ✅ | `propose_agents`, `create_agent` | graph-driven proposals; write guardrailed `.claude/agents/<n>.md` · `engine/agents`. **🔭 P1 adds: scan host `.claude/agents`, compose in user's style** |
+| **Workflow** ✅ | `classify_task`, `run`, `record_false_positive` | tier classify + phases; `run` = orchestrator entrypoint · `engine/workflow` |
+| **Skills** ✅ | `skill_save`, `skill_outcome`, `compose_skill` | persist/score playbooks; compose in the user's style · `engine/skills` + `engine/host-scan` |
+| **Agents** ✅ | `propose_agents`, `create_agent` | graph-driven proposals; write guardrailed `.claude/agents/<n>.md` · `engine/agents` |
 | **Team** ✅ | `team_post`, `team_board`, `team_get`, `team_clear` | shared board (compressed + recall), hub mirror · `engine/teams` + `hub/client` |
+| **Wiki-brain** ✅ | `wiki_ingest`, `wiki_query`, `wiki_lint` | compounding synthesis pages + spine timeline + contradiction/orphan lint · `engine/wiki` |
+| **Brain facade** ✅ | `brain_search` | one query fanned across memory+wiki+knowledge → sourced ranked hits · `engine/brain` |
+| **Anti-hallucination** ✅ | `verify_claim` | parse a codebase claim → check the graph → verified/contradicted/unparseable · `engine/knowledge` |
+| **Onboard** ✅ | `onboard` | front door: scan + import past sessions, then the 5-question intent interview → Project Charter + constraints skill · `engine/onboard` |
 | **Meta** ✅ | `ping` | health + version |
 
-All 27 now have direct handler tests (the 14 previously-untested were covered this session). `inputSchema` is advertised but not server-enforced (low-level SDK) — fine for local stdio; enforce at dispatch only if a remote transport is added.
+Every tool passes the **single `dispatch()` chokepoint** (`server.ts:74`) — the PROTECT layer (adherence gate + compress + meter + activity). `inputSchema` (`additionalProperties:false`) is advertised but not server-enforced by the low-level SDK — fine for local stdio; handlers validate where it matters.
 
 ---
 

@@ -47,11 +47,6 @@ export function astReady(): boolean {
   return state === "ready";
 }
 
-/** Test seam: reset to cold state (parsers are kept — re-init is cheap). */
-export function resetAstForTest(): void {
-  if (state === "failed") state = "idle";
-}
-
 let loading: Promise<void> | null = null;
 
 /**
