@@ -61,3 +61,9 @@ export function activityRoot(): string {
 export function wikiRoot(): string {
   return join(knitbrainHome(), "projects", projectId(), "wiki");
 }
+
+/** Per-project host-toolkit index (skills/agents the user has across project +
+ *  global + plugins) — config awareness kept across sessions. */
+export function hostIndexPath(): string {
+  return join(knitbrainHome(), "projects", projectId(), "host-index.json");
+}
