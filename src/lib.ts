@@ -49,4 +49,5 @@ export function createOptimizer(options: OptimizerOptions = {}): Optimizer {
 
 export { countTokens };
 export type { RouteResult, CompressOptions, CCRStore };
+// ts-prune-ignore-next — public API type for package consumers (no internal importer by design)
 export type { ContentType } from "./optimizer/types.js";

@@ -4,6 +4,15 @@ import { buildServer } from "./server.js";
 import { runSetup } from "./setup.js";
 import { VERSION } from "./version.js";
 
+/** Every recognized subcommand + alias (single source of truth for the
+ *  unknown-command guard). Bare no-arg is NOT here — that's the MCP entrypoint. */
+const KNOWN_COMMANDS = new Set([
+  "version", "-v", "--version", "help", "-h", "--help",
+  "setup", "hub", "join", "profile", "wrap", "prompt", "statusline",
+  "terse", "evals", "compress", "loop", "fan", "orchestrate", "learn",
+  "onboard", "dashboard",
+]);
+
 /** Compact token count for the statusline: 12.4k / 1.2M. */
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -207,6 +216,15 @@ usage: knitbrain <command>
       console.log(`knitbrain dashboard → http://127.0.0.1:${port}`);
     });
     return; // keep serving
+  }
+  // A bare invocation (no subcommand) is the MCP host entrypoint → start the
+  // stdio server. But a *given* token that matched no subcommand above is a
+  // typo, not a launch request — don't silently boot a server the user can't see.
+  const sub = process.argv[2];
+  if (sub !== undefined && !KNOWN_COMMANDS.has(sub)) {
+    console.error(`[knitbrain] unknown command: ${sub}`);
+    console.error("run `knitbrain help` for the list of commands");
+    process.exit(1);
   }
   const server = buildServer();
   const transport = new StdioServerTransport();
