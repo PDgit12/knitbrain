@@ -72,3 +72,8 @@ export function hostIndexPath(): string {
 export function workflowPath(): string {
   return join(knitbrainHome(), "projects", projectId(), "workflow.md");
 }
+
+/** Per-project autonomous-loop state (cross-call iteration counter for run_loop). */
+export function loopStatePath(): string {
+  return join(knitbrainHome(), "projects", projectId(), "loop-state.json");
+}
