@@ -24,6 +24,7 @@ import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { writeAtomic } from "../atomic.js";
 import { runClosedLoop, defaultJudge, makeGrade, makeReview } from "../engine/closed-loop.js";
+import { runSelfCheck } from "../engine/self-check.js";
 import { homedir } from "node:os";
 import { resolve, isAbsolute, join, dirname } from "node:path";
 import { compress, detect } from "../optimizer/router.js";
@@ -138,11 +139,18 @@ const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save
 const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run", "knitbrain_onboard"]);
 // Per-session state keyed by the connection's ToolContext (one ctx per MCP
 // connection = one session; fresh ctx per test → no cross-test leak).
-const sessionState = new WeakMap<ToolContext, { classified: boolean }>();
-function sessionOf(ctx: ToolContext): { classified: boolean } {
+interface SessionState {
+  classified: boolean;
+  /** A verify_claim ran this session (anti-sycophancy fact-gate). */
+  verified: boolean;
+  /** A learning was recorded this session. */
+  learned: boolean;
+}
+const sessionState = new WeakMap<ToolContext, SessionState>();
+function sessionOf(ctx: ToolContext): SessionState {
   let s = sessionState.get(ctx);
   if (!s) {
-    s = { classified: false };
+    s = { classified: false, verified: false, learned: false };
     sessionState.set(ctx, s);
   }
   return s;
@@ -984,6 +992,41 @@ export const TOOLS: readonly ToolDef[] = [
       );
     },
   },
+  {
+    name: "knitbrain_self_check",
+    description:
+      "Self gap-check (keystone): runs the brain's anti-* invariants in ONE pass and auto-fixes what it can. Re-scans the graph (anti-stale), auto-heals wiki contradictions (Gap-E resolve), confirms a stored workflow surfaces every session (anti-drift), flags learnings recorded with no verify_claim behind them (anti-sycophancy), and reports the adherence write-gate state. Returns a PASS/FAIL invariant table + fixes applied + residual gaps a human must close. Composes the existing detectors — no duplicate logic.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    output: "data",
+    run: (_args, ctx) => {
+      // anti-stale (graph): the re-scan is the heal.
+      const graphFiles = ctx.knowledge.scan().files;
+      // anti-stale (wiki): lint, then Gap-E resolve if contradictions exist.
+      const lint = ctx.wiki ? ctx.wiki.lint() : { contradictions: [], orphans: [] };
+      const wikiContradictionsBefore = lint.contradictions.length;
+      let wikiResolvedCount = 0;
+      let wikiContradictionsAfter = wikiContradictionsBefore;
+      if (ctx.wiki && wikiContradictionsBefore > 0) {
+        wikiResolvedCount = ctx.wiki.resolve().superseded.length;
+        wikiContradictionsAfter = ctx.wiki.lint().contradictions.length;
+      }
+      // anti-drift (Gap D): a stored workflow that load_session surfaces.
+      const workflowExists = loadWorkflow(workflowPath()) !== null;
+      // adherence + anti-sycophancy: this session's signals.
+      const s = sessionOf(ctx);
+      const report = runSelfCheck({
+        graphFiles,
+        wikiContradictionsBefore,
+        wikiContradictionsAfter,
+        wikiResolvedCount,
+        workflowExists,
+        classified: s.classified,
+        learned: s.learned,
+        verified: s.verified,
+      });
+      return JSON.stringify(report, null, 2);
+    },
+  },
 ];
 
 /**
@@ -1075,6 +1118,9 @@ export function dispatch(
 
   const raw = tool.run(args, ctx);
   if (CLASSIFIERS.has(tool.name)) sessionOf(ctx).classified = true;
+  // Track the anti-* signals self_check audits (Gap F).
+  if (tool.name === "knitbrain_verify_claim") sessionOf(ctx).verified = true;
+  if (tool.name === "knitbrain_record_learning") sessionOf(ctx).learned = true;
 
   // CAPTURE: compress + account.
   const { out: captured, saved } = capture(tool, raw, ctx);
