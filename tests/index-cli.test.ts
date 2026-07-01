@@ -16,7 +16,8 @@ describe("CLI router — unknown-command guard (G3)", () => {
   // doesn't exist yet — build it here so the spawn test is order-independent.
   beforeAll(() => {
     if (!existsSync(CLI)) {
-      const b = spawnSync("npm", ["run", "build"], { encoding: "utf8", timeout: 120000 });
+      // shell:true so Windows resolves npm.cmd (bare "npm" is ENOENT there).
+      const b = spawnSync("npm run build", { shell: true, encoding: "utf8", timeout: 120000 });
       if (b.status !== 0) throw new Error(`build failed: ${b.stderr ?? b.stdout}`);
     }
   }, 120000);

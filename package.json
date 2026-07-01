@@ -55,7 +55,7 @@
     "dev": "tsx src/index.ts",
     "proxy": "tsx src/proxy/index.ts",
     "consistency": "node scripts/consistency.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run consistency && npm run bench",
+    "verify": "npm run typecheck && npm run lint && npm run build && npm run test && npm run consistency && npm run bench",
     "test:coverage": "vitest run --coverage"
   },
   "license": "MIT",
