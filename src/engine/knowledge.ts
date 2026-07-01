@@ -24,6 +24,17 @@ export interface Knowledge {
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", "build", ".next"]);
 
+/** Strip block + line comments so prose words like "import"/"export" inside a
+ *  JSDoc can't be parsed as real statements (the lazy import regex would
+ *  otherwise span a comment to the next `from '...'` and eat the real binding).
+ *  Best-effort: string-literal bodies aren't spared, which is fine for the graph.
+ *  The `[^:]` guard keeps `://` in URL strings from being clipped. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 function parseImports(src: string): ImportEdge[] {
   const edges: ImportEdge[] = [];
   const fromRe = /import\s+(?:type\s+)?([\s\S]*?)\s+from\s*['"]([^'"]+)['"]/g;
@@ -109,7 +120,7 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
     const files: string[] = [];
     walk(projectRoot, files);
     for (const full of files) {
-      const src = readFileSync(full, "utf8");
+      const src = stripComments(readFileSync(full, "utf8"));
       const file = norm(full);
       graph.set(file, { file, imports: parseImports(src), exports: parseExports(src) });
     }
