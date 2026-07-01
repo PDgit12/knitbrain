@@ -36,3 +36,37 @@ describe("workflow classifier (rung 10)", () => {
     expect(c.autoPlanMode).toBe(false);
   });
 });
+
+describe("workflow classifier: read-only intent guard (Gap G)", () => {
+  it("read-only context task with files + COMPLEX keyword → inquiry, no plan-mode", () => {
+    const c = classifyTask(
+      "read the auth and security architecture and explain how it works",
+      ["src/auth.ts", "src/security.ts"],
+    );
+    expect(c.tier).toBe("inquiry");
+    expect(c.autoPlanMode).toBe(false);
+    expect(c.phases).toEqual([]);
+    expect(c.reason).toContain("read-only");
+  });
+
+  it("audit/review-only tasks are inquiry even though they name many files", () => {
+    for (const desc of ["audit the security flow", "map the proxy protocol", "inspect the schema"]) {
+      const c = classifyTask(desc, ["a.ts", "b.ts", "c.ts"]);
+      expect(c.tier).toBe("inquiry");
+      expect(c.autoPlanMode).toBe(false);
+    }
+  });
+
+  it("a real WRITE with a risk keyword still gets complex + plan-mode", () => {
+    const c = classifyTask("refactor the auth module", ["src/auth.ts"]);
+    expect(c.tier).toBe("complex");
+    expect(c.autoPlanMode).toBe(true);
+  });
+
+  it("mixed read+write ('review and fix') is NOT downgraded to inquiry", () => {
+    const c = classifyTask("review the diff and fix the security bug", ["src/a.ts", "src/b.ts"]);
+    expect(c.tier).not.toBe("inquiry");
+    expect(c.tier).toBe("complex"); // 2 files + write intent
+    expect(c.autoPlanMode).toBe(true);
+  });
+});
