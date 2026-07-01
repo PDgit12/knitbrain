@@ -6,6 +6,15 @@ import { join } from "node:path";
 import { runClosedLoop, defaultJudge, makeGrade, makeReview, type ClosedLoopSteps } from "../src/engine/closed-loop.js";
 import { createWikiStore } from "../src/engine/wiki.js";
 import { countTokens } from "../src/tokenizer.js";
+import { createFileCCRStore } from "../src/ccr/store.js";
+import { createMemory } from "../src/engine/memory.js";
+import { createKnowledge } from "../src/engine/knowledge.js";
+import { createFeedback } from "../src/engine/feedback.js";
+import { createTeamBoard } from "../src/engine/teams.js";
+import { createMeter } from "../src/engine/meter.js";
+import { createSkillsStore } from "../src/engine/skills.js";
+import { createCalibration } from "../src/engine/calibration.js";
+import { TOOLS, type ToolContext } from "../src/mcp/tools.js";
 
 // Minimal injectable steps for the controller invariants.
 const steps = (over: Partial<ClosedLoopSteps>): ClosedLoopSteps => ({
@@ -116,5 +125,67 @@ describe("closed-loop e2e — real goal driven to met (real verify, ≥2 cycles,
     const log = wiki.recentLog(5);
     expect(log.filter((l) => l.includes("cycle |")).length).toBe(2);
     expect(log.some((l) => l.includes("met=true"))).toBe(true);
+  });
+});
+
+describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter", () => {
+  let root: string;
+  let prevHome: string | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kb-loop-tool-"));
+    prevHome = process.env["KNITBRAIN_HOME"];
+    process.env["KNITBRAIN_HOME"] = join(root, "home");
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env["KNITBRAIN_HOME"];
+    else process.env["KNITBRAIN_HOME"] = prevHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const mkCtx = (): ToolContext => {
+    const ccr = createFileCCRStore(join(root, "ccr"));
+    return {
+      ccr,
+      memory: createMemory(join(root, "mem")),
+      knowledge: createKnowledge(root, join(root, "kb")),
+      feedback: createFeedback(join(root, "fb")),
+      team: createTeamBoard(join(root, "team"), ccr),
+      meter: createMeter(join(root, "meter")),
+      skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
+      wiki: createWikiStore(join(root, "wiki")),
+    };
+  };
+  const loopTool = () => TOOLS.find((t) => t.name === "knitbrain_run_loop")!;
+
+  it("stops at grade-pass: verify_cmd exit 0 → met=true in one cycle", () => {
+    const out = JSON.parse(loopTool().run({ goal: "make the check pass now", verify_cmd: "true" }, mkCtx()));
+    expect(out.met).toBe(true);
+    expect(out.iters).toBe(1);
+  });
+
+  it("stops at max-iter: failing verify across max_iters calls → met=false, stopped max-iters", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const c1 = JSON.parse(t.run({ goal: "fix the failing thing here", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c1.met).toBe(false);
+    expect(c1.iter).toBe(1);
+    expect(c1.directive).toContain("Cycle 1/2");
+    const c2 = JSON.parse(t.run({ goal: "fix the failing thing here", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c2.met).toBe(false);
+    expect(c2.stopped).toBe("max-iters");
+    expect(c2.iters).toBe(2);
+  });
+
+  it("logs each cycle to the wiki spine", () => {
+    const ctx = mkCtx();
+    loopTool().run({ goal: "make the check pass now", verify_cmd: "true" }, ctx);
+    expect(ctx.wiki!.recentLog(5).some((l) => l.includes("loop"))).toBe(true);
+  });
+
+  it("rejects a vague goal (judge gate) without running verify", () => {
+    const out = JSON.parse(loopTool().run({ goal: "x", verify_cmd: "true" }, mkCtx()));
+    expect(out.met).toBe(false);
+    expect(out.stopped).toBe("unclear-goal");
   });
 });

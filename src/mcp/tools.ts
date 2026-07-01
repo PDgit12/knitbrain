@@ -10,7 +10,7 @@ import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource } from "../engine/host-scan.js";
-import { hostIndexPath, workflowPath } from "../paths.js";
+import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
@@ -20,9 +20,12 @@ import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
 import { slashCommands } from "../platforms.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { writeAtomic } from "../atomic.js";
+import { runClosedLoop, defaultJudge, makeGrade, makeReview } from "../engine/closed-loop.js";
 import { homedir } from "node:os";
-import { resolve, isAbsolute, join } from "node:path";
+import { resolve, isAbsolute, join, dirname } from "node:path";
 import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
@@ -56,6 +59,31 @@ function str(args: Record<string, unknown>, key: string): string {
  */
 function wikiLog(ctx: ToolContext, event: string, title: string): void {
   logSpine(ctx.wiki, event, title);
+}
+
+/** Cross-call state for knitbrain_run_loop: which goal, how many cycles so far. */
+interface LoopState {
+  goal: string;
+  iter: number;
+}
+function loadLoopState(path: string): LoopState | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as LoopState;
+  } catch {
+    return null;
+  }
+}
+function saveLoopState(path: string, s: LoopState): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeAtomic(path, JSON.stringify(s));
+}
+function clearLoopState(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -864,6 +892,90 @@ export const TOOLS: readonly ToolDef[] = [
             gaps.length > 0
               ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]`. Persist intent with `answers`."
               : "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
+        },
+        null,
+        2,
+      );
+    },
+  },
+  {
+    name: "knitbrain_run_loop",
+    description:
+      "Autonomous goal loop (ONE cycle per call). Runs your verify_cmd as the REAL hard gate, tracks iteration across calls, and drives until the goal is met or max_iters. HONEST: the HOST AGENT does the actual work BETWEEN cycles — this tool does NOT edit code. Each call runs the verify gate; if not met it returns a per-cycle directive telling you to make the smallest fix and call again. Stops at grade-pass (met=true) or max_iters (met=false).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "What 'done' means — an actionable brief, not a vague wish." },
+        verify_cmd: { type: "string", description: "Shell command that is the hard gate — exit 0 = pass (e.g. 'npm test')." },
+        rubric: { type: "array", items: { type: "string" }, description: "Advisory checklist you self-verify each cycle; the verify_cmd is the hard gate." },
+        max_iters: { type: "number", description: "Cap on cycles across calls (default 6)." },
+      },
+      required: ["goal", "verify_cmd"],
+      additionalProperties: false,
+    },
+    output: "verbatim",
+    run: (args, ctx) => {
+      const goal = str(args, "goal");
+      const verifyCmd = str(args, "verify_cmd");
+      const rubric = Array.isArray(args["rubric"]) ? (args["rubric"] as string[]) : [];
+      const maxIters = typeof args["max_iters"] === "number" && args["max_iters"] > 0 ? Math.floor(args["max_iters"]) : 6;
+      const statePath = loopStatePath();
+
+      const prev = loadLoopState(statePath);
+      const priorIters = prev && prev.goal === goal ? prev.iter : 0;
+      if (priorIters >= maxIters) {
+        clearLoopState(statePath);
+        return JSON.stringify({ met: false, stopped: "max-iters", iters: priorIters, directive: `Loop hit max_iters=${maxIters} for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
+      }
+
+      // ONE cycle: the host agent already did this cycle's work; we run the REAL
+      // verify gate + review and either report met or hand back the directive.
+      // SECURITY: verify_cmd is the user's own project command, run in their cwd.
+      const shellRun = (cmd: string): boolean => {
+        try {
+          execSync(cmd, { stdio: "ignore" });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const result = runClosedLoop(
+        {
+          judge: () => defaultJudge(goal),
+          iterate: () => {
+            /* host agent works BETWEEN calls, not here — no fake self-editing */
+          },
+          grade: makeGrade(verifyCmd, shellRun),
+          review: makeReview([]), // rubric strings are advisory; verify_cmd is the hard gate
+          meter: () => ctx.meter.read().usedTokens,
+          onCycle: (rec) => wikiLog(ctx, "loop", `cycle goal="${goal}" met=${rec.met} · ${rec.graded.detail}`),
+        },
+        1,
+      );
+
+      const last = result.cycles[result.cycles.length - 1];
+      if (!last) {
+        return JSON.stringify({ met: false, stopped: "unclear-goal", reason: result.reason }, null, 2);
+      }
+      const detail = last.graded.detail;
+      if (result.met) {
+        clearLoopState(statePath);
+        return JSON.stringify({ met: true, iters: priorIters + 1, detail, note: `Goal met — ${verifyCmd} passed.` }, null, 2);
+      }
+      const iters = priorIters + 1;
+      if (iters >= maxIters) {
+        clearLoopState(statePath);
+        return JSON.stringify({ met: false, stopped: "max-iters", iters, detail }, null, 2);
+      }
+      saveLoopState(statePath, { goal, iter: iters });
+      return JSON.stringify(
+        {
+          met: false,
+          iter: iters,
+          max_iters: maxIters,
+          detail,
+          rubric,
+          directive: `Cycle ${iters}/${maxIters}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
         },
         null,
         2,

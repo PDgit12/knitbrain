@@ -21,7 +21,7 @@
 
 ---
 
-knitbrain is a local-first **MCP server** (34 tools) that any coding agent can connect to — Claude Code,
+knitbrain is a local-first **MCP server** (35 tools) that any coding agent can connect to — Claude Code,
 Cursor, Codex, Copilot, Windsurf, Cline, and others. It does three things, plus the supporting pieces
 that make them work:
 
