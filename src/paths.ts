@@ -67,3 +67,8 @@ export function wikiRoot(): string {
 export function hostIndexPath(): string {
   return join(knitbrainHome(), "projects", projectId(), "host-index.json");
 }
+
+/** Per-project composed workflow — the standing driver load_session re-surfaces. */
+export function workflowPath(): string {
+  return join(knitbrainHome(), "projects", projectId(), "workflow.md");
+}

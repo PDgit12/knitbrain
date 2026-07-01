@@ -124,6 +124,8 @@ export interface IntentResult {
   page: string;
   learningId: string;
   skill: string;
+  /** Parsed charter fields — fed to composeWorkflow (Gap D) without re-parsing. */
+  charter: { project: string; dod: string; constraints: string; verify: string; goal: string };
 }
 
 /**
@@ -161,7 +163,7 @@ export function persistIntent(
     body: "Hard constraints for this project — never violate without the user's explicit OK.",
     constraints: constraintItems.length > 0 ? constraintItems : [constraints],
   });
-  return { page: r.page, learningId: id, skill: skill.name };
+  return { page: r.page, learningId: id, skill: skill.name, charter: { project, dod, constraints, verify, goal } };
 }
 
 /** A capability the project LACKS that adaptive onboarding can offer to create. */

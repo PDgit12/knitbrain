@@ -5,12 +5,12 @@ import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
-import { classifyTask, type Tier } from "../engine/workflow.js";
+import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource } from "../engine/host-scan.js";
-import { hostIndexPath } from "../paths.js";
+import { hostIndexPath, workflowPath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
@@ -315,7 +315,10 @@ export const TOOLS: readonly ToolDef[] = [
       // Leg 3: surface recent wiki-log entries so a fresh session inherits
       // what prior sessions did (cross-session context), not just the handoff.
       const wikiRecent = ctx.wiki ? ctx.wiki.recentLog(8) : [];
-      return JSON.stringify({ ...session, wikiRecent }, null, 2);
+      // Gap D: re-surface the standing workflow every session (drift-proof) so
+      // nothing needs re-explaining. Null until onboard has composed one.
+      const workflow = loadWorkflow(workflowPath());
+      return JSON.stringify({ ...session, wikiRecent, workflow }, null, 2);
     },
   },
   {
@@ -823,7 +826,16 @@ export const TOOLS: readonly ToolDef[] = [
       if (answers && answers.length > 0) {
         if (!ctx.wiki) return "wiki unavailable — cannot persist the Project Charter.";
         const r = persistIntent(answers, { wiki: ctx.wiki, memory: ctx.memory, skills: ctx.skills });
-        return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") written. knitbrain_load_session now surfaces your intent every session.`;
+        // Gap D: compose the standing workflow from charter + style + domains and
+        // persist it as THE driver load_session re-surfaces every session.
+        const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        const workflow = composeWorkflow({
+          ...r.charter,
+          domains: detectDomains(ctx.knowledge.listFiles()),
+          style: { terse: host.style.terse, usesModel: host.style.usesModel, ...(host.style.model ? { model: host.style.model } : {}) },
+        });
+        saveWorkflow(workflow, workflowPath());
+        return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written. knitbrain_load_session now surfaces your intent + workflow every session.`;
       }
       if (!ctx.wiki) return "wiki unavailable — onboard needs the wiki store.";
       const imp = scanAndIngest(process.cwd(), { knowledge: ctx.knowledge, wiki: ctx.wiki });

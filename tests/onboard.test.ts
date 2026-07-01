@@ -8,7 +8,14 @@ import { createMemory } from "../src/engine/memory.js";
 import { projectTranscriptDir } from "../src/engine/usage.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests } from "../src/engine/onboard.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createFileCCRStore } from "../src/ccr/store.js";
+import { createFeedback } from "../src/engine/feedback.js";
+import { createTeamBoard } from "../src/engine/teams.js";
+import { createMeter } from "../src/engine/meter.js";
+import { createCalibration } from "../src/engine/calibration.js";
+import { TOOLS, type ToolContext } from "../src/mcp/tools.js";
+import { workflowPath } from "../src/paths.js";
 import { terseStore } from "../src/compress-file.js";
 
 // Phase 2: the onboard import half — scan the repo + ingest this project's PAST
@@ -171,5 +178,54 @@ describe("onboard adaptive gaps (Gap B): judge what's missing, ask only for gaps
     const res = resolveOnboardGap(gap, { skills: store, style: STYLE, projectRoot: root });
     expect(res.kind).toBe("agent");
     expect(existsSync(res.path!)).toBe(true);
+  });
+});
+
+describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
+  let root: string;
+  let prevHome: string | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kb-wf-tool-"));
+    prevHome = process.env["KNITBRAIN_HOME"];
+    process.env["KNITBRAIN_HOME"] = join(root, "home");
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env["KNITBRAIN_HOME"];
+    else process.env["KNITBRAIN_HOME"] = prevHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const mkCtx = (): ToolContext => {
+    const ccr = createFileCCRStore(join(root, "ccr"));
+    return {
+      ccr,
+      memory: createMemory(join(root, "mem")),
+      knowledge: createKnowledge(root, join(root, "kb")),
+      feedback: createFeedback(join(root, "fb")),
+      team: createTeamBoard(join(root, "team"), ccr),
+      meter: createMeter(join(root, "meter")),
+      skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
+      wiki: createWikiStore(join(root, "wiki")),
+    };
+  };
+
+  it("onboard writes the workflow; a fresh load_session returns it verbatim", () => {
+    const ctx = mkCtx();
+    const onboardTool = TOOLS.find((t) => t.name === "knitbrain_onboard")!;
+    const loadTool = TOOLS.find((t) => t.name === "knitbrain_load_session")!;
+    const answers = ["knit-brain memory MCP", "gates green", "never force-push", "npm test", "ship the vision gaps"];
+
+    const out = onboardTool.run({ answers }, ctx);
+    expect(out).toContain("workflow written");
+
+    // A FRESH load_session returns the SAME workflow, byte-for-byte. Call run()
+    // directly (dispatch optimizes "data" outputs with a recall marker).
+    const loaded = JSON.parse(loadTool.run({}, ctx)) as { workflow: string };
+    const onDisk = readFileSync(workflowPath(), "utf8");
+    expect(loaded.workflow).toBe(onDisk); // verbatim
+    expect(loaded.workflow).toContain("# Workflow — knit-brain memory MCP");
+    expect(loaded.workflow).toContain("GOAL: ship the vision gaps");
+    expect(loaded.workflow).toContain("CONSTRAINTS: never force-push");
   });
 });
