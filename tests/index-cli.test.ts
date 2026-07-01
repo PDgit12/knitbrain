@@ -12,9 +12,14 @@ const run = (args: string[]) =>
   spawnSync("node", [CLI, ...args], { input: "", timeout: 4000, encoding: "utf8" });
 
 describe("CLI router — unknown-command guard (G3)", () => {
+  // `npm run verify` runs `test` before `build`, so on a clean checkout dist/
+  // doesn't exist yet — build it here so the spawn test is order-independent.
   beforeAll(() => {
-    if (!existsSync(CLI)) throw new Error("dist/index.js missing — run `npm run build` first");
-  });
+    if (!existsSync(CLI)) {
+      const b = spawnSync("npm", ["run", "build"], { encoding: "utf8", timeout: 120000 });
+      if (b.status !== 0) throw new Error(`build failed: ${b.stderr ?? b.stdout}`);
+    }
+  }, 120000);
 
   it("an unknown subcommand exits 1 with an 'unknown command' message", () => {
     const r = run(["bogus"]);
