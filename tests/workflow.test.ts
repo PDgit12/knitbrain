@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { classifyTask } from "../src/engine/workflow.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type WorkflowDoc } from "../src/engine/workflow.js";
 
 describe("workflow classifier (rung 10)", () => {
   it("inquiry: a question with no files just answers", () => {
@@ -68,5 +71,39 @@ describe("workflow classifier: read-only intent guard (Gap G)", () => {
     expect(c.tier).not.toBe("inquiry");
     expect(c.tier).toBe("complex"); // 2 files + write intent
     expect(c.autoPlanMode).toBe(true);
+  });
+});
+
+describe("workflow driver: compose + persist + load (Gap D)", () => {
+  const DOC: WorkflowDoc = {
+    project: "knit-brain — a memory + workflow MCP",
+    dod: "all 4 gates green with pasted evidence",
+    constraints: "never force-push; never publish without OK",
+    verify: "npm test",
+    goal: "ship the vision gaps A–F",
+    domains: ["engine", "mcp", "optimizer"],
+    style: { terse: true, usesModel: false },
+  };
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "kb-wf-")); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("composeWorkflow is deterministic (no timestamps) and carries charter + domains", () => {
+    const a = composeWorkflow(DOC);
+    const b = composeWorkflow(DOC);
+    expect(a).toBe(b); // byte-identical across calls → never drifts
+    expect(a).toContain("GOAL: ship the vision gaps A–F");
+    expect(a).toContain("VERIFY: npm test");
+    expect(a).toContain("CONSTRAINTS: never force-push; never publish without OK");
+    expect(a).toContain("DOMAINS: engine, mcp, optimizer");
+    expect(a).toContain("STYLE: terse");
+  });
+
+  it("save then load is byte-for-byte identical; missing file → null", () => {
+    const text = composeWorkflow(DOC);
+    const p = join(root, "workflow.md");
+    saveWorkflow(text, p);
+    expect(loadWorkflow(p)).toBe(text); // verbatim round-trip
+    expect(loadWorkflow(join(root, "nope.md"))).toBeNull();
   });
 });

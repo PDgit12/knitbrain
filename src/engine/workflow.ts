@@ -1,3 +1,7 @@
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { writeAtomic } from "../atomic.js";
+
 export type Tier = "inquiry" | "trivial" | "standard" | "complex";
 
 export interface Classification {
@@ -57,4 +61,53 @@ export function classifyTask(description: string, files: string[] = [], scopeAdj
     autoPlanMode: false,
     reason: "standard multi-step change",
   };
+}
+
+/** The intent + shape a per-user workflow is composed from (Gap D). */
+export interface WorkflowDoc {
+  project: string;
+  dod: string;
+  constraints: string;
+  verify: string;
+  goal: string;
+  domains: string[];
+  style: { terse: boolean; usesModel: boolean; model?: string };
+}
+
+/**
+ * Compose the project's driving workflow from its charter + inferred style +
+ * detected domains. ONE plain-markdown format, no template engine (ponytail).
+ * Deterministic — no timestamps — so load_session returns it byte-for-byte and
+ * it never drifts. This is the standing directive re-surfaced every session.
+ */
+export function composeWorkflow(w: WorkflowDoc): string {
+  const domains = w.domains.length ? w.domains.join(", ") : "(none detected)";
+  const model = w.style.usesModel && w.style.model ? ` · model=${w.style.model}` : "";
+  const style = `${w.style.terse ? "terse" : "standard"}${model}`;
+  return [
+    `# Workflow — ${w.project}`,
+    "",
+    `GOAL: ${w.goal}`,
+    `DONE: ${w.dod}`,
+    `VERIFY: ${w.verify}`,
+    `CONSTRAINTS: ${w.constraints}`,
+    `DOMAINS: ${domains}`,
+    `STYLE: ${style}`,
+    "",
+    "LOOP (every task): classify → plan if complex → work in the owning domain →",
+    `verify (run: ${w.verify}) → record learning → close the loop signals.`,
+    "Read-only tasks stay inquiry (no plan-mode). Never violate CONSTRAINTS without",
+    "the user's explicit OK. No yes-man — claims backed by run output, facts from the brain.",
+  ].join("\n");
+}
+
+/** Persist the composed workflow (the standing driver). Creates its parent dir. */
+export function saveWorkflow(text: string, path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeAtomic(path, text);
+}
+
+/** Read the stored workflow, or null if none written yet. */
+export function loadWorkflow(path: string): string | null {
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
 }
