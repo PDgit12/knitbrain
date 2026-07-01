@@ -29,6 +29,7 @@ export const o200kTokenizer: Tokenizer = {
 let active: Tokenizer = o200kTokenizer;
 
 /** Override the active tokenizer (e.g. in tests or for a different encoding). */
+// ts-prune-ignore-next — intentional encoding-override knob; the only seam to swap tokenizers
 export function setTokenizer(tokenizer: Tokenizer): void {
   active = tokenizer;
 }
