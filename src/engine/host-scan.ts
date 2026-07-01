@@ -1,6 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { writeAtomic } from "../atomic.js";
 import type { SkillsStore, Skill } from "./skills.js";
+
+/** Where a scanned artifact came from. project overrides global overrides plugin. */
+export type HostSource = "project" | "global" | "plugin";
 
 /**
  * Host-setup scan (legs 1+2): knitbrain proposes skills/agents from the code
@@ -17,12 +22,21 @@ export interface HostIO {
   exists: (p: string) => boolean;
   readDir: (p: string) => string[];
   readFile: (p: string) => string;
+  /** True if p is a directory. Optional — falls back to a readDir probe. */
+  isDir?: (p: string) => boolean;
 }
 
 const realIO: HostIO = {
   exists: existsSync,
   readDir: (p) => readdirSync(p),
   readFile: (p) => readFileSync(p, "utf8"),
+  isDir: (p) => {
+    try {
+      return statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  },
 };
 
 export interface HostSkill {
@@ -31,6 +45,8 @@ export interface HostSkill {
   triggers: string[];
   body: string;
   origin: string;
+  /** Which surface it was found on (project/global/plugin). */
+  source: HostSource;
 }
 
 export interface HostAgent {
@@ -39,6 +55,8 @@ export interface HostAgent {
   tools: string[];
   model: string;
   body: string;
+  /** Which surface it was found on (project/global/plugin). */
+  source: HostSource;
 }
 
 /** A frontmatter value is a scalar or a list (`key: [a, b]` / `key: a, b`). */
@@ -86,7 +104,7 @@ const asStr = (v: FmValue | undefined): string => (typeof v === "string" ? v : A
 const asList = (v: FmValue | undefined): string[] => (Array.isArray(v) ? v : typeof v === "string" && v ? splitList(v) : []);
 
 /** Scan each `skills/<name>/SKILL.md`. Returns [] if the dir is absent. */
-export function scanHostSkills(claudeDir: string, io: HostIO = realIO): HostSkill[] {
+export function scanHostSkills(claudeDir: string, io: HostIO = realIO, source: HostSource = "project"): HostSkill[] {
   const skillsDir = join(claudeDir, "skills");
   if (!io.exists(skillsDir)) return [];
   const out: HostSkill[] = [];
@@ -108,13 +126,14 @@ export function scanHostSkills(claudeDir: string, io: HostIO = realIO): HostSkil
       triggers: asList(fm["triggers"]).length ? asList(fm["triggers"]) : [entry.toLowerCase()],
       body,
       origin: asStr(fm["origin"]) || "host",
+      source,
     });
   }
   return out;
 }
 
 /** Scan `<claudeDir>/agents/*.md`. Returns [] if the dir is absent. */
-export function scanHostAgents(claudeDir: string, io: HostIO = realIO): HostAgent[] {
+export function scanHostAgents(claudeDir: string, io: HostIO = realIO, source: HostSource = "project"): HostAgent[] {
   const agentsDir = join(claudeDir, "agents");
   if (!io.exists(agentsDir)) return [];
   const out: HostAgent[] = [];
@@ -134,6 +153,7 @@ export function scanHostAgents(claudeDir: string, io: HostIO = realIO): HostAgen
       tools: asList(fm["tools"]),
       model: asStr(fm["model"]),
       body,
+      source,
     });
   }
   return out;
@@ -244,4 +264,119 @@ export function scanHost(claudeDir: string, io: HostIO = realIO): { skills: Host
   const skills = scanHostSkills(claudeDir, io);
   const agents = scanHostAgents(claudeDir, io);
   return { skills, agents, style: inferStyle(skills, agents) };
+}
+
+/** Is p a directory? Uses io.isDir when provided, else a readDir probe. */
+function isDirectory(p: string, io: HostIO): boolean {
+  if (io.isDir) return io.isDir(p);
+  try {
+    io.readDir(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Plugin roots: dirs under ~/.claude/plugins that hold a `skills/` or `agents/`
+ * child. Plugins nest a few levels (marketplaces/<p>, cache/<mp>/<p>/<ver>), so
+ * this walks bounded-depth and stops descending once a plugin root is found —
+ * its skills/agents live right there.
+ */
+function pluginRoots(home: string, io: HostIO, maxDepth = 5): string[] {
+  const start = join(home, ".claude", "plugins");
+  if (!io.exists(start)) return [];
+  const found: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > maxDepth) return;
+    if (io.exists(join(dir, "skills")) || io.exists(join(dir, "agents"))) {
+      found.push(dir);
+      return; // don't descend past a plugin root
+    }
+    let entries: string[];
+    try {
+      entries = io.readDir(dir);
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const child = join(dir, e);
+      if (isDirectory(child, io)) walk(child, depth + 1);
+    }
+  };
+  walk(start, 0);
+  return found;
+}
+
+/**
+ * Every scan root across the WHOLE user surface, tagged by source. Project
+ * first so its skills/agents win on a name collision, then global (~/.claude),
+ * then each plugin.
+ */
+export function scanRoots(projectClaudeDir: string, home: string = homedir(), io: HostIO = realIO): Array<{ dir: string; source: HostSource }> {
+  const roots: Array<{ dir: string; source: HostSource }> = [{ dir: projectClaudeDir, source: "project" }];
+  const globalDir = join(home, ".claude");
+  if (globalDir !== projectClaudeDir) roots.push({ dir: globalDir, source: "global" });
+  for (const p of pluginRoots(home, io)) roots.push({ dir: p, source: "plugin" });
+  return roots;
+}
+
+/**
+ * Scan project + global + every plugin, tag each result by source, and dedupe
+ * by name (case-insensitive, first-wins → project beats global beats plugin).
+ * This is the brain's awareness of the user's whole toolkit.
+ */
+export function scanHostAll(projectClaudeDir: string, home: string = homedir(), io: HostIO = realIO): { skills: HostSkill[]; agents: HostAgent[]; style: StyleProfile } {
+  const skills: HostSkill[] = [];
+  const agents: HostAgent[] = [];
+  const seenSkill = new Set<string>();
+  const seenAgent = new Set<string>();
+  for (const { dir, source } of scanRoots(projectClaudeDir, home, io)) {
+    for (const s of scanHostSkills(dir, io, source)) {
+      const k = s.name.toLowerCase();
+      if (seenSkill.has(k)) continue;
+      seenSkill.add(k);
+      skills.push(s);
+    }
+    for (const a of scanHostAgents(dir, io, source)) {
+      const k = a.name.toLowerCase();
+      if (seenAgent.has(k)) continue;
+      seenAgent.add(k);
+      agents.push(a);
+    }
+  }
+  return { skills, agents, style: inferStyle(skills, agents) };
+}
+
+/**
+ * Lightweight index of the user's whole toolkit — name/description/source +
+ * shape, NOT full bodies. Config awareness the brain keeps across sessions
+ * (Gap B reads this to judge what's missing) without bloating the skills store.
+ */
+export interface HostIndex {
+  skills: Array<{ name: string; description: string; source: HostSource; triggers: string[] }>;
+  agents: Array<{ name: string; description: string; source: HostSource; tools: string[]; model: string }>;
+  updatedAt: string;
+}
+
+export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[] }): HostIndex {
+  return {
+    skills: scan.skills.map((s) => ({ name: s.name, description: s.description, source: s.source, triggers: s.triggers })),
+    agents: scan.agents.map((a) => ({ name: a.name, description: a.description, source: a.source, tools: a.tools, model: a.model })),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Persist the host index atomically. */
+export function saveHostIndex(index: HostIndex, path: string): void {
+  writeAtomic(path, JSON.stringify(index, null, 2));
+}
+
+/** Count artifacts per source, for the onboard greeting. */
+export function countBySource(items: Array<{ source: HostSource }>): { project: number; global: number; plugin: number } {
+  return {
+    project: items.filter((i) => i.source === "project").length,
+    global: items.filter((i) => i.source === "global").length,
+    plugin: items.filter((i) => i.source === "plugin").length,
+  };
 }

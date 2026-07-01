@@ -9,7 +9,8 @@ import { classifyTask, type Tier } from "../engine/workflow.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
-import { scanHost, composeSkill } from "../engine/host-scan.js";
+import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource } from "../engine/host-scan.js";
+import { hostIndexPath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
@@ -808,9 +809,18 @@ export const TOOLS: readonly ToolDef[] = [
       }
       if (!ctx.wiki) return "wiki unavailable — onboard needs the wiki store.";
       const imp = scanAndIngest(process.cwd(), { knowledge: ctx.knowledge, wiki: ctx.wiki });
+      // Global scan (Gap A): see the user's WHOLE toolkit — project + ~/.claude +
+      // plugins — and persist a lightweight index so the brain stays aware of it.
+      const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+      saveHostIndex(buildHostIndex(host), hostIndexPath());
+      const sk = countBySource(host.skills);
+      const ag = countBySource(host.agents);
       return JSON.stringify(
         {
-          greeting: `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned.`,
+          greeting:
+            `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned. ` +
+            `Toolkit: ${host.skills.length} skill(s) [${sk.project} project · ${sk.global} global · ${sk.plugin} plugin], ` +
+            `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin].`,
           questions: INTENT_QUESTIONS,
           directive:
             "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",

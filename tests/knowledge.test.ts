@@ -39,6 +39,23 @@ describe("knowledge graph (rung 10)", () => {
     expect(imports.some((i) => i.from === "node:fs")).toBe(true);
   });
 
+  it("ignores JSDoc prose so a comment 'import'/'from' can't eat the real binding", () => {
+    // Regression: a block comment mentioning the word "import" before the first
+    // real import made the lazy /import ... from/ regex span the comment and
+    // swallow the real binding (server.ts:17 lost `Server`, returned JSON junk).
+    writeFileSync(
+      join(root, "src", "e.ts"),
+      `/**\n * Query the brain: import graphs, exports, coverage.\n *   "mcpServers": { "knit-brain": { "command": "npx" } }\n */\nimport { Server } from "./a.js";\nexport const e = Server;\n`,
+    );
+    kn.scan();
+    const imports = kn.queryImports("src/e.ts") ?? [];
+    const edge = imports.find((i) => i.from === "./a.js");
+    expect(edge).toBeDefined();
+    expect(edge!.names).toEqual(["Server"]);
+    // the mcpServers JSON must NOT leak in as an import name
+    expect(edge!.names.some((n) => n.includes("command") || n.includes("npx"))).toBe(false);
+  });
+
   it("resolves dependents across the .js→.ts NodeNext convention", () => {
     expect(kn.queryDependents("src/a.ts")).toContain("src/b.ts");
   });

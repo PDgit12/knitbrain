@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillsStore } from "../src/engine/skills.js";
@@ -18,6 +18,10 @@ import {
   registerHostSkills,
   composeSkill,
   scanHost,
+  scanHostAll,
+  buildHostIndex,
+  saveHostIndex,
+  countBySource,
   HOST_IMPORT_MARK,
 } from "../src/engine/host-scan.js";
 
@@ -158,5 +162,65 @@ describe("host-scan: scan + register + compose (e2e on a seeded .claude tree)", 
     const out = dispatch(TOOLS.find((t) => t.name === "knitbrain_compose_skill")!, { task: "add caching to the api layer" }, ctx);
     expect(out).toContain("composed skill");
     expect(skills.list().some((s) => s.name.includes("caching"))).toBe(true);
+  });
+});
+
+describe("host-scan: scanHostAll — whole-user surface (project + global + plugins)", () => {
+  let home: string;
+  let projectClaudeDir: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "kb-home-"));
+    // GLOBAL ~/.claude: one skill + one agent, plus a skill that COLLIDES with the project.
+    mkdirSync(join(home, ".claude", "skills", "rust-testing"), { recursive: true });
+    mkdirSync(join(home, ".claude", "skills", "shared-name"), { recursive: true });
+    mkdirSync(join(home, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(home, ".claude", "skills", "rust-testing", "SKILL.md"), REAL_SKILL);
+    writeFileSync(join(home, ".claude", "skills", "shared-name", "SKILL.md"),
+      `---\nname: shared-name\ndescription: GLOBAL version\n---\nglobal body\n`);
+    writeFileSync(join(home, ".claude", "agents", "architect-reviewer.md"), REAL_AGENT);
+    // PLUGIN under ~/.claude/plugins/<mp>/<plugin>/{skills,agents} (nested).
+    const plugin = join(home, ".claude", "plugins", "marketplaces", "acme", "cool-plugin");
+    mkdirSync(join(plugin, "skills", "plugin-skill"), { recursive: true });
+    mkdirSync(join(plugin, "agents"), { recursive: true });
+    writeFileSync(join(plugin, "skills", "plugin-skill", "SKILL.md"),
+      `---\nname: plugin-skill\ndescription: from a plugin\n---\nplugin body\n`);
+    writeFileSync(join(plugin, "agents", "plugin-agent.md"),
+      `---\nname: plugin-agent\ndescription: plugin agent\ntools: Read\n---\nbody\n`);
+    // PROJECT .claude: its own shared-name skill (must WIN the dedup).
+    projectClaudeDir = join(home, "proj", ".claude");
+    mkdirSync(join(projectClaudeDir, "skills", "shared-name"), { recursive: true });
+    writeFileSync(join(projectClaudeDir, "skills", "shared-name", "SKILL.md"),
+      `---\nname: shared-name\ndescription: PROJECT version\n---\nproject body\n`);
+  });
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
+
+  it("scans all roots, tags each by source, and dedupes name (project wins)", () => {
+    const { skills, agents } = scanHostAll(projectClaudeDir, home);
+    const byName = new Map(skills.map((s) => [s.name, s]));
+    // shared-name collides across project+global → appears ONCE, project version.
+    expect(skills.filter((s) => s.name === "shared-name")).toHaveLength(1);
+    expect(byName.get("shared-name")!.source).toBe("project");
+    expect(byName.get("shared-name")!.description).toBe("PROJECT version");
+    // global-only + plugin skills present, correctly tagged.
+    expect(byName.get("rust-testing")!.source).toBe("global");
+    expect(byName.get("plugin-skill")!.source).toBe("plugin");
+    // agents: global + plugin both found and tagged.
+    const agentByName = new Map(agents.map((a) => [a.name, a]));
+    expect(agentByName.get("architect-reviewer")!.source).toBe("global");
+    expect(agentByName.get("plugin-agent")!.source).toBe("plugin");
+  });
+
+  it("buildHostIndex + saveHostIndex persist a lightweight, deduped index", () => {
+    const scan = scanHostAll(projectClaudeDir, home);
+    const idxPath = join(home, "host-index.json");
+    saveHostIndex(buildHostIndex(scan), idxPath);
+    const idx = JSON.parse(readFileSync(idxPath, "utf8")) as ReturnType<typeof buildHostIndex>;
+    // index carries name/description/source but NOT full bodies.
+    expect(idx.skills.every((s) => "source" in s && !("body" in s))).toBe(true);
+    expect(idx.agents.some((a) => a.name === "plugin-agent" && a.source === "plugin")).toBe(true);
+    const sk = countBySource(scan.skills);
+    expect(sk.project).toBe(1);
+    expect(sk.global).toBe(1); // rust-testing (shared-name dedup'd to project)
+    expect(sk.plugin).toBe(1);
   });
 });
