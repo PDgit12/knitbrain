@@ -8,6 +8,8 @@ import type { Memory } from "./memory.js";
 import type { SkillsStore, Skill } from "./skills.js";
 import { projectTranscriptDir } from "./usage.js";
 import { parseSession, mineSession, mergeLearnings } from "../learn.js";
+import { proposeAgents, writeAgent } from "./agents.js";
+import { composeSkill, type StyleProfile } from "./host-scan.js";
 
 /**
  * The onboard IMPORT half (the front door's first job): make the brain know the
@@ -160,6 +162,82 @@ export function persistIntent(
     constraints: constraintItems.length > 0 ? constraintItems : [constraints],
   });
   return { page: r.page, learningId: id, skill: skill.name };
+}
+
+/** A capability the project LACKS that adaptive onboarding can offer to create. */
+export interface OnboardGap {
+  kind: "agent" | "skill";
+  /** Suggested name for the thing to create. */
+  name: string;
+  /** Why it's a gap (one line). */
+  reason: string;
+  /** The conditional question to ask the user. */
+  question: string;
+}
+
+/** Files that look like tests (test/spec suffix or a tests/ dir). */
+export function projectHasTests(files: string[]): boolean {
+  return files.some((f) => /(^|\/)tests?\//.test(f) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(f));
+}
+
+/**
+ * Judge what the project LACKS: detected code domains with no covering agent,
+ * plus a test-runner skill when the repo has tests but nothing test-related.
+ * Returns [] when everything's covered — so a fully-covered repo asks nothing
+ * extra. Pure + deterministic (Gap B). `domains` come from proposeAgents; `host`
+ * is the deduped scanHostAll surface.
+ */
+export function computeOnboardGaps(
+  domains: string[],
+  host: { skills: Array<{ name: string; triggers?: string[] }>; agents: Array<{ name: string }> },
+  hasTests: boolean,
+): OnboardGap[] {
+  const gaps: OnboardGap[] = [];
+  const agentNames = host.agents.map((a) => a.name.toLowerCase());
+  const covers = (kw: string): boolean =>
+    agentNames.some((n) => n === kw || n.includes(kw)) ||
+    host.skills.some((s) => `${s.name} ${(s.triggers ?? []).join(" ")}`.toLowerCase().includes(kw));
+
+  for (const d of domains) {
+    if (!covers(d.toLowerCase())) {
+      gaps.push({
+        kind: "agent",
+        name: d,
+        reason: `domain "${d}" has no covering agent`,
+        question: `No agent covers the "${d}" domain — create a scoped agent for it? (yes/no)`,
+      });
+    }
+  }
+  if (hasTests && !covers("test")) {
+    gaps.push({
+      kind: "skill",
+      name: "run-tests",
+      reason: "project has tests but no test-runner skill",
+      question: "This project has tests but no test-runner skill — compose one? (yes/no)",
+    });
+  }
+  return gaps;
+}
+
+/**
+ * Act on a "yes": compose a skill or write a scoped agent in the user's inferred
+ * style. Reuses composeSkill / writeAgent — no new creation logic (ponytail).
+ */
+export function resolveOnboardGap(
+  gap: OnboardGap,
+  stores: { skills: SkillsStore; style: StyleProfile; projectRoot: string },
+): { kind: "agent" | "skill"; name: string; path?: string } {
+  if (gap.kind === "skill") {
+    const s = composeSkill(`${gap.name} for this project`, stores.style, [gap.reason], stores.skills);
+    return { kind: "skill", name: s.name };
+  }
+  const path = writeAgent(stores.projectRoot, { name: gap.name, description: `Agent scoped to the ${gap.name} domain.` }, stores.style);
+  return { kind: "agent", name: gap.name, path };
+}
+
+/** Convenience: detected domains for a set of graph files (Gap B onboarding). */
+export function detectDomains(files: string[]): string[] {
+  return proposeAgents(files).map((p) => p.name);
 }
 
 function safeMtime(p: string): number {
