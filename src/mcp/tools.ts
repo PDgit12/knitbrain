@@ -14,7 +14,7 @@ import { hostIndexPath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
-import { scanAndIngest, persistIntent, INTENT_QUESTIONS } from "../engine/onboard.js";
+import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests } from "../engine/onboard.js";
 import { terseStore } from "../compress-file.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -796,12 +796,30 @@ export const TOOLS: readonly ToolDef[] = [
       type: "object",
       properties: {
         answers: { type: "array", items: { type: "string" }, description: "The 5 interview answers, in order. Omit on the first call." },
+        create: { type: "array", items: { type: "string" }, description: "Gap names the user said YES to — composes a skill / writes a scoped agent for each." },
       },
       additionalProperties: false,
     },
     output: "verbatim",
     run: (args, ctx) => {
       const answers = Array.isArray(args["answers"]) ? (args["answers"] as string[]) : null;
+      const create = Array.isArray(args["create"]) ? (args["create"] as string[]) : null;
+
+      // Gap B: act on the user's YES answers — create only what they approved.
+      if (create && create.length > 0) {
+        const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        const gaps = computeOnboardGaps(
+          detectDomains(ctx.knowledge.listFiles()),
+          { skills: host.skills, agents: host.agents },
+          projectHasTests(ctx.knowledge.listFiles()),
+        );
+        const wanted = new Set(create.map((c) => c.toLowerCase()));
+        const created = gaps
+          .filter((g) => wanted.has(g.name.toLowerCase()))
+          .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd() }));
+        return JSON.stringify({ created }, null, 2);
+      }
+
       if (answers && answers.length > 0) {
         if (!ctx.wiki) return "wiki unavailable — cannot persist the Project Charter.";
         const r = persistIntent(answers, { wiki: ctx.wiki, memory: ctx.memory, skills: ctx.skills });
@@ -815,6 +833,12 @@ export const TOOLS: readonly ToolDef[] = [
       saveHostIndex(buildHostIndex(host), hostIndexPath());
       const sk = countBySource(host.skills);
       const ag = countBySource(host.agents);
+      // Gap B: judge what's MISSING and ask ONLY for the gaps (empty when covered).
+      const gaps = computeOnboardGaps(
+        detectDomains(ctx.knowledge.listFiles()),
+        { skills: host.skills, agents: host.agents },
+        projectHasTests(ctx.knowledge.listFiles()),
+      );
       return JSON.stringify(
         {
           greeting:
@@ -822,8 +846,12 @@ export const TOOLS: readonly ToolDef[] = [
             `Toolkit: ${host.skills.length} skill(s) [${sk.project} project · ${sk.global} global · ${sk.plugin} plugin], ` +
             `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin].`,
           questions: INTENT_QUESTIONS,
+          adaptiveQuestions: gaps.map((g) => g.question),
+          gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
           directive:
-            "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
+            gaps.length > 0
+              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]`. Persist intent with `answers`."
+              : "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
         },
         null,
         2,

@@ -7,7 +7,8 @@ import { createWikiStore } from "../src/engine/wiki.js";
 import { createMemory } from "../src/engine/memory.js";
 import { projectTranscriptDir } from "../src/engine/usage.js";
 import { createSkillsStore } from "../src/engine/skills.js";
-import { runOnboard, persistIntent, INTENT_QUESTIONS } from "../src/engine/onboard.js";
+import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests } from "../src/engine/onboard.js";
+import { existsSync } from "node:fs";
 import { terseStore } from "../src/compress-file.js";
 
 // Phase 2: the onboard import half — scan the repo + ingest this project's PAST
@@ -124,5 +125,51 @@ describe("terseStore (brain-write terse, reuse compress-file)", () => {
     // a path/identifier survives
     const withPath = "validation helpers basically live in src/util.ts now";
     expect(terseStore(withPath)).toContain("src/util.ts");
+  });
+});
+
+describe("onboard adaptive gaps (Gap B): judge what's missing, ask only for gaps", () => {
+  const STYLE = { medianBodyLen: 0, terse: false, usesModel: false, usesTriggers: false, headers: [] as string[] };
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "kb-gapb-")); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("flags an uncovered domain + a test-runner gap when tests exist but nothing covers them", () => {
+    const gaps = computeOnboardGaps(["proxy"], { skills: [], agents: [] }, true);
+    expect(gaps.map((g) => g.name)).toEqual(["proxy", "run-tests"]);
+    expect(gaps.find((g) => g.name === "run-tests")!.question).toContain("test-runner");
+    expect(gaps.find((g) => g.name === "proxy")!.kind).toBe("agent");
+  });
+
+  it("asks NOTHING extra when every domain has an agent and a test skill exists", () => {
+    const covered = computeOnboardGaps(
+      ["proxy"],
+      { skills: [{ name: "test-runner", triggers: ["test"] }], agents: [{ name: "proxy" }] },
+      true,
+    );
+    expect(covered).toEqual([]);
+  });
+
+  it("no test gap when the project has no tests", () => {
+    expect(projectHasTests(["src/a.ts", "tests/a.test.ts"])).toBe(true);
+    expect(projectHasTests(["src/a.ts", "README.md"])).toBe(false);
+    const gaps = computeOnboardGaps([], { skills: [], agents: [] }, false);
+    expect(gaps).toEqual([]);
+  });
+
+  it("resolving a skill gap on YES composes + persists a skill", () => {
+    const store = createSkillsStore(join(root, "skills-b"));
+    const gap = computeOnboardGaps([], { skills: [], agents: [] }, true)[0]!; // run-tests
+    const res = resolveOnboardGap(gap, { skills: store, style: STYLE, projectRoot: root });
+    expect(res.kind).toBe("skill");
+    expect(store.list().some((s) => s.name === res.name)).toBe(true);
+  });
+
+  it("resolving an agent gap on YES writes a scoped .claude/agents file", () => {
+    const store = createSkillsStore(join(root, "skills-b2"));
+    const gap = computeOnboardGaps(["proxy"], { skills: [], agents: [] }, false)[0]!; // proxy agent
+    const res = resolveOnboardGap(gap, { skills: store, style: STYLE, projectRoot: root });
+    expect(res.kind).toBe("agent");
+    expect(existsSync(res.path!)).toBe(true);
   });
 });
