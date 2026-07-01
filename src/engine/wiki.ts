@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { writeAtomic } from "../atomic.js";
 
@@ -54,6 +54,9 @@ export interface WikiStore {
   listPages(): WikiPage[];
   index(): string;
   lint(): LintReport;
+  /** Auto-heal stale claims: newest page wins a contradicted key, older claim
+   *  lines are marked superseded (value preserved → recoverable). Idempotent. */
+  resolve(): { superseded: string[] };
 }
 
 export function slug(title: string): string {
@@ -184,6 +187,52 @@ export function createWikiStore(root: string): WikiStore {
     writeAtomic(indexPath, out);
   };
 
+  const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  /** Rewrite one active `claim: key = value` line in a page to a superseded
+   *  marker (value kept → recoverable, and the `claim:` prefix is broken so lint
+   *  no longer counts it). Returns true if it changed the file. */
+  const supersedeClaim = (s: string, key: string, winner: string): boolean => {
+    const p = pagePath(s);
+    if (!existsSync(p)) return false;
+    const raw = readFileSync(p, "utf8");
+    const re = new RegExp(`^([-*]\\s*)claim:\\s*(${escapeRe(key)})\\s*=\\s*(.+)$`, "im");
+    const out = raw.replace(re, `$1superseded@${today()} by [[${winner}]] — was: claim $2 = $3`);
+    if (out === raw) return false;
+    writeAtomic(p, out);
+    return true;
+  };
+
+  const mtimeOf = (s: string): number => {
+    try {
+      return statSync(pagePath(s)).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+
+  /** Newest page wins a contradicted claim key; older holders get superseded. */
+  const runResolve = (): { superseded: string[] } => {
+    const byKey = new Map<string, Array<{ slug: string; value: string }>>();
+    for (const p of allPages()) {
+      for (const c of p.claims) {
+        (byKey.get(c.key) ?? byKey.set(c.key, []).get(c.key)!).push({ slug: p.slug, value: c.value });
+      }
+    }
+    const superseded: string[] = [];
+    for (const [key, holders] of byKey) {
+      if (new Set(holders.map((h) => h.value)).size <= 1) continue; // no contradiction
+      // newest by file mtime wins; supersede the key in every older holder
+      const winner = [...new Set(holders.map((h) => h.slug))].sort((a, b) => mtimeOf(b) - mtimeOf(a))[0]!;
+      for (const h of holders) {
+        if (h.slug === winner) continue;
+        if (supersedeClaim(h.slug, key, winner)) superseded.push(`${h.slug}:${key}`);
+      }
+    }
+    if (superseded.length) rebuildIndex();
+    return { superseded };
+  };
+
   return {
     ingest(input) {
       const s = slug(input.title);
@@ -202,6 +251,8 @@ export function createWikiStore(root: string): WikiStore {
       }
       rebuildIndex();
       this.log("ingest", input.title);
+      // Gap E: auto-heal — a newer claim supersedes an older contradicting one.
+      runResolve();
       return { page: s, touched };
     },
 
@@ -256,5 +307,7 @@ export function createWikiStore(root: string): WikiStore {
       const orphans = pages.filter((p) => !linkedTo.has(p.slug)).map((p) => p.slug);
       return { contradictions, orphans };
     },
+
+    resolve: runResolve,
   };
 }

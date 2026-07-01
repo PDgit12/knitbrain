@@ -51,12 +51,30 @@ describe("wiki-brain (leg 5) — ingest / index / log / cross-ref / lint", () =>
     expect(recent[1]).toContain("session B did Y");
   });
 
-  it("lint catches a seeded contradiction across pages", () => {
+  it("auto-heals on ingest: a newer contradicting claim supersedes the older; lint clean after (Gap E)", () => {
     const w = createWikiStore(root);
     w.ingest({ title: "Decision DB", kind: "concept", content: "We use Postgres.\n- claim: db = postgres" });
-    w.ingest({ title: "Old Notes", kind: "summary", content: "DB is mysql.\n- claim: db = mysql" });
-    const report = w.lint();
-    expect(report.contradictions.some((c) => c.includes('claim "db"') && c.includes("postgres") && c.includes("mysql"))).toBe(true);
+    // BEFORE the newer claim exists, lint would see one value — no contradiction yet.
+    w.ingest({ title: "Newer Decision", kind: "concept", content: "Switched to mysql.\n- claim: db = mysql" });
+    // AFTER the second (newer) ingest, auto-heal ran: no contradiction remains.
+    expect(w.lint().contradictions).toEqual([]);
+    // The OLDER page's claim is marked superseded, value PRESERVED (recoverable).
+    const older = readFileSync(join(root, "pages", "decision-db.md"), "utf8");
+    expect(older).toContain("superseded@");
+    expect(older).toContain("was: claim db = postgres"); // original value recoverable
+    expect(older).not.toMatch(/^[-*]\s*claim:\s*db\s*=/im); // no longer an ACTIVE claim
+    // The newer page keeps its live claim.
+    const newer = readFileSync(join(root, "pages", "newer-decision.md"), "utf8");
+    expect(newer).toMatch(/^[-*]\s*claim:\s*db\s*=\s*mysql/im);
+  });
+
+  it("resolve() is idempotent and a no-op when there's no contradiction", () => {
+    const w = createWikiStore(root);
+    w.ingest({ title: "Solo", kind: "concept", content: "one truth\n- claim: x = 1" });
+    expect(w.resolve().superseded).toEqual([]); // nothing to heal
+    w.ingest({ title: "Solo Two", kind: "concept", content: "conflict\n- claim: x = 2" });
+    expect(w.resolve().superseded).toEqual([]); // already healed on ingest → second resolve finds nothing
+    expect(w.lint().contradictions).toEqual([]);
   });
 
   it("lint flags an orphan page (nothing links to it)", () => {

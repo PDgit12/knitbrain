@@ -339,6 +339,8 @@ export const TOOLS: readonly ToolDef[] = [
       ctx.meter.reset(); // new session starts a fresh window
       // (Knowledge self-heals lazily: the first graph query in a fresh
       // project triggers a scan automatically — no manual init step.)
+      // Gap E: auto-heal stale/contradicting wiki claims at session start.
+      if (ctx.wiki) ctx.wiki.resolve();
       const session = ctx.memory.loadSession();
       // Leg 3: surface recent wiki-log entries so a fresh session inherits
       // what prior sessions did (cross-session context), not just the handoff.
