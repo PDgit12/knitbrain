@@ -10,6 +10,10 @@ export interface Classification {
 const COMPLEX = /\b(architect|architecture|refactor|migrat|redesign|rewrite|security|schema|breaking|orchestrat|protocol|concurren)/i;
 const TRIVIAL = /\b(typo|rename|comment|bump|format|lint|whitespace|one[- ]?line)\b/i;
 const INQUIRY = /^\s*(how|what|why|where|which|who|can|does|do|is|are|should|could|would|when)\b|[?]\s*$/i;
+// Mutation verbs — presence means the task WRITES, so plan-mode/complex can apply.
+const WRITE_INTENT = /\b(add|fix|chang|edit|refactor|implement|creat|delet|remov|updat|writ|renam|migrat|rewrit|replac|introduc|wire|wiring|patch|scaffold|deploy|releas|publish|revert)\b/i;
+// Read verbs — a read-only task has these and NO write verb.
+const READ_INTENT = /\b(read|look|explain|understand|check|show|inspect|review|summar|trace|map|explor|audit|find|search|list|describ|analy|diagnos|why|how|what|where|which)\b/i;
 
 /**
  * Deterministic tier router (no ML). Mirrors Knit's classifier shape:
@@ -26,6 +30,12 @@ export function classifyTask(description: string, files: string[] = [], scopeAdj
 
   if (fileCount === 0 && INQUIRY.test(description) && !COMPLEX.test(description)) {
     return { tier: "inquiry", phases: [], autoPlanMode: false, reason: "question with no files to touch" };
+  }
+  // Read-only / context task: read intent with NO mutation verb never earns
+  // plan-mode, whatever the keywords or file count — plan-mode gates WRITES, and
+  // "explain the architecture" / "audit the security flow" write nothing.
+  if (READ_INTENT.test(description) && !WRITE_INTENT.test(description)) {
+    return { tier: "inquiry", phases: [], autoPlanMode: false, reason: "read-only / context task — no writes" };
   }
   const complexAt = Math.max(2, 4 + scopeAdjust);
   const keywordComplex = COMPLEX.test(description) && scopeAdjust <= 0;
