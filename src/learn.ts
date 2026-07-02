@@ -325,3 +325,45 @@ export async function runLearn(args: string[], log: (line: string) => void = con
   }
   return learnings.length;
 }
+
+/**
+ * Incremental transcript mining for SessionStart (closes the ingestion gap on
+ * subscription hosts): assistant prose is uncapturable live, but it IS in the
+ * host's transcript files on disk. Mine only transcripts that are new/changed
+ * since the last run (state file keyed by path → size), cap the per-start cost,
+ * and return merged corrections for the caller to write into the brain.
+ */
+export interface AutoLearnState {
+  [file: string]: number; // size at last mine — cheap change signal
+}
+
+export async function mineNewTranscripts(
+  projectRoot: string,
+  statePath: string,
+  maxFiles = 2,
+): Promise<Learning[]> {
+  let state: AutoLearnState = {};
+  try {
+    state = JSON.parse(readFileSync(statePath, "utf8")) as AutoLearnState;
+  } catch {
+    /* first run */
+  }
+  const fresh = transcriptsFor(projectRoot, false)
+    .map((f) => {
+      try {
+        return { f, size: statSync(f).size };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { f: string; size: number } => x !== null && x.size !== state[x.f])
+    .slice(0, maxFiles);
+  if (fresh.length === 0) return [];
+  const collected: Learning[] = [];
+  for (const { f, size } of fresh) {
+    collected.push(...mineSession(await parseSession(f)));
+    state[f] = size;
+  }
+  writeFileSync(statePath, JSON.stringify(state), "utf8");
+  return mergeLearnings(collected);
+}
