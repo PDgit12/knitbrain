@@ -199,6 +199,15 @@ different taps overlap the same bill; they add, they don't multiply.
 - **Local-first** — proxy, hub, and dashboard bind `127.0.0.1`; nothing leaves your machine.
 - **Reproducible** — every number above comes from a command you can run on your own data.
 
+Two integration notes worth knowing up front:
+
+- **Parsing tool results programmatically?** A large tool response may come back skeletonized with a
+  trailing `⟨recall:HASH⟩` handle appended after the payload — strip it (or retrieve the original)
+  before `JSON.parse`.
+- **The adherence gate** blocks close-the-loop writes (`record_learning`, `skill_save`, `save_handoff`)
+  until a classifier ran this session. Default `KNITBRAIN_STRICTNESS=block`; set `warn` or `off` if
+  your workflow can't classify first.
+
 ## Use as a library
 
 ```ts

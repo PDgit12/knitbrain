@@ -9,7 +9,7 @@ import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } 
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
-import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource } from "../engine/host-scan.js";
+import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
 import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
@@ -1023,6 +1023,8 @@ export const TOOLS: readonly ToolDef[] = [
         classified: s.classified,
         learned: s.learned,
         verified: s.verified,
+        // context-hygiene: standing host config is paid every session.
+        hygieneFindings: scanContextHygiene().findings,
       });
       return JSON.stringify(report, null, 2);
     },

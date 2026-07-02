@@ -213,6 +213,79 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
 }
 
 /** Marker (stored in a skill's `constraints`) flagging it came from a host scan. */
+/**
+ * Context-hygiene scan (the "win on every machine"): standing host config is
+ * paid on EVERY session/cache-write, and dead weight there routinely exceeds
+ * what compression saves. Detects the three clutter shapes found in the wild:
+ * oversized always-loaded rules, archive dirs still inside the load path, and
+ * near-duplicate MCP servers (e.g. `knit-brain` + `knitbrain`).
+ */
+export interface HygieneReport {
+  /** Human-readable findings; empty = clean. */
+  findings: string[];
+  /** Total bytes of always-loaded instructions (CLAUDE.md + rules/**). */
+  instructionBytes: number;
+}
+
+const HYGIENE_BYTES_BUDGET = 30_000; // ~7.5k tokens of standing instructions
+const ARCHIVE_DIR = /^(_archive|archive|disabled|_disabled|old|backup)$/i;
+
+export function scanContextHygiene(home: string = homedir(), io: HostIO = realIO): HygieneReport {
+  const findings: string[] = [];
+  let instructionBytes = 0;
+  const claudeDir = join(home, ".claude");
+  const size = (p: string): number => {
+    try {
+      return io.readFile(p).length;
+    } catch {
+      return 0;
+    }
+  };
+  if (io.exists(join(claudeDir, "CLAUDE.md"))) instructionBytes += size(join(claudeDir, "CLAUDE.md"));
+
+  const rulesRoot = join(claudeDir, "rules");
+  const isDir = io.isDir ?? ((p: string): boolean => io.exists(p) && !p.endsWith(".md"));
+  const walk = (dir: string): void => {
+    if (!io.exists(dir)) return;
+    for (const name of io.readDir(dir)) {
+      const p = join(dir, name);
+      if (isDir(p)) {
+        if (ARCHIVE_DIR.test(name)) {
+          findings.push(`archive dir "${name}" inside ${rulesRoot} still loads every session — move it out of .claude/rules`);
+        }
+        walk(p);
+      } else if (name.endsWith(".md")) {
+        instructionBytes += size(p);
+      }
+    }
+  };
+  walk(rulesRoot);
+  if (instructionBytes > HYGIENE_BYTES_BUDGET) {
+    findings.push(
+      `always-loaded instructions total ${Math.round(instructionBytes / 1000)}KB (> ${HYGIENE_BYTES_BUDGET / 1000}KB budget ≈ ${Math.round(HYGIENE_BYTES_BUDGET / 4 / 1000)}k tokens) — prune global CLAUDE.md/rules`,
+    );
+  }
+
+  // Near-duplicate MCP servers: names equal after stripping non-alphanumerics.
+  const configPath = join(home, ".claude.json");
+  if (io.exists(configPath)) {
+    try {
+      const cfg = JSON.parse(io.readFile(configPath)) as { mcpServers?: Record<string, unknown> };
+      const names = Object.keys(cfg.mcpServers ?? {});
+      const seen = new Map<string, string>();
+      for (const n of names) {
+        const norm = n.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const prior = seen.get(norm);
+        if (prior) findings.push(`near-duplicate MCP servers "${prior}" and "${n}" — overlapping tool sets confuse the agent; keep one`);
+        else seen.set(norm, n);
+      }
+    } catch {
+      /* unreadable host config — nothing to flag */
+    }
+  }
+  return { findings, instructionBytes };
+}
+
 export const HOST_IMPORT_MARK = "imported:host";
 
 /**

@@ -211,11 +211,20 @@ const main = async () => {
     const sc = await call("knitbrain_self_check");
     // The server's own optimizer may skeletonize a big tool response and append
     // a ⟨recall:hash⟩ handle after the JSON — strip it before parsing.
-    let scBody = null;
-    try {
-      scBody = JSON.parse(sc.text.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
-    } catch {
-      /* non-JSON response fails the shape assertion below */
+    // A big tool response may be skeletonized (trailing or inline ⟨recall:hash⟩).
+    // Follow the product contract: parse the skeleton, and when elision broke
+    // the JSON, page in the exact original via knitbrain_retrieve.
+    const tryParse = (t) => {
+      try {
+        return JSON.parse(t.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
+      } catch {
+        return null;
+      }
+    };
+    let scBody = tryParse(sc.text);
+    if (!scBody) {
+      const h = /⟨recall:([0-9a-f]{64})⟩/.exec(sc.text)?.[1];
+      if (h) scBody = tryParse((await call("knitbrain_retrieve", { handle: h })).text);
     }
     ok(
       !sc.isError && scBody && Array.isArray(scBody.invariants) && scBody.invariants.length >= 4 && typeof scBody.allPass === "boolean",
