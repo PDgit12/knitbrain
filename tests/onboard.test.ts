@@ -216,16 +216,25 @@ describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
     const loadTool = TOOLS.find((t) => t.name === "knitbrain_load_session")!;
     const answers = ["knit-brain memory MCP", "gates green", "never force-push", "npm test", "ship the vision gaps"];
 
-    const out = onboardTool.run({ answers }, ctx);
-    expect(out).toContain("workflow written");
+    // The answers path writes goal.md into cwd, and workflowPath() keys off
+    // cwd — run the WHOLE flow chdir'd into the temp root (no repo pollution).
+    const prevCwd = process.cwd();
+    process.chdir(root);
+    try {
+      const out = onboardTool.run({ answers }, ctx) as string;
+      expect(out).toContain("workflow written");
 
-    // A FRESH load_session returns the SAME workflow, byte-for-byte. Call run()
-    // directly (dispatch optimizes "data" outputs with a recall marker).
-    const loaded = JSON.parse(loadTool.run({}, ctx)) as { workflow: string };
-    const onDisk = readFileSync(workflowPath(), "utf8");
-    expect(loaded.workflow).toBe(onDisk); // verbatim
-    expect(loaded.workflow).toContain("# Workflow — knit-brain memory MCP");
-    expect(loaded.workflow).toContain("GOAL: ship the vision gaps");
-    expect(loaded.workflow).toContain("CONSTRAINTS: never force-push");
+      // A FRESH load_session returns the SAME workflow, byte-for-byte. Call run()
+      // directly (dispatch optimizes "data" outputs with a recall marker).
+      const loaded = JSON.parse(loadTool.run({}, ctx)) as { workflow: string };
+      const onDisk = readFileSync(workflowPath(), "utf8");
+      expect(loaded.workflow).toBe(onDisk); // verbatim
+      expect(loaded.workflow).toContain("# Workflow — knit-brain memory MCP");
+      expect(loaded.workflow).toContain("GOAL: ship the vision gaps");
+      expect(loaded.workflow).toContain("CONSTRAINTS: never force-push");
+      expect(readFileSync(join(root, "goal.md"), "utf8")).toContain("# Goal — ship the vision gaps");
+    } finally {
+      process.chdir(prevCwd);
+    }
   });
 });

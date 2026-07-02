@@ -221,15 +221,19 @@ const main = async () => {
         return null;
       }
     };
+    // The skeleton may parse yet be lossy (middle array items elided) — a body
+    // only counts as COMPLETE with the full invariant table; otherwise page in
+    // the exact original via its recall handle (whole-payload handle is LAST).
+    const scComplete = (b) => b && Array.isArray(b.invariants) && b.invariants.length >= 4 && typeof b.allPass === "boolean";
     let scBody = tryParse(sc.text);
-    if (!scBody) {
-      const h = /⟨recall:([0-9a-f]{64})⟩/.exec(sc.text)?.[1];
-      if (h) scBody = tryParse((await call("knitbrain_retrieve", { handle: h })).text);
+    if (!scComplete(scBody)) {
+      const handles = [...sc.text.matchAll(/⟨recall:([0-9a-f]{64})⟩/gu)].map((m) => m[1]).reverse();
+      for (const h of handles) {
+        scBody = tryParse((await call("knitbrain_retrieve", { handle: h })).text);
+        if (scComplete(scBody)) break;
+      }
     }
-    ok(
-      !sc.isError && scBody && Array.isArray(scBody.invariants) && scBody.invariants.length >= 4 && typeof scBody.allPass === "boolean",
-      "self_check runs the invariant auditors and returns a verdict (invariants[] + allPass)",
-    );
+    ok(!sc.isError && scComplete(scBody), "self_check full invariant table recoverable (skeleton or via retrieve)");
     const loopMet = JSON.parse(
       (await call("knitbrain_run_loop", { goal: "e2e smoke goal", verify_cmd: "node -e \"process.exit(0)\"" })).text,
     );

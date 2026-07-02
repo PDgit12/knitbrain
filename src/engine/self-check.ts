@@ -44,6 +44,9 @@ export interface SelfCheckInput {
   /** Host context-hygiene findings (dead rules, archive dirs, duplicate MCPs).
    * Undefined = scan not run (invariant omitted); empty = scanned clean. */
   hygieneFindings?: string[];
+  /** Domains present in code but missing from the stored workflow's ROUTING.
+   * Undefined = no routed workflow to compare (invariant omitted). */
+  routingStaleDomains?: string[];
 }
 
 export function runSelfCheck(x: SelfCheckInput): SelfCheckReport {
@@ -97,6 +100,17 @@ export function runSelfCheck(x: SelfCheckInput): SelfCheckReport {
     } else {
       invariants.push({ name: "context-hygiene:host", pass: false, detail: `${x.hygieneFindings.length} clutter finding(s) in the host config` });
       for (const f of x.hygieneFindings) residualGaps.push(`context-hygiene: ${f}`);
+    }
+  }
+
+  // 7. anti-drift (routing): the workflow's per-part map must cover the code
+  // that exists NOW — a project that grew past its routing has a stale driver.
+  if (x.routingStaleDomains !== undefined) {
+    if (x.routingStaleDomains.length === 0) {
+      invariants.push({ name: "anti-drift:routing", pass: true, detail: "workflow ROUTING covers all detected domains" });
+    } else {
+      invariants.push({ name: "anti-drift:routing", pass: false, detail: `${x.routingStaleDomains.length} domain(s) missing from ROUTING: ${x.routingStaleDomains.join(", ")}` });
+      residualGaps.push("workflow ROUTING is stale — re-run knitbrain_onboard with answers to refresh it (anti-drift)");
     }
   }
 
