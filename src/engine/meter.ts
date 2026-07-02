@@ -26,6 +26,12 @@ export interface MeterReading {
    * than it would have been without knitbrain. 0–100. (gap #2)
    */
   optimizationPct: number;
+  /** True when usedTokens includes the MCP-only baseline estimate (no proxy,
+   * no real-usage probe — knitbrain sees only its own traffic). */
+  estimated: boolean;
+  /** True when the session idled past the provider prompt-cache TTL — the next
+   * turn re-reads the whole window at full (uncached) price. */
+  cacheCold: boolean;
   status: "ok" | "warn" | "handoff";
   /** Human advice matching the status. */
   advice: string;
@@ -59,6 +65,14 @@ export interface MeterOptions {
    * source is available (then the meter falls back to its own tracking).
    */
   realUsage?: () => number | null;
+  /**
+   * MCP-only hosts (no proxy, no realUsage data): assume this much standing
+   * context (system prompt + instructions + chat) and label the reading an
+   * ESTIMATE. Unset = never estimate (exact-only behavior).
+   */
+  baselineTokens?: number;
+  /** Clock override for tests. */
+  now?: () => number;
 }
 
 interface State {
@@ -67,7 +81,14 @@ interface State {
   savedTokens: number;
   /** Window adopted from the request's model id (proxy path). */
   modelWindowTokens?: number;
+  /** Last time any traffic hit the meter — cache-staleness signal. */
+  lastActivityTs?: number;
 }
+
+/** Anthropic/OpenAI prompt-cache TTL — idle past this = next turn uncached. */
+const CACHE_TTL_MS = 5 * 60_000;
+/** Don't nag about a cold cache when the window is still tiny. */
+const CACHE_COLD_MIN_TOKENS = 30_000;
 
 /**
  * Best-known context window by model id. Null = unknown (keep configured).
@@ -125,11 +146,13 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       state.lastRequestTokens = optimizedTokens;
       state.toolTokens = 0; // request already contains prior tool outputs
       state.savedTokens += Math.max(0, originalTokens - optimizedTokens);
+      state.lastActivityTs = (opts.now ?? Date.now)();
       save();
     },
     onToolOutput(tokens) {
       reload();
       state.toolTokens += tokens;
+      state.lastActivityTs = (opts.now ?? Date.now)();
       save();
     },
     onSaved(tokens) {
@@ -151,7 +174,11 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       // Prefer the host's REAL window (transcript probe) when available; else
       // fall back to knitbrain's own tracked throughput (under-counts, honest).
       const real = opts.realUsage?.() ?? 0;
-      const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real);
+      // MCP-only host (no proxy request, no transcript probe): knitbrain sees
+      // only its own traffic — add the configured baseline and SAY it's an
+      // estimate rather than silently under-reporting until handoff fires late.
+      const estimated = real === 0 && state.lastRequestTokens === 0 && (opts.baselineTokens ?? 0) > 0;
+      const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real) + (estimated ? opts.baselineTokens! : 0);
       // Window precedence: explicit env override > window adopted from the
       // request's model id (proxy path) > configured/default.
       const baseWindow = envSet ? windowTokens : state.modelWindowTokens ?? windowTokens;
@@ -166,12 +193,20 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       const frac = usedTokens / effectiveWindow;
       const status: MeterReading["status"] =
         frac >= handoffAt ? "handoff" : frac >= warnAt ? "warn" : "ok";
-      const advice =
+      let advice =
         status === "handoff"
           ? `Context ${usedPct}% full — SAVE A HANDOFF NOW (knitbrain_save_handoff with goal/state/next steps), then clear and resume with knitbrain_load_session. Prefer this over /compact: a handoff is structured and lossless (originals stay in the recall store), while /compact lossily summarizes and forgets.`
           : status === "warn"
             ? `Context ${usedPct}% full — finish the current step, then consider knitbrain_save_handoff before starting anything large.`
             : `Context ${usedPct}% full — healthy.`;
+      if (estimated) advice += " (estimate — knitbrain sees only its own traffic on this host; the proxy or Claude Code hooks give exact numbers)";
+      // Cache-staleness: idle past the provider prompt-cache TTL means the next
+      // turn re-reads the whole window at full price — cost signal, not capacity.
+      const idleMs = state.lastActivityTs ? (opts.now ?? Date.now)() - state.lastActivityTs : 0;
+      const cacheCold = idleMs > CACHE_TTL_MS && usedTokens >= CACHE_COLD_MIN_TOKENS;
+      if (cacheCold) {
+        advice += ` CACHE COLD (idle ${Math.round(idleMs / 60_000)}m > 5m TTL) — the next turn re-reads ~${Math.round(usedTokens / 1000)}k tokens uncached; if the task is near done, knitbrain_save_handoff + clear is cheaper than continuing.`;
+      }
       // Conversation-relative optimization: what the live window saved vs. the
       // unoptimized counterfactual (liveWindow + saved). usedTokens is the live
       // window (realUsage probe or tracked throughput).
@@ -181,7 +216,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
           : 0;
       // Report the EFFECTIVE window so the dashboard/meter show the honest
       // denominator (e.g. "420k / 1M"), not the stale configured 200k.
-      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, status, advice };
+      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice };
     },
     reset() {
       state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens };

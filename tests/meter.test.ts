@@ -159,3 +159,48 @@ describe("meter realUsage probe — fire on the REAL host window, not just knitb
     } finally { rmSync(r, { recursive: true, force: true }); }
   });
 });
+
+describe("meter estimate + cache-cold (MCP-only honesty)", () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "kb-meter2-")); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("MCP-only host: baseline added and labeled an estimate", () => {
+    const m = createMeter(root, { baselineTokens: 20_000 });
+    m.onToolOutput(1_000);
+    const r = m.read();
+    expect(r.estimated).toBe(true);
+    expect(r.usedTokens).toBe(21_000);
+    expect(r.advice).toContain("estimate");
+  });
+
+  it("no baseline configured or proxy data present: exact, not estimated", () => {
+    const bare = createMeter(root, {});
+    bare.onToolOutput(500);
+    expect(bare.read().estimated).toBe(false);
+    expect(bare.read().usedTokens).toBe(500);
+    const proxied = createMeter(root, { baselineTokens: 20_000 });
+    proxied.onRequest(5_000, 4_000);
+    expect(proxied.read().estimated).toBe(false);
+    expect(proxied.read().usedTokens).toBe(4_000);
+  });
+
+  it("idle past the 5m cache TTL flags cacheCold with cost advice", () => {
+    let t = 1_000_000;
+    const m = createMeter(root, { now: () => t });
+    m.onRequest(40_000, 40_000);
+    expect(m.read().cacheCold).toBe(false);
+    t += 6 * 60_000;
+    const r = m.read();
+    expect(r.cacheCold).toBe(true);
+    expect(r.advice).toContain("CACHE COLD");
+  });
+
+  it("cold cache not flagged on a tiny window", () => {
+    let t = 1_000_000;
+    const m = createMeter(root, { now: () => t });
+    m.onToolOutput(1_000);
+    t += 10 * 60_000;
+    expect(m.read().cacheCold).toBe(false);
+  });
+});
