@@ -214,7 +214,9 @@ const main = async () => {
     let scBody = null;
     try {
       scBody = JSON.parse(sc.text.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
-    } catch {}
+    } catch {
+      /* non-JSON response fails the shape assertion below */
+    }
     ok(
       !sc.isError && scBody && Array.isArray(scBody.invariants) && scBody.invariants.length >= 4 && typeof scBody.allPass === "boolean",
       "self_check runs the invariant auditors and returns a verdict (invariants[] + allPass)",
