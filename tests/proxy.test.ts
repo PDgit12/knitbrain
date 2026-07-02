@@ -134,6 +134,42 @@ describe("optimizeRequest (rung 7)", () => {
     const blocks = out.messages[0]!.content as Array<{ type: string; text: string }>;
     expect(blocks[0]!.text).toContain("⟨recall:");
   });
+
+  it("terseDirective appends to the system TAIL (anthropic string + array + absent)", () => {
+    const d = "OUTPUT BUDGET: terse.";
+    const msgs = [{ role: "user", content: "hi" }];
+    const s1 = optimizeRequest({ system: "rules", messages: msgs }, ccr, { terseDirective: d, provider: "anthropic" }).body;
+    expect(s1.system).toEqual([{ type: "text", text: `rules\n\n${d}`, cache_control: { type: "ephemeral" } }]);
+    const s2 = optimizeRequest({ system: [{ type: "text", text: "rules" }], messages: msgs }, ccr, {
+      terseDirective: d,
+      cacheAlign: false,
+    }).body;
+    expect((s2.system as Array<{ text?: string }>).at(-1)!.text).toBe(d);
+    const s3 = optimizeRequest({ messages: msgs }, ccr, { terseDirective: d, cacheAlign: false }).body;
+    expect(s3.system).toBe(d);
+  });
+
+  it("terseDirective lands in the leading system message on the openai protocol", () => {
+    const d = "OUTPUT BUDGET: terse.";
+    const withSys = optimizeRequest(
+      { messages: [{ role: "system", content: "rules" }, { role: "user", content: "hi" }] },
+      ccr,
+      { provider: "openai", terseDirective: d },
+    ).body;
+    expect(withSys.messages[0]!.content).toBe(`rules\n\n${d}`);
+    const noSys = optimizeRequest({ messages: [{ role: "user", content: "hi" }] }, ccr, {
+      provider: "openai",
+      terseDirective: d,
+    }).body;
+    expect(noSys.messages[0]).toEqual({ role: "system", content: d });
+  });
+
+  it("no terseDirective ⇒ system untouched", () => {
+    const out = optimizeRequest({ system: "rules", messages: [{ role: "user", content: "hi" }] }, ccr, {
+      cacheAlign: false,
+    }).body;
+    expect(out.system).toBe("rules");
+  });
 });
 
 describe("proxy server integration (rung 7)", () => {

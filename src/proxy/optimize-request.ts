@@ -37,6 +37,9 @@ export interface OptimizeOptions {
   provider?: "anthropic" | "openai";
   /** CacheAligner master switch (default on). */
   cacheAlign?: boolean;
+  /** Terse-output directive appended to the system prompt TAIL (output-side
+   * savings — the input side is what compression handles). Empty = off. */
+  terseDirective?: string;
 }
 
 export interface ProxyStats {
@@ -62,6 +65,7 @@ const DEFAULTS: Required<Omit<OptimizeOptions, "provider">> = {
   minBlockChars: 200,
   allowProse: true,
   cacheAlign: true,
+  terseDirective: "",
 };
 
 /** Does the request already carry client-set cache_control anywhere? */
@@ -200,6 +204,24 @@ export function optimizeRequest(
           messages[i] = { ...m, content: a.text };
         }
       }
+    }
+  }
+
+  // TERSE INJECTION (output-side lever): append the directive at the system
+  // TAIL — after the cache-aligned stable prefix, so leading bytes (and cache
+  // hits) are untouched. Constant text ⇒ itself cache-stable across turns.
+  if (opts.terseDirective) {
+    if (options.provider === "openai") {
+      const lead = messages[0];
+      if (lead && (lead.role === "system" || lead.role === "developer") && typeof lead.content === "string") {
+        messages[0] = { ...lead, content: `${lead.content}\n\n${opts.terseDirective}` };
+      } else {
+        messages.unshift({ role: "system", content: opts.terseDirective });
+      }
+    } else if (typeof system === "string" || system === undefined) {
+      system = system ? `${system}\n\n${opts.terseDirective}` : opts.terseDirective;
+    } else {
+      system = [...system, { type: "text", text: opts.terseDirective }];
     }
   }
 

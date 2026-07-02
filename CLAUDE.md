@@ -1,65 +1,47 @@
-<!-- knit:start -->
-
 # knitbrain
 
-typescript project. Knit-powered workflow. The protocol depth is fetched on demand via `knit_get_workflow({phase})` — this file holds only project-specific facts.
+TypeScript project (Node ≥18, ESM, vitest). This repo IS the knitbrain product — the connected `knitbrain` MCP server (tools `knitbrain_*`) is a pinned global install of it; a stale global ≠ a broken tool (see docs/AUDIT-PROMPT.md caveat 2).
 
 ---
 
 ## Session start
 
-First action: call `knit_load_session`. One MCP call returns last sessions, handoff, learnings, false positives. If `handoff.md` exists at the repo root, resume that work first.
+First action: call `knitbrain_load_session` — returns last handoff, top learnings, false positives. If it reports unfinished work, resume that first.
 
-Protocol Guard runs in `warn` mode by default — adjust with `knit_set_protocol_strictness`.
+Adherence gate: close-the-loop writes (`knitbrain_record_learning`, `knitbrain_skill_save`, `knitbrain_save_handoff`) are blocked until `knitbrain_classify_task`/`knitbrain_run` ran this session (`KNITBRAIN_STRICTNESS`, default `block`).
 
-## v0.11 tool surface (in addition to query/search/record)
+## Tool surface highlights (36 tools)
 
-- **`knit_verify_claim`** — fact-check one claim against the knowledge graph before LEARN. Stop-hook enforces on standard/complex scope.
-- **`knit_index_requirements` + `knit_generate_test_cases` + `knit_list_requirements` + `knit_delete_requirements`** — long-form spec / RFC ingestion (200KB doc → relevant 5–7KB chunks per feature query).
-- **`knit_get_fingerprint` + `knit_infer_domains` + `knit_compose_template`** — auto-config primitives: detected stack → ranked domains → composed CLAUDE.md sections (preview only; you paste to accept).
-- **`knit_get_calibration` + tag your false-positives** (e.g. `#complex-was-trivial`) — the per-project self-healing classifier tunes thresholds after 3 same-direction FPs.
-- **`knit_brain_status`** surfaces calibration / requirements / fingerprint state so you can discover all of the above from one health check.
+- **`knitbrain_verify_claim`** — settle a codebase claim before LEARN. Caveat: the session MCP roots at the launch cwd — settle knit-brain facts by source + tests + built dist when the root is elsewhere.
+- **`knitbrain_self_check`** — keystone: audits all four invariants (anti-sycophancy, anti-stale, anti-drift, adherence) in one PASS/FAIL pass.
+- **`knitbrain_run_loop`** — one judge→iterate cycle per call; your `verify_cmd` is the hard gate.
+- **`knitbrain_read` / `knitbrain_optimize` / `knitbrain_retrieve`** — compression loop; exact original always one retrieve away.
+- **Note:** big tool responses may come back skeletonized with a trailing `⟨recall:hash⟩` — strip it before JSON-parsing a tool result.
 
 ---
 
-## Project Map (auto-generated)
+## Project Map
 
 **Entry points:** `dist/lib.js`, `dist/index.js`, `dist/proxy/index.js`, `dist/hooks/index.js`, `src/index.ts`
-**High-fanout (change carefully):** `src/ccr/store.ts`, `src/tokenizer.ts`, `src/engine/feedback.ts`, `src/engine/memory.ts`, `src/engine/knowledge.ts` (+22 more — `knit_find_fanout`)
-**Untested:** `eslint.config.js`, `scripts/bench.ts`, `scripts/consistency.mjs` (+14 more — `knit_query_tests({filter:"untested"})`)
-**Largest:** `src/mcp/tools.ts` (614), `scripts/production-audit.mjs` (345), `src/learn.ts` (328)
+**High-fanout (change carefully):** `src/ccr/store.ts`, `src/tokenizer.ts`, `src/engine/feedback.ts`, `src/engine/memory.ts`, `src/engine/knowledge.ts` — check `knitbrain_query_dependents` before touching.
+**Largest:** `src/mcp/tools.ts`, `scripts/production-audit.mjs`, `src/learn.ts`
 
-**Stats:** 90 files, 11,086 lines (.ts: 82, .mjs: 7, .js: 1)
-
----
-
-## Domain Architecture
-
-### Core Logic
-**Files:** `src/**, lib/**, pkg/**`
-**Concern:** Types, models, business rules, calculations, data transformations
-**Review agents:** `knit-typescript-pro, knit-code-reviewer, knit-architect-reviewer`
-
-### Infrastructure
-**Files:** `prisma/**, drizzle/**, migrations/**`
-**Concern:** Database, migrations, Docker, CI/CD, deployment, external integrations
-**Review agents:** `code-reviewer, performance-optimizer`
-
-### Quality Assurance
-**Files:** `tests/**, __tests__/**, test/**`
-**Concern:** Tests, test coverage, build configs, CI/CD pipelines
-**Review agents:** `knit-qa-expert, knit-debugger, knit-build-engineer`
+Full architecture map + audit procedure: `docs/AUDIT-PROMPT.md`.
 
 ---
 
 ## Build Gates
 
-All must pass before commit:
+All must pass before commit (`npm run verify` runs them in order — build BEFORE test):
 
 - `npm run typecheck`
 - `npm run lint`
-- `npm test`
 - `npm run build`
+- `npm test`
+- `npm run consistency`
+- `npm run bench`
+
+Always `rm -rf dist && npm run verify` before claiming green — stale dist masks build-order bugs. Local rebuild note: `build` re-chmods the three dist entrypoints (a globally symlinked install breaks otherwise).
 
 ---
 
@@ -70,12 +52,13 @@ All must pass before commit:
 | **Inquiry** | Read-only ("what", "where", "audit") — just answer. |
 | **Trivial** | One-line fix — execute → verify. |
 | **Standard** | Single-domain bug fix or feature — research → execute → review. |
-| **Complex** | Cross-domain, touches types/auth, high-fanout, or multi-commit arc — full 6 phases + auto plan mode. |
+| **Complex** | Cross-domain, touches types/auth, high-fanout, or multi-commit arc — full phases + auto plan mode. |
 
 ---
 
-## Workflow on demand
+## Hard constraints
 
-Fetch any phase via `knit_get_workflow({phase})`. Call with no phase to list available sections.
-
-<!-- knit:end -->
+- NO npm publish / release / version bump without explicit human OK.
+- NO force-push, NO `--no-verify`, no destructive git without consent.
+- Branch off main; squash-merge PRs; conventional commits.
+- No yes-man: every PASS backed by pasted output + exit code.
