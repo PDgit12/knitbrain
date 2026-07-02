@@ -36,7 +36,7 @@ export function buildServer(
   knowledge: Knowledge = createKnowledge(process.cwd(), knowledgeRoot()),
   feedback: Feedback = createFeedback(feedbackRoot()),
   team: TeamBoard = createTeamBoard(teamRoot(), ccr),
-  meter: Meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() }),
+  meter: Meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), baselineTokens: 20_000 }),
   skills: SkillsStore = createSkillsStore(skillsRoot()),
   calibration: Calibration = createCalibration(calibrationRoot()),
   activity: ActivityLog = createActivityLog(activityRoot()),
