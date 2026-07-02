@@ -614,6 +614,15 @@ export const TOOLS: readonly ToolDef[] = [
           skill,
           agents,
           host_commands: commands,
+          // The standing driver's per-part ownership (composed by onboard) —
+          // surfaced per task so the loop works in the owning domain instead
+          // of only seeing routing at load_session.
+          workflow_routing: (() => {
+            const wf = loadWorkflow(workflowPath());
+            if (!wf) return "no workflow yet — run knitbrain_onboard to compose the driver";
+            const lines = wf.split("\n").filter((l) => l.startsWith("- ") && l.includes("→"));
+            return lines.length > 0 ? lines : "workflow present (pre-routing version) — re-run onboard answers to add ROUTING";
+          })(),
           meter: ctx.meter.read(),
           directive:
             cls.tier === "complex"
@@ -858,6 +867,10 @@ export const TOOLS: readonly ToolDef[] = [
         const created = gaps
           .filter((g) => wanted.has(g.name.toLowerCase()))
           .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd() }));
+        // Just-created agents/skills must be visible immediately — refresh the
+        // host index now, not on the next full onboard scan.
+        const rescanned = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        saveHostIndex(buildHostIndex(rescanned), hostIndexPath());
         return JSON.stringify({ created }, null, 2);
       }
 
@@ -871,6 +884,26 @@ export const TOOLS: readonly ToolDef[] = [
           ...r.charter,
           domains: detectDomains(ctx.knowledge.listFiles()),
           style: { terse: host.style.terse, usesModel: host.style.usesModel, ...(host.style.model ? { model: host.style.model } : {}) },
+          // The scanned toolkit rides the standing driver: the loop starts every
+          // session knowing its skills/agents instead of rediscovering them.
+          toolkit: {
+            skillCount: host.skills.length,
+            agentCount: host.agents.length,
+            agentNames: host.agents.map((a) => a.name),
+            skillNames: host.skills.map((k) => k.name),
+          },
+          // Per-part routing: map every detected domain to its owning agent +
+          // matching skill (or leave it marked uncovered) so the loop follows
+          // ownership instead of guessing. Created gap-agents are picked up
+          // because create runs BEFORE answers (see the onboard directive).
+          routing: detectDomains(ctx.knowledge.listFiles()).map((d) => {
+            const dl = d.toLowerCase();
+            const agent = host.agents.find((a) => a.name.toLowerCase() === dl || a.name.toLowerCase().includes(dl));
+            const skill = host.skills.find(
+              (k) => k.name.toLowerCase().includes(dl) || k.triggers.some((t) => t.toLowerCase().includes(dl)),
+            );
+            return { domain: d, ...(agent ? { agent: agent.name } : {}), ...(skill ? { skill: skill.name } : {}) };
+          }),
         });
         saveWorkflow(workflow, workflowPath());
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written. knitbrain_load_session now surfaces your intent + workflow every session.`;
@@ -900,7 +933,7 @@ export const TOOLS: readonly ToolDef[] = [
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
           directive:
             gaps.length > 0
-              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]`. Persist intent with `answers`."
+              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]` FIRST - then persist intent with `answers`, so the composed workflow ROUTING covers the just-created agents/skills."
               : "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
         },
         null,
