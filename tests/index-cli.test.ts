@@ -12,8 +12,8 @@ const run = (args: string[]) =>
   spawnSync("node", [CLI, ...args], { input: "", timeout: 4000, encoding: "utf8" });
 
 describe("CLI router — unknown-command guard (G3)", () => {
-  // `npm run verify` runs `test` before `build`, so on a clean checkout dist/
-  // doesn't exist yet — build it here so the spawn test is order-independent.
+  // Build dist/ if a direct `vitest` run hasn't (verify builds first, but a
+  // standalone run may not) — keeps the spawn test order-independent.
   beforeAll(() => {
     if (!existsSync(CLI)) {
       // shell:true so Windows resolves npm.cmd (bare "npm" is ENOENT there).
