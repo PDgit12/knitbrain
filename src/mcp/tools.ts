@@ -614,6 +614,15 @@ export const TOOLS: readonly ToolDef[] = [
           skill,
           agents,
           host_commands: commands,
+          // The standing driver's per-part ownership (composed by onboard) —
+          // surfaced per task so the loop works in the owning domain instead
+          // of only seeing routing at load_session.
+          workflow_routing: (() => {
+            const wf = loadWorkflow(workflowPath());
+            if (!wf) return "no workflow yet — run knitbrain_onboard to compose the driver";
+            const lines = wf.split("\n").filter((l) => l.startsWith("- ") && l.includes("→"));
+            return lines.length > 0 ? lines : "workflow present (pre-routing version) — re-run onboard answers to add ROUTING";
+          })(),
           meter: ctx.meter.read(),
           directive:
             cls.tier === "complex"
@@ -858,6 +867,10 @@ export const TOOLS: readonly ToolDef[] = [
         const created = gaps
           .filter((g) => wanted.has(g.name.toLowerCase()))
           .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd() }));
+        // Just-created agents/skills must be visible immediately — refresh the
+        // host index now, not on the next full onboard scan.
+        const rescanned = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        saveHostIndex(buildHostIndex(rescanned), hostIndexPath());
         return JSON.stringify({ created }, null, 2);
       }
 
