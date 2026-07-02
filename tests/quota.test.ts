@@ -45,7 +45,20 @@ describe("quota — token resolution (no network)", () => {
     process.env["CLAUDE_CODE_OAUTH_TOKEN"] = "env-tok";
     expect(readClaudeToken(home)).toBe("env-tok");
     delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
-    expect(readClaudeToken(home)).toBeNull();
+    expect(readClaudeToken(home, () => null)).toBeNull();
+  });
+
+  it("falls back to the macOS Keychain when the file is absent", () => {
+    const keychain = () => JSON.stringify({ claudeAiOauth: { accessToken: "kc-tok" } });
+    expect(readClaudeToken(home, keychain)).toBe("kc-tok");
+  });
+
+  it("prefers the credentials file over the Keychain; bad keychain JSON → null", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "file-tok" } }));
+    expect(readClaudeToken(home, () => JSON.stringify({ claudeAiOauth: { accessToken: "kc-tok" } }))).toBe("file-tok");
+    rmSync(join(home, ".claude", ".credentials.json"));
+    expect(readClaudeToken(home, () => "not-json")).toBeNull();
   });
 });
 
