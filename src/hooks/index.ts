@@ -20,6 +20,8 @@ import { ccrRoot, memoryRoot, meterRoot, wikiRoot } from "../paths.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
+import { mineNewTranscripts } from "../learn.js";
+import { join } from "node:path";
 
 function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -83,6 +85,17 @@ async function main(): Promise<void> {
       // loop's first step no longer depends on the agent calling load_session.
       const memory = createMemory(memoryRoot());
       process.stdout.write(sessionStartOutput(memory.loadSession()));
+      // Ingestion-gap closer: on subscription hosts assistant prose is
+      // uncapturable live but IS in the on-disk transcripts — incrementally
+      // mine new/changed ones (state-keyed, capped) into the brain.
+      try {
+        const mined = await mineNewTranscripts(process.cwd(), join(memoryRoot(), "learn-state.json"), 2);
+        for (const l of mined.slice(0, 5)) {
+          memory.recordLearning({ summary: l.text.slice(0, 120), lesson: l.text, tags: ["mined:transcript", l.category] });
+        }
+      } catch {
+        /* never break session start */
+      }
       return;
     }
     if (mode === "precompact") {

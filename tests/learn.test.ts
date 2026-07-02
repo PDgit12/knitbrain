@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   renderSection,
   applyToClaudeMd,
   projectSlug,
+  mineNewTranscripts,
 } from "../src/learn.js";
 
 /** Build a transcript line containing a tool_use (assistant side). */
@@ -103,5 +104,54 @@ describe("knitbrain learn — failure mining with success correlation", () => {
     const slug = projectSlug("/Users/dev/my.project");
     expect(slug).not.toMatch(/[/.\\:]/);
     expect(slug).toContain("Users-dev-my-project");
+  });
+});
+
+describe("mineNewTranscripts (auto-learn at SessionStart)", () => {
+  let home: string;
+  let proj: string;
+  let tdir: string;
+  const prevHome = process.env["HOME"];
+  const prevProfile = process.env["USERPROFILE"];
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "kb-autolearn-home-"));
+    proj = mkdtempSync(join(tmpdir(), "kb-autolearn-proj-"));
+    process.env["HOME"] = home;
+    process.env["USERPROFILE"] = home;
+    tdir = join(home, ".claude", "projects", projectSlug(proj));
+    mkdirSync(tdir, { recursive: true });
+  });
+  afterEach(() => {
+    process.env["HOME"] = prevHome;
+    process.env["USERPROFILE"] = prevProfile;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(proj, { recursive: true, force: true });
+  });
+
+  it("mines a new transcript once, skips it while unchanged, re-mines on growth", async () => {
+    const t = join(tdir, "s1.jsonl");
+    writeFileSync(
+      t,
+      [
+        use("1", "Read", { file_path: "/repo/src/utils/Config.ts" }),
+        result("1", "Error: File does not exist.", true),
+        use("2", "Read", { file_path: "/repo/src/core/Config.ts" }),
+        result("2", "export const config = {};"),
+      ].join("\n"),
+    );
+    const statePath = join(home, "learn-state.json");
+    const first = await mineNewTranscripts(proj, statePath);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.category).toBe("paths");
+    const second = await mineNewTranscripts(proj, statePath);
+    expect(second).toHaveLength(0);
+    appendFileSync(t, "\n" + use("3", "Read", { file_path: "/repo/a.ts" }));
+    const third = await mineNewTranscripts(proj, statePath);
+    expect(third).toHaveLength(1);
+  });
+
+  it("returns [] quietly when no transcripts exist", async () => {
+    const out = await mineNewTranscripts(proj, join(home, "learn-state.json"));
+    expect(out).toEqual([]);
   });
 });

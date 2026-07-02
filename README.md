@@ -122,6 +122,11 @@ knitbrain fan  goal.md  --workers 4 --verify "npm test"     # N workers, each in
 A task is marked done only after verify passes (no false green), and parallel workers leave their
 branches for you to review.
 
+One honest distinction: the MCP tool `knitbrain_run_loop` is the closed-loop **protocol** running
+*inside* your agent — it runs the verify gate and issues per-cycle directives, but the host agent does
+the actual editing (an MCP tool cannot drive your editor). The CLI (`loop` / `fan` / `orchestrate`) is
+the closed-loop **automation** running *around* an agent it spawns. Same loop, two altitudes.
+
 ## Also included
 
 These support the three pillars:
@@ -150,6 +155,11 @@ The optimizer is the same in both cases; what differs is reach.
 
 The proxy covers everything; the hook path covers the host tools your platform lets a hook rewrite (full
 on Claude Code, narrower elsewhere). The dashboard meter shows your realized number either way.
+
+Capture completeness, stated plainly: on the **proxy** (API key) the brain sees the full conversation —
+including assistant prose. On **subscription**, live capture is prompts + tool I/O (assistant prose is
+unhookable — true for every tool in this space); on Claude Code the gap self-heals, because SessionStart
+incrementally mines the host's on-disk transcripts (where that prose does land) into the brain.
 
 ## How it compares
 
