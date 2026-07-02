@@ -13,3 +13,13 @@ AUDIT.md
 *.original
 .knitbrain/
 *.md.progress
+
+# internal host-config + local audit scaffolding (agent-generated, machine-local)
+.claude/
+.windsurf/
+.cursor/
+.vscode/
+.mcp.json
+.github/instructions/
+AGENTS.md
+docs/AUDIT-PROMPT.md
