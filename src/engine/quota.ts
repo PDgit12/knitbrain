@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -31,22 +32,45 @@ export interface PlatformQuota {
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 
-/** Resolve a Claude OAuth token: env first, then the credentials file. Null if
- *  absent. Never returned to any caller that logs — used only for the request. */
-export function readClaudeToken(home: string = homedir()): string | null {
+/** macOS: Claude Code stores OAuth creds in the Keychain (item
+ *  "Claude Code-credentials"), NOT .credentials.json — read it via the system
+ *  `security` CLI. May show a one-time macOS allow dialog; that's the OS doing
+ *  its job. Injectable for tests. Same security contract: token goes only to
+ *  the provider endpoint, never logged/stored. */
+export function readKeychainCreds(): string | null {
+  if (process.platform !== "darwin") return null;
+  try {
+    return execFileSync("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null; // absent, denied, or non-mac — all mean "no keychain source"
+  }
+}
+
+/** Resolve a Claude OAuth token: env → credentials file → macOS Keychain.
+ *  Null if absent. Never returned to any caller that logs — used only for the
+ *  request. */
+export function readClaudeToken(home: string = homedir(), keychain: () => string | null = readKeychainCreds): string | null {
   const env = (process.env["CLAUDE_CODE_OAUTH_TOKEN"] ?? "").trim();
   if (env) return env;
   const base = process.env["CLAUDE_CONFIG_DIR"] || join(home, ".claude");
   const path = join(base, ".credentials.json");
-  if (!existsSync(path)) return null;
-  try {
-    const creds = JSON.parse(readFileSync(path, "utf8")) as {
-      claudeAiOauth?: { accessToken?: string };
-    };
-    return creds.claudeAiOauth?.accessToken?.trim() || null;
-  } catch {
-    return null;
+  const parse = (raw: string): string | null => {
+    try {
+      const creds = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
+      return creds.claudeAiOauth?.accessToken?.trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  if (existsSync(path)) {
+    const fromFile = parse(readFileSync(path, "utf8"));
+    if (fromFile) return fromFile;
   }
+  const raw = keychain();
+  return raw ? parse(raw) : null;
 }
 
 interface RawWindow {

@@ -286,7 +286,7 @@ async function tick() {
       : "<tr><td>no agent activity yet — run a knitbrain tool</td></tr>";
     document.getElementById("quota").innerHTML = (s.quota && s.quota.windows.length)
       ? "<tr><th>window</th><th>used</th><th>resets</th></tr>" + s.quota.windows.map(w => \`<tr><td>\${esc(w.label)}</td><td>\${w.usedPct}%</td><td>\${w.resetsInMin != null ? w.resetsInMin + "m" : "—"}</td></tr>\`).join("")
-      : "<tr><td>no subscription source (using an API key, or platform has no usage API)</td></tr>";
+      : "<tr><td>no subscription usage source found — either you're on an API key (see billing), or no local OAuth credentials were readable (env CLAUDE_CODE_OAUTH_TOKEN · ~/.claude/.credentials.json · macOS Keychain 'Claude Code-credentials'). On macOS the first read may show a Keychain allow dialog.</td></tr>";
     if (s.knowledge) {
       document.getElementById("kfiles").textContent = s.knowledge.files + " files indexed";
       document.getElementById("kg").innerHTML = "<tr><th>file</th><th>dependents</th></tr>" +
