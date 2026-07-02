@@ -151,6 +151,25 @@ The optimizer is the same in both cases; what differs is reach.
 The proxy covers everything; the hook path covers the host tools your platform lets a hook rewrite (full
 on Claude Code, narrower elsewhere). The dashboard meter shows your realized number either way.
 
+## How it compares
+
+Token burn has three taps: **input** (what the model reads), **output** (what it writes), and **memory**
+(what gets re-derived every session). Single-tap tools each close one; knitbrain closes all three from one
+install — and states plainly where the standard criticisms of each tap do or don't apply here:
+
+| Criticism of single-tap tools | knitbrain's answer |
+|---|---|
+| "Compression retrieval is a second call; small payloads can cost more" | **Never-expand is build-gated**: small/incompressible payloads pass through untouched. Retrieval is on-demand (`⟨recall:hash⟩`), not speculative. |
+| "Compressing context breaks the provider's cache discount" | The **CacheAligner** exists for exactly this: stable prefix bytes, volatile lines moved to a marked tail, `cache_control` added only when the client set none. |
+| "Lossy compression makes models confidently wrong" | Compression here is **lossless** — round-trip 100%, identifier fidelity 100%, error/summary lines never elided, gated by `knitbrain evals` on real transcripts, byte-for-byte recovery always available. |
+| "Inside a lean harness there's little left to squeeze" | True, and measured honestly: wire-level savings shrink inside managed harnesses. That's why the MCP + hook path exists (works *inside* Claude Code), and why `knitbrain profile` measures **your** transcripts before you change anything. |
+| "Terse output degrades multi-turn quality" | Terse mode never drops technical content, numbers, paths, or decision-changing caveats — and it's opt-in at every layer (rules, `/terse`, proxy `KNITBRAIN_TERSE=1`). |
+| "The real fix is discipline, not tools" | Agreed — that's the third tap. The tier router, verify-before-done gate, and self-check invariants are packaged discipline; memory + wiki stop the most expensive burn of all: re-deriving the same context every session. |
+
+Numbers to expect, honestly: 60–70% on code/JSON/logs, ~18% on prose, ~48% all-inclusive on real
+measured sessions — less inside an already-lean harness, more on raw API traffic. Percentages from
+different taps overlap the same bill; they add, they don't multiply.
+
 ## Commands
 
 | Command | What it does |
