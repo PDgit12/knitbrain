@@ -81,3 +81,27 @@ describe("modelWindow (meter model→window map)", () => {
     expect(modelWindow("mystery-model")).toBeNull();
   });
 });
+
+describe("self_check anti-drift:routing invariant", () => {
+  const base = {
+    graphFiles: 1,
+    wikiContradictionsBefore: 0,
+    wikiContradictionsAfter: 0,
+    wikiResolvedCount: 0,
+    workflowExists: true,
+    classified: true,
+    learned: false,
+    verified: false,
+  };
+
+  it("omitted without comparison; pass when covered; fail + residual when stale", () => {
+    expect(runSelfCheck(base).invariants.some((i) => i.name === "anti-drift:routing")).toBe(false);
+    const ok = runSelfCheck({ ...base, routingStaleDomains: [] });
+    expect(ok.invariants.find((i) => i.name === "anti-drift:routing")!.pass).toBe(true);
+    const stale = runSelfCheck({ ...base, routingStaleDomains: ["proxy", "scheduler"] });
+    const inv = stale.invariants.find((i) => i.name === "anti-drift:routing")!;
+    expect(inv.pass).toBe(false);
+    expect(inv.detail).toContain("proxy, scheduler");
+    expect(stale.residualGaps.some((g) => g.includes("ROUTING is stale"))).toBe(true);
+  });
+});

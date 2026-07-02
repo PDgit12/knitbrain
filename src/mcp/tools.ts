@@ -20,7 +20,7 @@ import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
 import { slashCommands } from "../platforms.js";
-import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { writeAtomic } from "../atomic.js";
 import { runClosedLoop, defaultJudge, makeGrade, makeReview } from "../engine/closed-loop.js";
@@ -556,7 +556,13 @@ export const TOOLS: readonly ToolDef[] = [
             constraints: found.constraints,
             body: found.body,
           }
-        : { status: "drafted — refine while working, then knitbrain_skill_save", constraints: [] as string[], body: ctx.skills.draft(task, seed) };
+        : {
+            status: "drafted — refine while working, then knitbrain_skill_save",
+            // Charter guardrails ride EVERY drafted skill, not only spawned
+            // agents — "never delete files" must reach the per-task playbook.
+            constraints: ctx.skills.list().find((k) => k.name === "project-constraints")?.constraints ?? ([] as string[]),
+            body: ctx.skills.draft(task, seed),
+          };
 
       // AGENTS (puppeteer mode): on complex tasks the agent FILES are
       // written, not just proposed — same persistence model as skills.
@@ -626,7 +632,9 @@ export const TOOLS: readonly ToolDef[] = [
           meter: ctx.meter.read(),
           directive:
             cls.tier === "complex"
-              ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update."
+              ? agents.length > 0
+                ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update."
+                : "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). No scoped agents could be derived (no code domains yet) — follow the workflow ROUTING if present, or create agents for the planned parts with knitbrain_create_agent / knitbrain_onboard create:[…]. Then verify; record learning + skill update."
               : "Execute with the skill. Verify before claiming done. Then close the loop: knitbrain_skill_outcome (did it WORK — concrete outcome, not 'done') + record learning if anything non-obvious surfaced.",
         },
         null,
@@ -864,6 +872,13 @@ export const TOOLS: readonly ToolDef[] = [
           projectHasTests(ctx.knowledge.listFiles()),
         );
         const wanted = new Set(create.map((c) => c.toLowerCase()));
+        // Declared greenfield parts aren't code-detectable gaps yet — synthesize
+        // an agent gap for any requested name the scan didn't produce.
+        for (const name of wanted) {
+          if (!gaps.some((g) => g.name.toLowerCase() === name)) {
+            gaps.push({ kind: "agent", name, reason: "declared part (greenfield)", question: "" });
+          }
+        }
         const created = gaps
           .filter((g) => wanted.has(g.name.toLowerCase()))
           .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd() }));
@@ -880,9 +895,17 @@ export const TOOLS: readonly ToolDef[] = [
         // Gap D: compose the standing workflow from charter + style + domains and
         // persist it as THE driver load_session re-surfaces every session.
         const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        // Domains: detected from code when it exists; else the user's DECLARED
+        // parts (greenfield 6th answer) — the plan seeds routing before code.
+        const detected = detectDomains(ctx.knowledge.listFiles());
+        const declared = (answers[5] ?? "")
+          .split(",")
+          .map((x) => x.trim().toLowerCase().replace(/\s+/g, "-"))
+          .filter(Boolean);
+        const domains = detected.length > 0 ? detected : declared;
         const workflow = composeWorkflow({
           ...r.charter,
-          domains: detectDomains(ctx.knowledge.listFiles()),
+          domains,
           style: { terse: host.style.terse, usesModel: host.style.usesModel, ...(host.style.model ? { model: host.style.model } : {}) },
           // The scanned toolkit rides the standing driver: the loop starts every
           // session knowing its skills/agents instead of rediscovering them.
@@ -896,7 +919,7 @@ export const TOOLS: readonly ToolDef[] = [
           // matching skill (or leave it marked uncovered) so the loop follows
           // ownership instead of guessing. Created gap-agents are picked up
           // because create runs BEFORE answers (see the onboard directive).
-          routing: detectDomains(ctx.knowledge.listFiles()).map((d) => {
+          routing: domains.map((d) => {
             const dl = d.toLowerCase();
             const agent = host.agents.find((a) => a.name.toLowerCase() === dl || a.name.toLowerCase().includes(dl));
             const skill = host.skills.find(
@@ -906,7 +929,39 @@ export const TOOLS: readonly ToolDef[] = [
           }),
         });
         saveWorkflow(workflow, workflowPath());
-        return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written. knitbrain_load_session now surfaces your intent + workflow every session.`;
+        const uncovered = domains.filter((d) => {
+          const dl = d.toLowerCase();
+          return !host.agents.some((a2) => a2.name.toLowerCase() === dl || a2.name.toLowerCase().includes(dl));
+        });
+        const gapHint =
+          uncovered.length > 0
+            ? ` ${uncovered.length} part(s) have no agent yet (${uncovered.join(", ")}) — call knitbrain_onboard with create: [${uncovered.map((u) => `"${u}"`).join(", ")}] to scaffold them.`
+            : "";
+        // Goal embedded from day one: write a loop-ready goal.md (charter goal →
+        // one checkbox per part, DoD + verify inline) so `knitbrain loop goal.md`
+        // and knitbrain_run_loop can drive to met=true immediately. Never clobber
+        // an existing goal file.
+        const goalPath = join(process.cwd(), "goal.md");
+        let goalNote = "";
+        if (!existsSync(goalPath)) {
+          const parts = domains.length > 0 ? domains : ["the project"];
+          writeFileSync(
+            goalPath,
+            [
+              `# Goal — ${r.charter.goal}`,
+              "",
+              `DONE MEANS: ${r.charter.dod}`,
+              `VERIFY: ${r.charter.verify}`,
+              "",
+              ...parts.map((d) => `- [ ] ${d}: design + implement + verify against the charter`),
+              "",
+              "Drive: knitbrain_run_loop(goal, verify_cmd) per cycle, or `knitbrain loop goal.md`.",
+            ].join("\n"),
+            "utf8",
+          );
+          goalNote = " goal.md written (one checkbox per part) — start the loop with `knitbrain loop goal.md` or knitbrain_run_loop.";
+        }
+        return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written (ROUTING covers: ${domains.join(", ") || "none"}). knitbrain_load_session now surfaces your intent + workflow every session.${gapHint}${goalNote}`;
       }
       if (!ctx.wiki) return "wiki unavailable — onboard needs the wiki store.";
       const imp = scanAndIngest(process.cwd(), { knowledge: ctx.knowledge, wiki: ctx.wiki });
@@ -922,13 +977,20 @@ export const TOOLS: readonly ToolDef[] = [
         { skills: host.skills, agents: host.agents },
         projectHasTests(ctx.knowledge.listFiles()),
       );
+      // Greenfield: no code yet means no detectable domains — ask the user for
+      // the INTENDED parts so routing + gap agents can be seeded from the plan.
+      const detected = detectDomains(ctx.knowledge.listFiles());
+      const questions =
+        detected.length === 0
+          ? [...INTENT_QUESTIONS, "Repo has no code yet — list the intended parts/modules of the system (comma-separated, e.g. 'orchestrator, scheduler, model-runtime'), so each part gets routed + a scoped agent."]
+          : [...INTENT_QUESTIONS];
       return JSON.stringify(
         {
           greeting:
             `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned. ` +
             `Toolkit: ${host.skills.length} skill(s) [${sk.project} project · ${sk.global} global · ${sk.plugin} plugin], ` +
             `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin].`,
-          questions: INTENT_QUESTIONS,
+          questions,
           adaptiveQuestions: gaps.map((g) => g.question),
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
           directive:
@@ -1058,6 +1120,13 @@ export const TOOLS: readonly ToolDef[] = [
         verified: s.verified,
         // context-hygiene: standing host config is paid every session.
         hygieneFindings: scanContextHygiene().findings,
+        // anti-drift: domains that exist in code but not in the stored ROUTING
+        // — the workflow went stale as the project grew.
+        routingStaleDomains: (() => {
+          const wf = loadWorkflow(workflowPath());
+          if (!wf || !/^ROUTING/m.test(wf)) return undefined; // no routed workflow yet — the workflow invariant covers absence
+          return detectDomains(ctx.knowledge.listFiles()).filter((d) => !wf.includes(`- ${d} →`));
+        })(),
       });
       return JSON.stringify(report, null, 2);
     },

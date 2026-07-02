@@ -116,7 +116,10 @@ export function ingestTranscript(rawJsonl: string, wiki: WikiStore, title = `ses
     `Session: ${firstPrompt}\n` +
     `- claim: turns = ${turns.length}\n` +
     `files: ${files.join(", ") || "(none)"}`;
-  const r = wiki.ingest({ title, kind: "session", content, links: files.map((f) => f.split("/").pop() ?? f) });
+  // Files stay as plain text — auto-linking every filename-shaped token created
+  // a stub-entity page per file ("next-js", "agents-md"…): knowledge-base noise.
+  // Real entity pages come from deliberate wiki_ingest links, not regex hits.
+  const r = wiki.ingest({ title, kind: "session", content, links: [] });
   return { page: r.page, turns: turns.length, touched: r.touched };
 }
 
