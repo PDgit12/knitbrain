@@ -34,6 +34,7 @@ const server = createProxyServer({
   ...(override ? { upstream: override } : {}),
   ...(terseOn ? { options: { terseDirective: TERSE_DIRECTIVE } } : {}),
   upstreams,
+  onModel: (m) => meter.onModel(m),
   onStats: (s) => {
     // The optimized request size IS the live context window usage.
     meter.onRequest(s.originalTokens, s.optimizedTokens);

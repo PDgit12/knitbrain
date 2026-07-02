@@ -41,6 +41,9 @@ export interface SelfCheckInput {
   learned: boolean;
   /** A verify_claim ran this session (anti-sycophancy fact-gate). */
   verified: boolean;
+  /** Host context-hygiene findings (dead rules, archive dirs, duplicate MCPs).
+   * Undefined = scan not run (invariant omitted); empty = scanned clean. */
+  hygieneFindings?: string[];
 }
 
 export function runSelfCheck(x: SelfCheckInput): SelfCheckReport {
@@ -84,6 +87,18 @@ export function runSelfCheck(x: SelfCheckInput): SelfCheckReport {
   // 5. adherence: did a classifier run (write-gate open)?
   invariants.push({ name: "adherence:classified", pass: x.classified, detail: x.classified ? "session classified — write gate open" : "no classifier this session — close-the-loop writes are blocked" });
   if (!x.classified) residualGaps.push("call knitbrain_run / classify_task to open the write gate (adherence)");
+
+  // 6. context-hygiene: standing host config is paid every session — clutter
+  // there routinely beats what compression saves. Not auto-fixable (it's the
+  // USER's config), so findings land as residual gaps.
+  if (x.hygieneFindings !== undefined) {
+    if (x.hygieneFindings.length === 0) {
+      invariants.push({ name: "context-hygiene:host", pass: true, detail: "host config lean — no dead rules, archive dirs, or duplicate MCP servers" });
+    } else {
+      invariants.push({ name: "context-hygiene:host", pass: false, detail: `${x.hygieneFindings.length} clutter finding(s) in the host config` });
+      for (const f of x.hygieneFindings) residualGaps.push(`context-hygiene: ${f}`);
+    }
+  }
 
   return { invariants, allPass: invariants.every((i) => i.pass), fixesApplied, residualGaps };
 }

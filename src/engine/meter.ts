@@ -38,6 +38,8 @@ export interface Meter {
   onToolOutput(tokens: number): void;
   /** MCP-side: the optimizer saved `tokens` on a payload (savings accounting without the proxy). */
   onSaved(tokens: number): void;
+  /** Proxy saw the request's model id — adopt its known window (env override still wins). */
+  onModel(model: string): void;
   read(): MeterReading;
   /** New session: reset usage (savings history is kept). */
   reset(): void;
@@ -63,6 +65,25 @@ interface State {
   lastRequestTokens: number;
   toolTokens: number;
   savedTokens: number;
+  /** Window adopted from the request's model id (proxy path). */
+  modelWindowTokens?: number;
+}
+
+/**
+ * Best-known context window by model id. Null = unknown (keep configured).
+ * Kills both failure modes of a fixed 200k: false "SAVE HANDOFF" alarms on
+ * 1M-window models and false comfort on 128k ones.
+ */
+export function modelWindow(model: string): number | null {
+  const m = model.toLowerCase();
+  if (m.includes("[1m]") || m.includes("-1m")) return 1_000_000;
+  if (m.startsWith("claude")) return 200_000;
+  if (m.startsWith("gpt-5")) return 400_000;
+  if (m.startsWith("gpt-4.1")) return 1_000_000;
+  if (m.startsWith("gpt-4o") || m.startsWith("gpt-4-turbo")) return 128_000;
+  if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return 200_000;
+  if (m.startsWith("gemini")) return 1_000_000;
+  return null;
 }
 
 /** Standard context-window tiers (tokens). The smallest tier ≥ observed usage
@@ -73,7 +94,8 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
   // Configured window: env override → option → 200k default. Hardcoding 200k
   // pinned usedPct at 100% on bigger models (false handoff) — env + auto-heal fix it.
   const envWindow = Number(process.env["KNITBRAIN_WINDOW_TOKENS"]);
-  const windowTokens = (Number.isFinite(envWindow) && envWindow > 0 ? envWindow : undefined) ?? opts.windowTokens ?? 200_000;
+  const envSet = Number.isFinite(envWindow) && envWindow > 0;
+  const windowTokens = (envSet ? envWindow : undefined) ?? opts.windowTokens ?? 200_000;
   const warnAt = opts.warnAt ?? 0.7;
   const handoffAt = opts.handoffAt ?? 0.85;
   mkdirSync(root, { recursive: true });
@@ -115,19 +137,31 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       state.savedTokens += Math.max(0, tokens);
       save();
     },
+    onModel(model) {
+      const w = modelWindow(model);
+      if (w === null) return;
+      reload();
+      if (state.modelWindowTokens !== w) {
+        state.modelWindowTokens = w;
+        save();
+      }
+    },
     read() {
       reload();
       // Prefer the host's REAL window (transcript probe) when available; else
       // fall back to knitbrain's own tracked throughput (under-counts, honest).
       const real = opts.realUsage?.() ?? 0;
       const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real);
+      // Window precedence: explicit env override > window adopted from the
+      // request's model id (proxy path) > configured/default.
+      const baseWindow = envSet ? windowTokens : state.modelWindowTokens ?? windowTokens;
       // Auto-heal: if observed usage exceeds the configured window, the window
       // is stale (large-context model) — use the smallest standard tier that
       // actually fits, so usedPct/status are honest instead of pinned at 100%.
       const effectiveWindow =
-        usedTokens > windowTokens
+        usedTokens > baseWindow
           ? WINDOW_TIERS.find((t) => t >= usedTokens) ?? Math.ceil(usedTokens / 1_000_000) * 1_000_000
-          : windowTokens;
+          : baseWindow;
       const usedPct = Math.min(100, Math.round((usedTokens / effectiveWindow) * 1000) / 10);
       const frac = usedTokens / effectiveWindow;
       const status: MeterReading["status"] =

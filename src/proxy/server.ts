@@ -36,6 +36,8 @@ export interface ProxyConfig {
   feedback?: Pick<Feedback, "shouldSkip" | "onCompress">;
   /** Observe optimization stats per request (telemetry hook). */
   onStats?: (stats: ProxyStats) => void;
+  /** Observe the request's model id (meter adopts the model's known window). */
+  onModel?: (model: string) => void;
   /** Abort if the upstream sends no response headers within this many ms
    * (bounds dead/hung endpoints; never cuts an in-flight stream). Default 30s. */
   connectTimeoutMs?: number;
@@ -138,6 +140,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
     }
 
     const provider = detectProvider(req.url);
+    if (typeof parsed["model"] === "string") cfg.onModel?.(parsed["model"]);
     const options: OptimizeOptions = { provider, ...cfg.options };
     if (cfg.feedback && options.allowProse === undefined) {
       options.allowProse = !cfg.feedback.shouldSkip("prose");
