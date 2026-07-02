@@ -75,6 +75,10 @@ export interface WorkflowDoc {
   goal: string;
   domains: string[];
   style: { terse: boolean; usesModel: boolean; model?: string };
+  /** The user's scanned toolkit (skills + agents across project/global/plugin) —
+   * baked into the standing workflow so the loop starts every session knowing
+   * its arsenal instead of rediscovering it per task. */
+  toolkit?: { skillCount: number; agentCount: number; agentNames: string[]; skillNames: string[] };
 }
 
 /**
@@ -87,6 +91,15 @@ export function composeWorkflow(w: WorkflowDoc): string {
   const domains = w.domains.length ? w.domains.join(", ") : "(none detected)";
   const model = w.style.usesModel && w.style.model ? ` · model=${w.style.model}` : "";
   const style = `${w.style.terse ? "terse" : "standard"}${model}`;
+  // Toolkit block: cap the name lists so the workflow stays a driver, not an
+  // inventory dump — the full index lives in host-index.json; run() routes per task.
+  const toolkit = w.toolkit
+    ? [
+        `TOOLKIT: ${w.toolkit.skillCount} skill(s) · ${w.toolkit.agentCount} agent(s) (full index: host-index.json · knitbrain_run routes per task)`,
+        w.toolkit.agentNames.length ? `AGENTS: ${w.toolkit.agentNames.slice(0, 8).join(", ")}${w.toolkit.agentNames.length > 8 ? ", …" : ""}` : "",
+        w.toolkit.skillNames.length ? `SKILLS: ${w.toolkit.skillNames.slice(0, 10).join(", ")}${w.toolkit.skillNames.length > 10 ? ", …" : ""}` : "",
+      ].filter((l) => l !== "")
+    : [];
   return [
     `# Workflow — ${w.project}`,
     "",
@@ -96,9 +109,12 @@ export function composeWorkflow(w: WorkflowDoc): string {
     `CONSTRAINTS: ${w.constraints}`,
     `DOMAINS: ${domains}`,
     `STYLE: ${style}`,
+    ...toolkit,
     "",
     "LOOP (every task): classify → plan if complex → work in the owning domain →",
     `verify (run: ${w.verify}) → record learning → close the loop signals.`,
+    "Use the TOOLKIT: prefer an existing skill/agent over composing a new one; for",
+    "complex goals spawn the scoped agents and drive knitbrain_run_loop until met=true.",
     "Read-only tasks stay inquiry (no plan-mode). Never violate CONSTRAINTS without",
     "the user's explicit OK. No yes-man — claims backed by run output, facts from the brain.",
   ].join("\n");

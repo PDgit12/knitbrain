@@ -871,6 +871,14 @@ export const TOOLS: readonly ToolDef[] = [
           ...r.charter,
           domains: detectDomains(ctx.knowledge.listFiles()),
           style: { terse: host.style.terse, usesModel: host.style.usesModel, ...(host.style.model ? { model: host.style.model } : {}) },
+          // The scanned toolkit rides the standing driver: the loop starts every
+          // session knowing its skills/agents instead of rediscovering them.
+          toolkit: {
+            skillCount: host.skills.length,
+            agentCount: host.agents.length,
+            agentNames: host.agents.map((a) => a.name),
+            skillNames: host.skills.map((k) => k.name),
+          },
         });
         saveWorkflow(workflow, workflowPath());
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written. knitbrain_load_session now surfaces your intent + workflow every session.`;

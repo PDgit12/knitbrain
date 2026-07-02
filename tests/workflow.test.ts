@@ -107,3 +107,38 @@ describe("workflow driver: compose + persist + load (Gap D)", () => {
     expect(loadWorkflow(join(root, "nope.md"))).toBeNull();
   });
 });
+
+describe("composeWorkflow toolkit block (loop knows its arsenal)", () => {
+  const base = {
+    project: "demo",
+    dod: "tests green",
+    constraints: "no publish",
+    verify: "npm test",
+    goal: "ship",
+    domains: ["engine"],
+    style: { terse: true, usesModel: false },
+  };
+
+  it("renders TOOLKIT/AGENTS/SKILLS when provided, capped", () => {
+    const w = composeWorkflow({
+      ...base,
+      toolkit: {
+        skillCount: 157,
+        agentCount: 71,
+        agentNames: Array.from({ length: 12 }, (_, i) => `agent${i}`),
+        skillNames: ["release-surface-verify", "tdd"],
+      },
+    });
+    expect(w).toContain("TOOLKIT: 157 skill(s) · 71 agent(s)");
+    expect(w).toContain("AGENTS: agent0");
+    expect(w).toContain(", …"); // agent list capped at 8
+    expect(w).toContain("SKILLS: release-surface-verify, tdd");
+    expect(w).toContain("prefer an existing skill/agent");
+  });
+
+  it("omits the block when no toolkit given (deterministic, backward-shaped)", () => {
+    const w = composeWorkflow(base);
+    expect(w).not.toMatch(/^TOOLKIT:/m);
+    expect(w).toContain("GOAL: ship");
+  });
+});
