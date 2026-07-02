@@ -318,6 +318,16 @@ tick(); setInterval(tick, 2000);
 /** Loopback-only dashboard server: GET / (page), GET /api/state (JSON). */
 export function createDashboardServer(deps: DashboardDeps): Server {
   return createServer((req, res) => {
+    // SECURITY: the server binds loopback, but a DNS-rebinding page in the
+    // user's browser reaches 127.0.0.1 with an attacker Host header — reject
+    // any Host that isn't loopback so /api/state (learnings, board, wiki)
+    // can't be read cross-origin.
+    const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+    if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden host" }));
+      return;
+    }
     if (req.url === "/api/state") {
       void (async () => {
         try {

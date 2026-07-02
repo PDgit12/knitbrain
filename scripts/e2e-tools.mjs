@@ -207,6 +207,27 @@ const main = async () => {
     const cleared = await call("knitbrain_team_clear");
     ok(!cleared.isError, "team_clear empties the board");
 
+    console.log("[e2e-tools] keystone + closed loop (behavioral)");
+    const sc = await call("knitbrain_self_check");
+    // The server's own optimizer may skeletonize a big tool response and append
+    // a ⟨recall:hash⟩ handle after the JSON — strip it before parsing.
+    let scBody = null;
+    try {
+      scBody = JSON.parse(sc.text.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
+    } catch {}
+    ok(
+      !sc.isError && scBody && Array.isArray(scBody.invariants) && scBody.invariants.length >= 4 && typeof scBody.allPass === "boolean",
+      "self_check runs the invariant auditors and returns a verdict (invariants[] + allPass)",
+    );
+    const loopMet = JSON.parse(
+      (await call("knitbrain_run_loop", { goal: "e2e smoke goal", verify_cmd: "node -e \"process.exit(0)\"" })).text,
+    );
+    ok(loopMet.met === true, "run_loop stops at met=true when the verify gate passes");
+    const loopNot = JSON.parse(
+      (await call("knitbrain_run_loop", { goal: "e2e failing goal", verify_cmd: "node -e \"process.exit(1)\"", max_iters: 1 })).text,
+    );
+    ok(loopNot.met === false, "run_loop reports met=false when the hard gate fails");
+
     console.log("[e2e-tools] observability");
     const metrics = await call("knitbrain_metrics");
     ok(metrics.text.includes("calibration") || metrics.text.includes("feedback"), "metrics exposes the self-tuning state");

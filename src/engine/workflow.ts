@@ -52,7 +52,10 @@ export function classifyTask(description: string, files: string[] = [], scopeAdj
       reason: (keywordComplex ? "high-risk keyword detected" : `${fileCount} files in scope`) + calNote,
     };
   }
-  if (TRIVIAL.test(description) || (fileCount <= 1 && description.length < 60)) {
+  // A trivial keyword ("bump", "rename"…) only wins on a genuinely small ask —
+  // "full audit + fix build bug and bump version" is not trivial because it
+  // mentions a bump. Long descriptions carry multi-part scope.
+  if ((TRIVIAL.test(description) && description.length < 80) || (fileCount <= 1 && description.length < 60)) {
     return { tier: "trivial", phases: ["EXECUTE"], autoPlanMode: false, reason: "small, low-risk change" };
   }
   return {
