@@ -19,11 +19,20 @@ const upstreams = {
 
 const meter = createMeter(meterRoot());
 
+// Output-side lever: KNITBRAIN_TERSE=1 appends a compact terse directive to
+// every request's system tail. Off by default — the proxy never alters the
+// user's prompt without an explicit opt-in.
+const TERSE_DIRECTIVE =
+  'OUTPUT BUDGET: answer terse — same facts, fewer words. Drop filler, pleasantries, and hedging; prefer tables/bullets over prose and code over description. NEVER drop technical content, numbers, file paths, or decision-changing caveats. If the user asks for "verbose" / "explain fully", answer that reply in full prose.';
+const terseEnv = (process.env["KNITBRAIN_TERSE"] ?? "").toLowerCase();
+const terseOn = terseEnv !== "" && terseEnv !== "0" && terseEnv !== "off" && terseEnv !== "false";
+
 const server = createProxyServer({
   ccr: createFileCCRStore(ccrRoot()),
   // Shared TOIN store: retrievals voted via MCP back off proxy prose anchoring too.
   feedback: createFeedback(feedbackRoot()),
   ...(override ? { upstream: override } : {}),
+  ...(terseOn ? { options: { terseDirective: TERSE_DIRECTIVE } } : {}),
   upstreams,
   onStats: (s) => {
     // The optimized request size IS the live context window usage.
