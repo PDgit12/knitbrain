@@ -879,6 +879,18 @@ export const TOOLS: readonly ToolDef[] = [
             agentNames: host.agents.map((a) => a.name),
             skillNames: host.skills.map((k) => k.name),
           },
+          // Per-part routing: map every detected domain to its owning agent +
+          // matching skill (or leave it marked uncovered) so the loop follows
+          // ownership instead of guessing. Created gap-agents are picked up
+          // because create runs BEFORE answers (see the onboard directive).
+          routing: detectDomains(ctx.knowledge.listFiles()).map((d) => {
+            const dl = d.toLowerCase();
+            const agent = host.agents.find((a) => a.name.toLowerCase() === dl || a.name.toLowerCase().includes(dl));
+            const skill = host.skills.find(
+              (k) => k.name.toLowerCase().includes(dl) || k.triggers.some((t) => t.toLowerCase().includes(dl)),
+            );
+            return { domain: d, ...(agent ? { agent: agent.name } : {}), ...(skill ? { skill: skill.name } : {}) };
+          }),
         });
         saveWorkflow(workflow, workflowPath());
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written. knitbrain_load_session now surfaces your intent + workflow every session.`;
@@ -908,7 +920,7 @@ export const TOOLS: readonly ToolDef[] = [
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
           directive:
             gaps.length > 0
-              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]`. Persist intent with `answers`."
+              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]` FIRST - then persist intent with `answers`, so the composed workflow ROUTING covers the just-created agents/skills."
               : "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
         },
         null,

@@ -142,3 +142,24 @@ describe("composeWorkflow toolkit block (loop knows its arsenal)", () => {
     expect(w).toContain("GOAL: ship");
   });
 });
+
+describe("composeWorkflow ROUTING block (per-part ownership)", () => {
+  it("maps covered domains to agent+skill and marks uncovered ones", () => {
+    const w = composeWorkflow({
+      project: "demo",
+      dod: "tests green",
+      constraints: "no publish",
+      verify: "npm test",
+      goal: "ship",
+      domains: ["engine", "proxy"],
+      style: { terse: true, usesModel: false },
+      routing: [
+        { domain: "engine", agent: "engine", skill: "engine-patterns" },
+        { domain: "proxy" },
+      ],
+    });
+    expect(w).toContain("ROUTING (each part of the project");
+    expect(w).toContain("- engine → agent:engine · skill:engine-patterns");
+    expect(w).toContain("- proxy → NO AGENT — create via knitbrain_onboard");
+  });
+});
