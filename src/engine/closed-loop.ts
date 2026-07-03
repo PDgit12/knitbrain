@@ -71,15 +71,21 @@ export function runClosedLoop(steps: ClosedLoopSteps, maxIterations = 6): Closed
 
 // ── default step factories (used by the CLI; tests inject their own) ──
 
-/** A goal is attemptable if it carries actionable content (a task or a brief). */
-export function defaultJudge(goalText: string): { clear: boolean; reason: string } {
+/**
+ * A goal is attemptable if it carries actionable content (a checkbox task or a
+ * brief) OR a hard verify gate is supplied — the gate IS the objective
+ * definition of done, so even a terse goal ("make green") is drivable when a
+ * real verify_cmd backs it. Only a bare, gate-less wish is rejected.
+ */
+export function defaultJudge(goalText: string, hasGate = false): { clear: boolean; reason: string } {
   const trimmed = goalText.trim();
-  if (trimmed.length === 0) return { clear: false, reason: "empty goal" };
+  if (trimmed.length === 0 && !hasGate) return { clear: false, reason: "empty goal" };
   const hasTask = /- \[[ xX]\]\s+\S/.test(goalText);
   const hasBrief = trimmed.split(/\s+/).length >= 3;
-  return hasTask || hasBrief
-    ? { clear: true, reason: hasTask ? "goal has checkbox tasks" : "goal has an actionable brief" }
-    : { clear: false, reason: "goal too vague to attempt" };
+  if (hasTask) return { clear: true, reason: "goal has checkbox tasks" };
+  if (hasBrief) return { clear: true, reason: "goal has an actionable brief" };
+  if (hasGate) return { clear: true, reason: "verify gate defines done" };
+  return { clear: false, reason: "goal too vague to attempt (no verify gate)" };
 }
 
 /** Grade = run the verify command (real). Empty verify → vacuously passes. */

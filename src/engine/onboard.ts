@@ -243,21 +243,19 @@ export function detectDomains(files: string[]): string[] {
 }
 
 /**
- * Loop-ready goal checkboxes derived from the charter goal — one actionable task
- * per line the outer loop ticks as it goes (never the vague "design + implement
- * + verify" boilerplate). If the project has parts (detected domains or declared
- * greenfield modules), each part carries the goal; otherwise a compound goal
- * ("A + B", "A and B", "A; B") splits into per-clause increments, falling back
- * to the goal itself as a single actionable task.
+ * Loop-ready goal checkboxes derived from the charter goal — actionable, never
+ * the vague "design + implement + verify" boilerplate. When the project has
+ * real parts (detected domains or declared greenfield modules) each part is its
+ * own checkbox carrying the goal; otherwise the goal itself is ONE checkbox.
+ *
+ * Deliberately NOT split into sub-clauses: the loop runs ONE holistic verify
+ * gate after each box, so a box must independently pass the gate. Splitting a
+ * single goal into "A"/"B" clauses that only pass together would stall the loop
+ * on the first box — real modules are independent units; sentence clauses are not.
  */
 export function goalCheckboxes(goal: string, parts: string[]): string[] {
   const g = goal.replace(/\s+/g, " ").trim() || "the current goal";
-  if (parts.length > 0) return parts.map((d) => `- [ ] ${d}: ${g}`);
-  const clauses = g
-    .split(/\s*\+\s*|\s+and\s+|\s*;\s*/i)
-    .map((s) => s.trim())
-    .filter((s) => s.split(/\s+/).length >= 2); // drop bare fragments ("tax")
-  return (clauses.length > 1 ? clauses : [g]).map((c) => `- [ ] ${c}`);
+  return parts.length > 0 ? parts.map((d) => `- [ ] ${d}: ${g}`) : [`- [ ] ${g}`];
 }
 
 function safeMtime(p: string): number {

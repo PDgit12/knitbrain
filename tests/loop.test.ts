@@ -74,4 +74,24 @@ describe("runLoop — autonomous outer loop", () => {
     expect(code).toBe(0);
     expect(readFileSync(goal, "utf8")).toContain("- [x] ok"); // explicit --verify wins
   });
+
+  // The crux of the vision: ONE command drives a task until the gate is met,
+  // re-attempting across cycles (not a one-shot checklist walk).
+  it("retries a failing task across cycles until the gate passes, then completes", async () => {
+    writeFileSync(goal, "# g\n- [ ] make it green\n");
+    const counter = join(dir, "n.txt");
+    // Agent appends a line each cycle; gate passes only once the file has >= 3 lines.
+    const agent = `node -e "require('fs').appendFileSync('${counter.replace(/\\/g, "\\\\")}','x\\n')"`;
+    const gate = `node -e "process.exit((require('fs').existsSync('${counter.replace(/\\/g, "\\\\")}')?require('fs').readFileSync('${counter.replace(/\\/g, "\\\\")}','utf8').trim().split('\\n').length:0)>=3?0:1)"`;
+    const code = await runLoop([goal, "--agent", agent, "--verify", gate, "--max", "6"]);
+    expect(code).toBe(0);
+    expect(readFileSync(goal, "utf8")).toContain("- [x] make it green");
+  });
+
+  it("hits --max with the gate still red → exit 1, no false green", async () => {
+    writeFileSync(goal, "# g\n- [ ] impossible\n");
+    const code = await runLoop([goal, "--agent", OK, "--verify", FAIL, "--max", "3"]);
+    expect(code).toBe(1);
+    expect(readFileSync(goal, "utf8")).toContain("- [ ] impossible"); // never ticked
+  });
 });

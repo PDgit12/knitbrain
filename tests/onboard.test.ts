@@ -246,13 +246,11 @@ describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
 });
 
 describe("goalCheckboxes (Gap 2): actionable tasks, never boilerplate", () => {
-  it("no parts → the goal itself is the checkbox", () => {
+  it("no parts → the goal itself is ONE checkbox (holistic gate, no stall)", () => {
     expect(goalCheckboxes("Add tax to cart totals", [])).toEqual(["- [ ] Add tax to cart totals"]);
-  });
-  it("no parts + compound goal → one increment per clause", () => {
+    // A compound goal is NOT split — sub-clauses would stall the one verify gate.
     expect(goalCheckboxes("build the parser and wire the CLI", [])).toEqual([
-      "- [ ] build the parser",
-      "- [ ] wire the CLI",
+      "- [ ] build the parser and wire the CLI",
     ]);
   });
   it("parts present → each part carries the goal", () => {

@@ -64,6 +64,15 @@ describe("closed-loop default steps", () => {
     expect(defaultJudge("- [ ] do the thing").clear).toBe(true);
   });
 
+  it("defaultJudge: a verify gate makes even a terse goal attemptable", () => {
+    // Without a gate, a 2-word wish is too vague...
+    expect(defaultJudge("make green").clear).toBe(false);
+    // ...but a real verify_cmd IS the objective 'done' → drivable.
+    expect(defaultJudge("make green", true).clear).toBe(true);
+    // A bare empty goal with a gate is still drivable (the gate defines done).
+    expect(defaultJudge("", true).clear).toBe(true);
+  });
+
   it("makeGrade: empty verify vacuously passes; run result drives pass", () => {
     expect(makeGrade("", () => false)().pass).toBe(true);
     expect(makeGrade("x", () => true)().pass).toBe(true);
@@ -183,9 +192,15 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     expect(ctx.wiki!.recentLog(5).some((l) => l.includes("loop"))).toBe(true);
   });
 
-  it("rejects a vague goal (judge gate) without running verify", () => {
-    const out = JSON.parse(loopTool().run({ goal: "x", verify_cmd: "true" }, mkCtx()));
+  it("rejects a vague, GATE-LESS goal (empty verify_cmd) without running", () => {
+    const out = JSON.parse(loopTool().run({ goal: "x", verify_cmd: "" }, mkCtx()));
     expect(out.met).toBe(false);
     expect(out.stopped).toBe("unclear-goal");
+  });
+
+  it("a terse goal WITH a real verify gate is drivable (gate defines done)", () => {
+    // The crux: one command drives even a short goal when a hard gate backs it.
+    const out = JSON.parse(loopTool().run({ goal: "make green", verify_cmd: `node -e ""` }, mkCtx()));
+    expect(out.met).toBe(true); // gate passes → goal met by the objective measure
   });
 });

@@ -1079,7 +1079,7 @@ export const TOOLS: readonly ToolDef[] = [
       };
       const result = runClosedLoop(
         {
-          judge: () => defaultJudge(goal),
+          judge: () => defaultJudge(goal, verifyCmd.trim().length > 0),
           iterate: () => {
             /* host agent works BETWEEN calls, not here — no fake self-editing */
           },
