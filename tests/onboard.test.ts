@@ -46,7 +46,7 @@ describe("onboard import (runOnboard): present scan + past ingest", () => {
     mkdirSync(tdir, { recursive: true });
     writeFileSync(join(tdir, "good.jsonl"), GOOD_TRANSCRIPT);
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   const deps = () => ({
     knowledge: createKnowledge(proj, join(root, "kb")),
@@ -139,7 +139,7 @@ describe("onboard adaptive gaps (Gap B): judge what's missing, ask only for gaps
   const STYLE = { medianBodyLen: 0, terse: false, usesModel: false, usesTriggers: false, headers: [] as string[] };
   let root: string;
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), "kb-gapb-")); });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   it("flags an uncovered domain + a test-runner gap when tests exist but nothing covers them", () => {
     const gaps = computeOnboardGaps(["proxy"], { skills: [], agents: [] }, true);
@@ -192,7 +192,7 @@ describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env["KNITBRAIN_HOME"];
     else process.env["KNITBRAIN_HOME"] = prevHome;
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   const mkCtx = (): ToolContext => {
