@@ -42,7 +42,34 @@ export interface CodeHit {
   related: string[];
 }
 
-const DECL_RE = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(function|class|interface|type|enum|const|let)\s+([A-Za-z0-9_$]+)/;
+/** Declaration matchers, tried in order — one per language family. Same
+ *  philosophy as the graph: regex over AST, cheap and best-effort; the first
+ *  pattern that matches a line marks a chunk boundary. */
+const DECL_RES: RegExp[] = [
+  // JS/TS
+  /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(function|class|interface|type|enum|const|let)\s+([A-Za-z0-9_$]+)/,
+  // Rust (pub items may be indented inside mod blocks)
+  /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(fn|struct|enum|trait|impl|mod)\s+([A-Za-z0-9_]+)/,
+  // Python (top-level)
+  /^(?:async\s+)?(def|class)\s+([A-Za-z0-9_]+)/,
+  // Go
+  /^(func)\s+(?:\([^)]*\)\s*)?([A-Za-z0-9_]+)/,
+  /^(type)\s+([A-Za-z0-9_]+)/,
+  // Java
+  /^\s*(?:public|private|protected)?\s*(?:(?:static|final|abstract|sealed)\s+)*(class|interface|enum|record)\s+([A-Za-z0-9_]+)/,
+  // Ruby
+  /^\s*(def|class|module)\s+((?:self\.)?[A-Za-z0-9_?!]+)/,
+  // PHP
+  /^\s*(?:abstract\s+|final\s+)?(function|class|interface|trait)\s+([A-Za-z0-9_]+)/,
+];
+
+function matchDecl(line: string): { kind: string; name: string } | null {
+  for (const re of DECL_RES) {
+    const m = re.exec(line);
+    if (m) return { kind: m[1]!, name: m[2]! };
+  }
+  return null;
+}
 const MAX_CHUNK_LINES = 80;
 const MAX_FILE_BYTES = 400_000;
 
@@ -53,8 +80,8 @@ export function chunkSource(file: string, src: string): CodeChunk[] {
   const lines = src.split("\n");
   const marks: Array<{ line: number; kind: string; name: string }> = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const m = DECL_RE.exec(lines[i]!);
-    if (m) marks.push({ line: i, kind: m[1]!, name: m[2]! });
+    const m = matchDecl(lines[i]!);
+    if (m) marks.push({ line: i, kind: m.kind, name: m.name });
   }
   return marks.map((mark, idx) => {
     const end = Math.min(idx + 1 < marks.length ? marks[idx + 1]!.line : lines.length, mark.line + MAX_CHUNK_LINES);
