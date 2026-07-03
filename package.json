@@ -1,6 +1,6 @@
 {
   "name": "knitbrain",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "The local-first brain for coding agents: per-project memory, task-tier workflow routing, and lossless context compression — measured ~48% of all tool-result tokens on real sessions (60–70% on code/JSON/logs), answer-preservation gated, reproducible with one command.",
   "type": "module",
   "main": "dist/lib.js",
