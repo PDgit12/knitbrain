@@ -97,13 +97,19 @@ const main = async () => {
     });
     ok(Boolean(init.result?.instructions?.includes("PLAN MODE")), "instructions ride the handshake (plan-mode protocol)");
     const list = await rpc("tools/list", {});
-    ok(list.result?.tools?.length === 36, `tools/list advertises exactly 36 tools (got ${list.result?.tools?.length})`);
+    ok(list.result?.tools?.length === 37, `tools/list advertises exactly 37 tools (got ${list.result?.tools?.length})`);
 
     console.log("[e2e-tools] session + self-heal");
     const sess = await call("knitbrain_load_session");
     ok(!sess.isError, "load_session succeeds on a brand-new project");
     const lazyImports = await call("knitbrain_query_imports", { file: "src/main.ts" });
     ok(lazyImports.text.includes("util"), "knowledge graph self-initializes on first query (no manual scan)");
+
+    console.log("[e2e-tools] retrieval (input selection)");
+    const found = JSON.parse((await call("knitbrain_search_code", { query: "helper function" })).text.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
+    ok(Array.isArray(found.hits) && found.hits.some((h) => h.name === "helper" && h.file === "src/util.ts"), "search_code finds the right chunk (signature-level, not whole file)");
+    const gated = JSON.parse((await call("knitbrain_search_code", { query: "zqxwv blockchain kubernetes" })).text.replace(/\s*⟨recall:[0-9a-f]{64}⟩\s*$/u, ""));
+    ok(Array.isArray(gated.hits) && gated.hits.length === 0, "search_code gates irrelevant queries to empty (no bad context)");
 
     console.log("[e2e-tools] workflow + adherence + FP loop");
     const cls = JSON.parse(
@@ -249,7 +255,7 @@ const main = async () => {
     const ping = await call("knitbrain_ping");
     ok(/pong|ok|alive/i.test(ping.text), "ping answers");
 
-    console.log(failures === 0 ? "[e2e-tools] PASS — all 36 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
+    console.log(failures === 0 ? "[e2e-tools] PASS — all 37 tools verified live" : `[e2e-tools] FAIL — ${failures} assertion(s)`);
   } finally {
     proc.kill();
     rmSync(home, { recursive: true, force: true });

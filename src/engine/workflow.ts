@@ -15,7 +15,7 @@ const COMPLEX = /\b(architect|architecture|refactor|migrat|redesign|rewrite|secu
 const TRIVIAL = /\b(typo|rename|comment|bump|format|lint|whitespace|one[- ]?line)\b/i;
 const INQUIRY = /^\s*(how|what|why|where|which|who|can|does|do|is|are|should|could|would|when)\b|[?]\s*$/i;
 // Mutation verbs — presence means the task WRITES, so plan-mode/complex can apply.
-const WRITE_INTENT = /\b(add|fix|chang|edit|refactor|implement|creat|delet|remov|updat|writ|renam|migrat|rewrit|replac|introduc|wire|wiring|patch|scaffold|deploy|releas|publish|revert)\b/i;
+const WRITE_INTENT = /\b(add|build|fix|chang|edit|refactor|implement|creat|compos|generat|delet|remov|updat|writ|renam|migrat|rewrit|replac|introduc|wire|wiring|patch|scaffold|deploy|releas|publish|revert)\b/i;
 // Read verbs — a read-only task has these and NO write verb.
 const READ_INTENT = /\b(read|look|explain|understand|check|show|inspect|review|summar|trace|map|explor|audit|find|search|list|describ|analy|diagnos|why|how|what|where|which)\b/i;
 
