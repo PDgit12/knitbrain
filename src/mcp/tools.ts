@@ -1218,10 +1218,26 @@ export function verifyClaim(claim: string, knowledge: Knowledge): { verdict: "ve
  * wiki spine) all land in the same wiki.log / CCR stores — this is the in-server
  * leg of that one path.
  */
+/** A "data" tool whose response is valid JSON has a MACHINE contract — mid-
+ * elision produced skeletons that either broke JSON.parse or (worse) parsed
+ * with array items silently missing. Structural rule: JSON data outputs are
+ * never skeletonized. Own-tool responses are small; the compression win lived
+ * in host tool outputs (hooks/proxy), which this does not touch. */
+function isJsonPayload(raw: string): boolean {
+  const t = raw.trimStart();
+  if (!t.startsWith("{") && !t.startsWith("[")) return false;
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function capture(tool: ToolDef, raw: string, ctx: ToolContext): { out: string; saved: number } {
   let out = raw;
   let saved = 0;
-  if (tool.output === "data" && !ctx.feedback.shouldSkip(detect(raw))) {
+  if (tool.output === "data" && !isJsonPayload(raw) && !ctx.feedback.shouldSkip(detect(raw))) {
     // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
     const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
     if (r.compressed) {

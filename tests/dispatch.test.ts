@@ -41,11 +41,25 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it("auto-compresses a DATA tool's output at the chokepoint", () => {
+  it("JSON data output passes through PARSEABLE (machine contract — never skeletonized)", () => {
     const payload = bigJson();
     const dataTool: ToolDef = {
       name: "demo_data",
-      description: "returns a big payload",
+      description: "returns a big JSON payload",
+      inputSchema: { type: "object" },
+      output: "data",
+      run: () => payload,
+    };
+    const out = dispatch(dataTool, {}, ctx);
+    expect(out).toBe(payload); // valid JSON = a contract; elision broke consumers twice
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it("non-JSON DATA output still auto-compresses at the chokepoint", () => {
+    const payload = Array.from({ length: 200 }, (_, i) => `2026-01-01 INFO worker ${i % 3} ok`).join("\n");
+    const dataTool: ToolDef = {
+      name: "demo_log",
+      description: "returns a big log payload",
       inputSchema: { type: "object" },
       output: "data",
       run: () => payload,
