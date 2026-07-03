@@ -10,12 +10,13 @@ First action: call `knitbrain_load_session` — returns last handoff, top learni
 
 Adherence gate: close-the-loop writes (`knitbrain_record_learning`, `knitbrain_skill_save`, `knitbrain_save_handoff`) are blocked until `knitbrain_classify_task`/`knitbrain_run` ran this session (`KNITBRAIN_STRICTNESS`, default `block`).
 
-## Tool surface highlights (36 tools)
+## Tool surface highlights (37 tools)
 
 - **`knitbrain_verify_claim`** — settle a codebase claim before LEARN. Caveat: the session MCP roots at the launch cwd — settle knit-brain facts by source + tests + built dist when the root is elsewhere.
 - **`knitbrain_self_check`** — keystone: audits all four invariants (anti-sycophancy, anti-stale, anti-drift, adherence) in one PASS/FAIL pass.
 - **`knitbrain_run_loop`** — one judge→iterate cycle per call; your `verify_cmd` is the hard gate.
-- **`knitbrain_read` / `knitbrain_optimize` / `knitbrain_retrieve`** — compression loop; exact original always one retrieve away.
+- **`knitbrain_search_code`** — retrieval layer: query → ranked function-level chunks + graph-related files, score-gated. Search BEFORE reading; knitbrain_read only the hits.
+- **`knitbrain_read` / `knitbrain_optimize` / `knitbrain_retrieve`** — compression loop; exact original always one retrieve away. Data-tool JSON responses are never skeletonized (machine contract).
 - **Note:** big tool responses may come back skeletonized with a trailing `⟨recall:hash⟩` — strip it before JSON-parsing a tool result.
 
 ---

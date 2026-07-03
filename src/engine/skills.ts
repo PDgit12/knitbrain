@@ -109,7 +109,7 @@ export function createSkillsStore(root: string): SkillsStore {
 GOAL: ${task}
 
 STEPS:
-1. ground first: query_imports/dependents on touched files.
+1. ground first: knitbrain_search_code the task's concepts (read ONLY the hits), then query_imports/dependents on touched files.
 2. smallest correct change. verify before claim.
 3. gates green before done.
 

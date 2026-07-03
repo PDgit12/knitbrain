@@ -6,6 +6,7 @@ import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
 import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
+import { searchCode } from "../engine/retrieval.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
@@ -365,6 +366,36 @@ export const TOOLS: readonly ToolDef[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "verbatim",
     run: (_args, ctx) => JSON.stringify(ctx.meter.read(), null, 2),
+  },
+  {
+    name: "knitbrain_search_code",
+    description:
+      "Retrieval layer (input SELECTION): query → ranked function/class-level chunks (signature + location, NOT whole files) + graph-connected related files, score-gated so no low-relevance context is served. Use BEFORE reading files: search, then knitbrain_read ONLY the hits you need — sending less beats compressing more.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What you're looking for — names, concepts, error text." },
+        k: { type: "number", description: "Max hits (default 8)." },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    output: "data",
+    run: (args, ctx) => {
+      const k = typeof args["k"] === "number" ? (args["k"] as number) : undefined;
+      const hits = searchCode(str(args, "query"), { knowledge: ctx.knowledge, projectRoot: process.cwd() }, k !== undefined ? { k } : {});
+      return JSON.stringify(
+        {
+          hits,
+          directive:
+            hits.length === 0
+              ? "No chunk cleared the relevance gate — refine the query (names beat prose) or knitbrain_scan if the project just changed. An empty result beats bad context."
+              : "Read ONLY what you need: knitbrain_read the hit files (or the related neighbors) — do not open the whole tree.",
+        },
+        null,
+        2,
+      );
+    },
   },
   {
     name: "knitbrain_scan",
@@ -1187,10 +1218,26 @@ export function verifyClaim(claim: string, knowledge: Knowledge): { verdict: "ve
  * wiki spine) all land in the same wiki.log / CCR stores — this is the in-server
  * leg of that one path.
  */
+/** A "data" tool whose response is valid JSON has a MACHINE contract — mid-
+ * elision produced skeletons that either broke JSON.parse or (worse) parsed
+ * with array items silently missing. Structural rule: JSON data outputs are
+ * never skeletonized. Own-tool responses are small; the compression win lived
+ * in host tool outputs (hooks/proxy), which this does not touch. */
+function isJsonPayload(raw: string): boolean {
+  const t = raw.trimStart();
+  if (!t.startsWith("{") && !t.startsWith("[")) return false;
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function capture(tool: ToolDef, raw: string, ctx: ToolContext): { out: string; saved: number } {
   let out = raw;
   let saved = 0;
-  if (tool.output === "data" && !ctx.feedback.shouldSkip(detect(raw))) {
+  if (tool.output === "data" && !isJsonPayload(raw) && !ctx.feedback.shouldSkip(detect(raw))) {
     // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
     const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
     if (r.compressed) {

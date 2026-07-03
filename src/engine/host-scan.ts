@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { writeAtomic } from "../atomic.js";
 import type { SkillsStore, Skill } from "./skills.js";
@@ -440,8 +440,11 @@ export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[] 
   };
 }
 
-/** Persist the host index atomically. */
+/** Persist the host index atomically. Creates its parent dir — a cold project
+ * (nothing else has touched ~/.knitbrain/projects/<id>/ yet) must not crash
+ * the onboard scan (writeAtomic intentionally does NOT mkdir). */
 export function saveHostIndex(index: HostIndex, path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
   writeAtomic(path, JSON.stringify(index, null, 2));
 }
 

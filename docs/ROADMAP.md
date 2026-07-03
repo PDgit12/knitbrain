@@ -1,5 +1,11 @@
 # knitbrain roadmap — the brain architecture + gap register
 
+> **[status 2026-07-03]** This doc is a historical design snapshot. Current truth: 37 MCP tools
+> (incl. `search_code` retrieval layer + coherence contract), v0.10.0+ on main, all 8 roadmap gaps
+> + retrieval shipped. Live counts are enforced by `scripts/consistency.mjs`; the operating map is
+> README.md + CLAUDE.md. Numbers below reflect the date they were written.
+
+
 Target: knitbrain is a **closed-loop orchestrator powered by one brain**, organized as 4
 layers — **CAPTURE → PROTECT → BRAIN ← FETCH** + behaviour steering. The loop is the
 frame; PROTECT is where the protections execute; the brain is the substrate. This file

@@ -1,5 +1,11 @@
 # knitbrain — Architecture (current + orchestrator target)
 
+> **[status 2026-07-03]** This doc is a historical design snapshot. Current truth: 37 MCP tools
+> (incl. `search_code` retrieval layer + coherence contract), v0.10.0+ on main, all 8 roadmap gaps
+> + retrieval shipped. Live counts are enforced by `scripts/consistency.mjs`; the operating map is
+> README.md + CLAUDE.md. Numbers below reflect the date they were written.
+
+
 > Review doc. Maps the **whole codebase**, **every tool and what it does inside**, the **data stores**, the **closed-loop runtime**, and the **orchestrator target** (6 legs + closed loop + wiki-brain). Status tags: ✅ shipped (npm `knitbrain` ≤0.4.6) · 🟡 in-branch / built-but-unverified-live · 🔭 planned (P1→P3).
 >
 > Scope note: this doc is about **knitbrain** (`/Users/piyushdua/knit-brain`, npm `knitbrain`). It is **not** engram / `knit-mcp` (a separate product). We build only here.
