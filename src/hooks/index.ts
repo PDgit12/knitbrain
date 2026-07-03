@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
       const r = meter.read();
       let out =
-        "knitbrain active — classify_task before non-trivial edits · knitbrain_read for big files · verify claims with output (no yes-man) · record_learning before done.";
+        "knitbrain active — classify_task before non-trivial edits · search_code before reading files · knitbrain_read for big files · verify claims with output (no yes-man) · record_learning before done.";
       // Live conversation-relative optimization (gap #2): how much smaller the
       // live window is than its unoptimized counterfactual.
       if (r.optimizationPct > 0) out += ` · optimized ${r.optimizationPct}% of the live window (saved ${r.savedTokens.toLocaleString()} tok)`;
