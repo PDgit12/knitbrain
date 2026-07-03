@@ -15,7 +15,7 @@ import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
-import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests } from "../engine/onboard.js";
+import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes } from "../engine/onboard.js";
 import { terseStore } from "../compress-file.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -975,7 +975,7 @@ export const TOOLS: readonly ToolDef[] = [
         const goalPath = join(process.cwd(), "goal.md");
         let goalNote = "";
         if (!existsSync(goalPath)) {
-          const parts = domains.length > 0 ? domains : ["the project"];
+          const tasks = goalCheckboxes(r.charter.goal, domains);
           writeFileSync(
             goalPath,
             [
@@ -984,13 +984,13 @@ export const TOOLS: readonly ToolDef[] = [
               `DONE MEANS: ${r.charter.dod}`,
               `VERIFY: ${r.charter.verify}`,
               "",
-              ...parts.map((d) => `- [ ] ${d}: design + implement + verify against the charter`),
+              ...tasks,
               "",
               "Drive: knitbrain_run_loop(goal, verify_cmd) per cycle, or `knitbrain loop goal.md`.",
             ].join("\n"),
             "utf8",
           );
-          goalNote = " goal.md written (one checkbox per part) — start the loop with `knitbrain loop goal.md` or knitbrain_run_loop.";
+          goalNote = ` goal.md written (${tasks.length} checkbox${tasks.length === 1 ? "" : "es"}, VERIFY honored by the loop) — start with \`knitbrain loop goal.md\` or knitbrain_run_loop.`;
         }
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written (ROUTING covers: ${domains.join(", ") || "none"}). knitbrain_load_session now surfaces your intent + workflow every session.${gapHint}${goalNote}`;
       }
@@ -1008,11 +1008,13 @@ export const TOOLS: readonly ToolDef[] = [
         { skills: host.skills, agents: host.agents },
         projectHasTests(ctx.knowledge.listFiles()),
       );
-      // Greenfield: no code yet means no detectable domains — ask the user for
-      // the INTENDED parts so routing + gap agents can be seeded from the plan.
-      const detected = detectDomains(ctx.knowledge.listFiles());
+      // Greenfield: only a repo with NO source files at all is greenfield —
+      // ask for the INTENDED parts so routing + gap agents seed from the plan.
+      // A repo WITH code but no clustered domains (e.g. one file) is NOT
+      // greenfield — asking "no code yet" there is wrong (the 5 questions suffice).
+      const greenfield = ctx.knowledge.listFiles().length === 0;
       const questions =
-        detected.length === 0
+        greenfield
           ? [...INTENT_QUESTIONS, "Repo has no code yet — list the intended parts/modules of the system (comma-separated, e.g. 'orchestrator, scheduler, model-runtime'), so each part gets routed + a scoped agent."]
           : [...INTENT_QUESTIONS];
       return JSON.stringify(
@@ -1026,8 +1028,8 @@ export const TOOLS: readonly ToolDef[] = [
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
           directive:
             gaps.length > 0
-              ? "Ask the 5 questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with `create: [<gap name>, ...]` FIRST - then persist intent with `answers`, so the composed workflow ROUTING covers the just-created agents/skills."
-              : "Ask the user these 5 questions IN CHAT, then call knitbrain_onboard again with `answers` (an array of their 5 replies, in order) to write the Project Charter + constraints that shape this project's loop.",
+              ? `Ask the ${questions.length} questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with \`create: [<gap name>, ...]\` FIRST - then persist intent with \`answers\`, so the composed workflow ROUTING covers the just-created agents/skills.`
+              : `Ask the user these ${questions.length} questions IN CHAT, then call knitbrain_onboard again with \`answers\` (an array of their ${questions.length} replies, in order) to write the Project Charter + constraints that shape this project's loop.`,
         },
         null,
         2,

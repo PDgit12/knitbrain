@@ -242,6 +242,24 @@ export function detectDomains(files: string[]): string[] {
   return proposeAgents(files).map((p) => p.name);
 }
 
+/**
+ * Loop-ready goal checkboxes derived from the charter goal — one actionable task
+ * per line the outer loop ticks as it goes (never the vague "design + implement
+ * + verify" boilerplate). If the project has parts (detected domains or declared
+ * greenfield modules), each part carries the goal; otherwise a compound goal
+ * ("A + B", "A and B", "A; B") splits into per-clause increments, falling back
+ * to the goal itself as a single actionable task.
+ */
+export function goalCheckboxes(goal: string, parts: string[]): string[] {
+  const g = goal.replace(/\s+/g, " ").trim() || "the current goal";
+  if (parts.length > 0) return parts.map((d) => `- [ ] ${d}: ${g}`);
+  const clauses = g
+    .split(/\s*\+\s*|\s+and\s+|\s*;\s*/i)
+    .map((s) => s.trim())
+    .filter((s) => s.split(/\s+/).length >= 2); // drop bare fragments ("tax")
+  return (clauses.length > 1 ? clauses : [g]).map((c) => `- [ ] ${c}`);
+}
+
 function safeMtime(p: string): number {
   try {
     return statSync(p).mtimeMs;

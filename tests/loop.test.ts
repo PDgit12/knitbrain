@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runLoop } from "../src/loop.js";
+import { runLoop, goalVerify } from "../src/loop.js";
 
 // Cross-platform mock commands (CI runs a Windows matrix — avoid sh builtins).
 const OK = `node -e ""`;
@@ -48,5 +48,30 @@ describe("runLoop — autonomous outer loop", () => {
 
   it("usage error on a missing goal file", async () => {
     expect(await runLoop([join(dir, "nope.md"), "--agent", OK])).toBe(1);
+  });
+
+  // Gap 3: the goal.md `VERIFY:` line onboarding writes must actually gate the
+  // loop when no --verify is passed (it was decorative before).
+  it("goalVerify reads the VERIFY: line, ignoring (unspecified)", () => {
+    writeFileSync(goal, "# g\nVERIFY: cargo test\n\n- [ ] a\n");
+    expect(goalVerify(goal)).toBe("cargo test");
+    writeFileSync(goal, "# g\nVERIFY: (unspecified)\n- [ ] a\n");
+    expect(goalVerify(goal)).toBe("");
+    writeFileSync(goal, "# g\n- [ ] a\n");
+    expect(goalVerify(goal)).toBe("");
+  });
+
+  it("uses the goal.md VERIFY: gate when --verify is omitted (no false green)", async () => {
+    writeFileSync(goal, `# g\nVERIFY: ${FAIL}\n\n- [ ] risky\n`);
+    const code = await runLoop([goal, "--agent", OK, "--max", "2"]);
+    expect(code).toBe(1);
+    expect(readFileSync(goal, "utf8")).toContain("- [ ] risky"); // gate failed → untouched
+  });
+
+  it("--verify overrides the goal.md VERIFY: line", async () => {
+    writeFileSync(goal, `# g\nVERIFY: ${FAIL}\n\n- [ ] ok\n`);
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--max", "1"]);
+    expect(code).toBe(0);
+    expect(readFileSync(goal, "utf8")).toContain("- [x] ok"); // explicit --verify wins
   });
 });

@@ -39,6 +39,22 @@ function parseArgs(args: string[]): LoopOpts {
   return o;
 }
 
+/**
+ * Fallback verify gate from the goal file's `VERIFY:` line — onboarding writes
+ * it (`VERIFY: cargo test`, `pytest`, …), so a Rust/Python/etc. project's loop
+ * uses the RIGHT gate without the user re-passing --verify. Precedence:
+ * explicit --verify  >  goal.md VERIFY:  >  `npm test` if package.json exists.
+ */
+export function goalVerify(goalFile: string): string {
+  try {
+    const m = /^VERIFY:\s*(.+)$/im.exec(readFileSync(goalFile, "utf8"));
+    const v = m ? m[1]!.trim() : "";
+    return v && v !== "(unspecified)" ? v : "";
+  } catch {
+    return "";
+  }
+}
+
 function buildPrompt(task: string, progress: string): string {
   return [
     "You are ONE iteration of an autonomous build loop. Do EXACTLY this one task, then stop:",
@@ -68,9 +84,10 @@ export async function runLoop(args: string[]): Promise<number> {
   if (!o.goalFile || !existsSync(o.goalFile)) {
     console.error("usage: knitbrain loop <goalfile.md> [--max N=10] [--agent \"cmd\"] [--verify \"cmd\"] [--interactive]");
     console.error("  goalfile: markdown with `- [ ] task` checkboxes; the loop ticks them as it goes.");
+    console.error("  verify gate: --verify wins; else the goalfile's `VERIFY: <cmd>` line; else `npm test` if package.json exists.");
     return 1;
   }
-  const verify = o.verify ?? (existsSync("package.json") ? "npm test" : "");
+  const verify = o.verify ?? (goalVerify(o.goalFile) || (existsSync("package.json") ? "npm test" : ""));
   const progressFile = `${o.goalFile}.progress`;
   const rl = o.interactive ? createInterface({ input: process.stdin, output: process.stdout }) : null;
   let done = 0;
