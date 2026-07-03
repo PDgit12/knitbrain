@@ -24,3 +24,7 @@ AUDIT.md
 .github/instructions/
 AGENTS.md
 docs/AUDIT-PROMPT.md
+
+# internal working docs (kept local, not published)
+docs/ARCHITECTURE.md
+docs/ROADMAP.md
