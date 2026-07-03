@@ -8,6 +8,7 @@ coverage/
 experiments.tsv
 
 # transient / local-only
+goal.md
 handoff.md
 AUDIT.md
 *.original
