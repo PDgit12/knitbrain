@@ -1,6 +1,6 @@
 # knitbrain
 
-TypeScript project (Node ≥18, ESM, vitest). This repo IS the knitbrain product — the connected `knitbrain` MCP server (tools `knitbrain_*`) is a pinned global install of it; a stale global ≠ a broken tool (see docs/AUDIT-PROMPT.md caveat 2).
+TypeScript project (Node ≥18, ESM, vitest). This repo IS the knitbrain product — if a `knitbrain` MCP server is connected while developing here, note it runs the globally installed build, not your working tree; rebuild + reinstall (`npm run build && npm install -g .`) and reconnect to test local changes.
 
 ---
 

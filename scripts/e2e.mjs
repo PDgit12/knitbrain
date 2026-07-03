@@ -165,7 +165,7 @@ async function pipelineOnRealFiles() {
       const lossless = r.compressed ? ccr.get(r.handle) === original : r.skeleton === original;
       totalBefore += r.originalTokens;
       totalAfter += r.skeletonTokens;
-      const name = path.replace(E, "engram").replace(ROOT, "knit-brain");
+      const name = path.replace(E, "fixture-a").replace(ROOT, "fixture-b");
       ok(neverExpands, `never-expands: ${name} (${r.contentType}, ${r.originalTokens}→${r.skeletonTokens} tok, saved ${r.savedPct}%${r.compressed ? "" : ", passthrough"})`);
       ok(lossless, `lossless: ${name}`);
     }
