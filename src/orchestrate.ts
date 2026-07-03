@@ -95,7 +95,7 @@ export function runOrchestrate(args: string[]): number {
 
   const result = runClosedLoop(
     {
-      judge: () => defaultJudge(goalText),
+      judge: () => defaultJudge(goalText, (verify || "").trim().length > 0),
       iterate: (iter) => {
         const plan = buildCyclePlan(goalText, skills, knowledge);
         console.log(`[orchestrate] cycle ${iter}: iterate · tier=${plan.tier} · skill=${plan.skillName ?? "none"} · agents=${plan.agentNames.length}`);

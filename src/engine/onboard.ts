@@ -242,6 +242,22 @@ export function detectDomains(files: string[]): string[] {
   return proposeAgents(files).map((p) => p.name);
 }
 
+/**
+ * Loop-ready goal checkboxes derived from the charter goal — actionable, never
+ * the vague "design + implement + verify" boilerplate. When the project has
+ * real parts (detected domains or declared greenfield modules) each part is its
+ * own checkbox carrying the goal; otherwise the goal itself is ONE checkbox.
+ *
+ * Deliberately NOT split into sub-clauses: the loop runs ONE holistic verify
+ * gate after each box, so a box must independently pass the gate. Splitting a
+ * single goal into "A"/"B" clauses that only pass together would stall the loop
+ * on the first box — real modules are independent units; sentence clauses are not.
+ */
+export function goalCheckboxes(goal: string, parts: string[]): string[] {
+  const g = goal.replace(/\s+/g, " ").trim() || "the current goal";
+  return parts.length > 0 ? parts.map((d) => `- [ ] ${d}: ${g}`) : [`- [ ] ${g}`];
+}
+
 function safeMtime(p: string): number {
   try {
     return statSync(p).mtimeMs;

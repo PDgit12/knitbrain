@@ -7,7 +7,7 @@ import { createWikiStore } from "../src/engine/wiki.js";
 import { createMemory } from "../src/engine/memory.js";
 import { projectTranscriptDir } from "../src/engine/usage.js";
 import { createSkillsStore } from "../src/engine/skills.js";
-import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests } from "../src/engine/onboard.js";
+import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests, goalCheckboxes } from "../src/engine/onboard.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createFeedback } from "../src/engine/feedback.js";
@@ -232,9 +232,88 @@ describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
       expect(loaded.workflow).toContain("# Workflow — knit-brain memory MCP");
       expect(loaded.workflow).toContain("GOAL: ship the vision gaps");
       expect(loaded.workflow).toContain("CONSTRAINTS: never force-push");
-      expect(readFileSync(join(root, "goal.md"), "utf8")).toContain("# Goal — ship the vision gaps");
+      const goalMd = readFileSync(join(root, "goal.md"), "utf8");
+      expect(goalMd).toContain("# Goal — ship the vision gaps");
+      // Gap 2: checkbox is the actual goal, NOT the vague boilerplate.
+      expect(goalMd).toContain("- [ ] ship the vision gaps");
+      expect(goalMd).not.toContain("design + implement + verify against the charter");
+      // Gap 3: goal.md carries a VERIFY line the loop honors.
+      expect(goalMd).toContain("VERIFY: npm test");
     } finally {
       process.chdir(prevCwd);
     }
+  });
+});
+
+describe("goalCheckboxes (Gap 2): actionable tasks, never boilerplate", () => {
+  it("no parts → the goal itself is ONE checkbox (holistic gate, no stall)", () => {
+    expect(goalCheckboxes("Add tax to cart totals", [])).toEqual(["- [ ] Add tax to cart totals"]);
+    // A compound goal is NOT split — sub-clauses would stall the one verify gate.
+    expect(goalCheckboxes("build the parser and wire the CLI", [])).toEqual([
+      "- [ ] build the parser and wire the CLI",
+    ]);
+  });
+  it("parts present → each part carries the goal", () => {
+    expect(goalCheckboxes("ship v1", ["api", "worker"])).toEqual([
+      "- [ ] api: ship v1",
+      "- [ ] worker: ship v1",
+    ]);
+  });
+  it("empty goal degrades gracefully", () => {
+    expect(goalCheckboxes("", [])).toEqual(["- [ ] the current goal"]);
+  });
+});
+
+describe("onboard greenfield gating (Gap 1): 'no code yet' only when truly empty", () => {
+  let root: string;
+  let prevHome: string | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kb-green-"));
+    prevHome = process.env["KNITBRAIN_HOME"];
+    process.env["KNITBRAIN_HOME"] = join(root, "home");
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env["KNITBRAIN_HOME"];
+    else process.env["KNITBRAIN_HOME"] = prevHome;
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const mkCtx = (): ToolContext => {
+    const ccr = createFileCCRStore(join(root, "ccr"));
+    return {
+      ccr,
+      memory: createMemory(join(root, "mem")),
+      knowledge: createKnowledge(root, join(root, "kb")),
+      feedback: createFeedback(join(root, "fb")),
+      team: createTeamBoard(join(root, "team"), ccr),
+      meter: createMeter(join(root, "meter")),
+      skills: createSkillsStore(join(root, "skills")),
+      calibration: createCalibration(join(root, "cal")),
+      wiki: createWikiStore(join(root, "wiki")),
+    };
+  };
+  const firstCall = (ctx: ToolContext): { questions: string[] } => {
+    const tool = TOOLS.find((t) => t.name === "knitbrain_onboard")!;
+    const prev = process.cwd();
+    process.chdir(root);
+    try {
+      return JSON.parse(tool.run({}, ctx)) as { questions: string[] };
+    } finally {
+      process.chdir(prev);
+    }
+  };
+
+  it("a repo with even ONE source file is NOT greenfield → 5 questions", () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "cart.js"), "export function total(x){return x;}\n");
+    const { questions } = firstCall(mkCtx());
+    expect(questions.length).toBe(INTENT_QUESTIONS.length); // 5, no "no code yet"
+    expect(questions.some((q) => /no code yet/i.test(q))).toBe(false);
+  });
+
+  it("a truly empty repo IS greenfield → 6 questions incl. the parts prompt", () => {
+    const { questions } = firstCall(mkCtx());
+    expect(questions.length).toBe(INTENT_QUESTIONS.length + 1); // 6
+    expect(questions.some((q) => /no code yet/i.test(q))).toBe(true);
   });
 });
