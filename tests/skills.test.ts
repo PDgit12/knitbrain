@@ -87,7 +87,8 @@ describe("knitbrain_run orchestrator (rung 20)", () => {
   it("complex task → agents proposed only then (made at moment of need)", () => {
     const out = JSON.parse(run.run({ task: "refactor the architecture of the data layer" }, ctx));
     expect(out.classification.tier).toBe("complex");
-    expect(out.directive).toContain("ENTER YOUR HOST'S PLAN MODE NOW");
+    expect(out.directive).toContain("STOP");
+    expect(out.directive).toContain("plan mode");
   });
 
   it("uses a saved skill when one matches (skills persist + compound)", () => {

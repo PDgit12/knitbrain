@@ -227,13 +227,24 @@ export function computeOnboardGaps(
  */
 export function resolveOnboardGap(
   gap: OnboardGap,
-  stores: { skills: SkillsStore; style: StyleProfile; projectRoot: string },
+  stores: { skills: SkillsStore; style: StyleProfile; projectRoot: string; files?: string[] },
 ): { kind: "agent" | "skill"; name: string; path?: string } {
   if (gap.kind === "skill") {
     const s = composeSkill(`${gap.name} for this project`, stores.style, [gap.reason], stores.skills);
     return { kind: "skill", name: s.name };
   }
-  const path = writeAgent(stores.projectRoot, { name: gap.name, description: `Agent scoped to the ${gap.name} domain.` }, stores.style);
+  // Scope the agent to its domain's real files (src/<domain>/**) when the domain
+  // exists in code — proposeAgents already computes that glob. Falls back to the
+  // writeAgent default ("(whole project)") only for a pure greenfield declared
+  // part with no files yet. A tight scope keeps the guardrail meaningful.
+  const scope = stores.files
+    ? proposeAgents(stores.files).find((prop) => prop.name.toLowerCase() === gap.name.toLowerCase())?.scope
+    : undefined;
+  const path = writeAgent(
+    stores.projectRoot,
+    { name: gap.name, description: `Agent scoped to the ${gap.name} domain.`, ...(scope ? { scope } : {}) },
+    stores.style,
+  );
   return { kind: "agent", name: gap.name, path };
 }
 

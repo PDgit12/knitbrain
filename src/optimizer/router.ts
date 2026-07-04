@@ -42,6 +42,12 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
  * only to bound pathological blocks, not to trim ordinary failures. */
 const MAX_RESCUED = 32;
 
+/** Heavy-workflow guard: above this size, skip deep structural parsing
+ * (tree-sitter AST / JSON.parse) and route to the cheap O(n) line handler —
+ * still fully lossless via CCR. Bounds worst-case CPU/memory so a pathological
+ * multi-MB blob can't stall the server. ~8 MB covers any realistic tool output. */
+const MAX_DEEP_PARSE = 8_000_000;
+
 
 /**
  * Anchor elision — the universal fallback for long low-structure output
@@ -147,6 +153,9 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
   // warm (lazy background init), else the heuristic brace scanner.
   const allowProse = options.allowProse ?? true;
   const byType = (t: string, type: ContentType): CompressResult => {
+    // Heavy-workflow guard: enormous payloads bypass deep parsers (AST/JSON) and
+    // take the cheap line handler — lossless, bounded cost (see MAX_DEEP_PARSE).
+    if (t.length > MAX_DEEP_PARSE) return compressText(t, ccr);
     if (type === "json") return compressJson(t, ccr);
     if (type === "diff") return compressDiff(t, ccr);
     if (type === "search") return compressSearchResults(t, ccr);
