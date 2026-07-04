@@ -131,6 +131,11 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
       content: `---\ndescription: Terse knitbrain output (lite|full|ultra) — same facts, fewer output tokens\nargument-hint: [lite|full|ultra]\n---\n\nAdopt terse output for the rest of this session. Run \`knitbrain terse $ARGUMENTS\` and follow the printed guide (default level: full). Say "verbose" to switch off.\n`,
     },
     {
+      path: ".claude/commands/goal.md",
+      mode: "write",
+      content: `---\ndescription: Start a knitbrain goal loop — drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the knitbrain loop. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n3. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters }\` (max_iters default 6).\n4. Each cycle, follow the returned directive: make the smallest real fix, then call \`knitbrain_run_loop\` again.\n5. NEVER fake \`met=true\`. Stop only at a real \`met=true\` or \`max_iters\`, then report the honest final state (what passed, what's still open).\n`,
+    },
+    {
       path: ".claude/rules/knitbrain.md",
       mode: "write",
       content: `# Knit Brain\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n\nProxy (optional, API-key setups): start \`knitbrain-proxy\` and set \`ANTHROPIC_BASE_URL=${cfg.proxyEnv["ANTHROPIC_BASE_URL"]}\`.\n`,
