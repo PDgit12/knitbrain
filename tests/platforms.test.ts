@@ -24,6 +24,14 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(paths).toContain(".claude/rules/knitbrain.md");
   });
 
+  it("/goal orchestrates the full workflow (run -> agents -> loop), not just the thin loop", () => {
+    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal.md")!;
+    expect(goal.content).toContain("knitbrain_run"); // orchestrate first (classify + skill + agents)
+    expect(goal.content).toContain("knitbrain_run_loop"); // still gated by the verify loop
+    expect(goal.content).toContain("proposes agents"); // agent fan-out wording
+    expect(goal.content).toMatch(/NEVER fake .*met=true/i); // anti-sycophancy preserved
+  });
+
   it("Cursor gets .cursor/mcp.json + an alwaysApply rules file", () => {
     const arts = cursorArtifacts();
     expect(arts.map((a) => a.path)).toContain(".cursor/mcp.json");
