@@ -1,7 +1,7 @@
 {
   "name": "knitbrain",
-  "version": "0.13.0",
-  "description": "Local-first MCP brain for coding agents: code retrieval, lossless context compression, persistent per-project memory, and a verify-gated closed loop \u2014 for Claude Code, Cursor, Copilot, and any MCP client.",
+  "version": "0.14.0",
+  "description": "Local-first MCP brain for coding agents: code retrieval, lossless context compression, persistent per-project memory, and a verify-gated closed loop — for Claude Code, Cursor, Copilot, and any MCP client.",
   "type": "module",
   "main": "dist/lib.js",
   "types": "dist/lib.d.ts",
