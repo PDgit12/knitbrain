@@ -34,8 +34,21 @@ export function setTokenizer(tokenizer: Tokenizer): void {
   active = tokenizer;
 }
 
-/** Token count using the active tokenizer. */
+/**
+ * Heavy-workflow guard: above this many chars the BPE tokenizer is both slow
+ * and pathological — a multi-MB low-entropy run (e.g. one repeated character
+ * with no word boundaries) triggers catastrophic merge behavior that can stall
+ * the process for minutes. Since the headline metric is the compression RATIO
+ * (before ÷ after), an approximate count above the cap is fine, so estimate via
+ * the standard ~4 chars/token heuristic. Bounds worst-case CPU so a pathological
+ * blob can never hang the server. */
+const MAX_ENCODE_CHARS = 2_000_000;
+const CHARS_PER_TOKEN = 4;
+
+/** Token count using the active tokenizer, bounded so enormous payloads can't
+ * stall the tokenizer (see MAX_ENCODE_CHARS). */
 export function countTokens(text: string): number {
+  if (text.length > MAX_ENCODE_CHARS) return Math.ceil(text.length / CHARS_PER_TOKEN);
   return active.count(text);
 }
 

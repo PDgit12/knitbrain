@@ -118,7 +118,7 @@ const main = async () => {
         files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
       })).text,
     );
-    ok(cls.tier === "complex" && cls.directive.includes("ENTER YOUR HOST'S PLAN MODE NOW"), "complex verdict carries the plan-mode imperative");
+    ok(cls.tier === "complex" && cls.directive.includes("STOP") && cls.directive.toLowerCase().includes("plan mode"), "complex verdict carries the plan-mode imperative");
     const fp = await call("knitbrain_record_false_positive", { claimed_tier: "complex", actual_tier: "standard", reason: "single module" });
     ok(!fp.isError && /recorded|1\/3|adjust/i.test(fp.text), "false positive recorded (calibration vote counted)");
     const run = JSON.parse((await call("knitbrain_run", { task: "add an input validation helper", files: ["src/main.ts"] })).text);

@@ -32,6 +32,16 @@ import { compress, detect } from "../optimizer/router.js";
 import { countTokens } from "../tokenizer.js";
 import { VERSION } from "../version.js";
 
+/**
+ * Cross-platform plan-mode gate. An MCP server can't toggle a host's plan mode
+ * (it's a host UI feature — Claude Code has one, others may not), so the
+ * directive is forceful AND platform-agnostic: enter plan mode where it exists,
+ * else write the plan and get explicit approval. Same words steer every host.
+ */
+const PLAN_GATE =
+  "⛔ STOP — do NOT edit, create, or run anything yet: this task is complex and needs a plan FIRST. " +
+  "If your host has a plan mode (e.g. Claude Code), ENTER IT NOW. Otherwise, write the plan in chat and get the user's explicit approval before any change. Do not touch files until the plan is approved.";
+
 /** Runtime context handed to every tool. */
 export interface ToolContext {
   ccr: CCRStore;
@@ -459,7 +469,7 @@ export const TOOLS: readonly ToolDef[] = [
       const cls = classifyTask(str(args, "description"), files, scopeAdjust);
       // The JSON alone is too passive — agents follow imperatives, not flags.
       const directive = cls.autoPlanMode
-        ? "ENTER YOUR HOST'S PLAN MODE NOW — before any file edit. Present the plan, get approval, then execute the phases in order. Wrong verdict? knitbrain_record_false_positive."
+        ? `${PLAN_GATE} Then execute the phases in order. Wrong verdict? knitbrain_record_false_positive.`
         : cls.tier === "trivial" || cls.tier === "inquiry"
           ? "Execute directly — no ceremony. Wrong verdict? knitbrain_record_false_positive."
           : "Execute the phases in order (no plan-mode needed). Wrong verdict? knitbrain_record_false_positive.";
@@ -664,8 +674,8 @@ export const TOOLS: readonly ToolDef[] = [
           directive:
             cls.tier === "complex"
               ? agents.length > 0
-                ? "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update."
-                : "ENTER YOUR HOST'S PLAN MODE NOW (before any file edit). No scoped agents could be derived (no code domains yet) — follow the workflow ROUTING if present, or create agents for the planned parts with knitbrain_create_agent / knitbrain_onboard create:[…]. Then verify; record learning + skill update."
+                ? `${PLAN_GATE} Agent files are already written under .claude/agents/ — after the plan is approved, spawn them in parallel; each is pre-briefed and scope-guarded; consolidate via team board; verify; record learning + skill update.`
+                : `${PLAN_GATE} No scoped agents could be derived (no code domains yet) — follow the workflow ROUTING if present, or create agents for the planned parts with knitbrain_create_agent / knitbrain_onboard create:[…]. Then verify; record learning + skill update.`
               : "Execute with the skill. Verify before claiming done. Then close the loop: knitbrain_skill_outcome (did it WORK — concrete outcome, not 'done') + record learning if anything non-obvious surfaced.",
         },
         null,
@@ -912,7 +922,7 @@ export const TOOLS: readonly ToolDef[] = [
         }
         const created = gaps
           .filter((g) => wanted.has(g.name.toLowerCase()))
-          .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd() }));
+          .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd(), files: ctx.knowledge.listFiles() }));
         // Just-created agents/skills must be visible immediately — refresh the
         // host index now, not on the next full onboard scan.
         const rescanned = scanHostAll(join(process.cwd(), ".claude"), homedir());
@@ -1187,7 +1197,13 @@ export function verifyClaim(claim: string, knowledge: Knowledge): { verdict: "ve
     const a = mention(m[1]!), b = mention(m[2]!);
     const edges = knowledge.queryImports(a);
     if (edges === null) return { verdict: "unparseable", claim, detail: `no graph node for "${a}" (not a scanned file)` };
-    const found = edges.some((e) => hit(e.from, b) || e.names.some((n) => hit(n, b)));
+    // Match the raw specifier / imported name, OR the RESOLVED target file: a
+    // relative specifier ("./util.js") resolves to a file ("src/util.ts"), so a
+    // natural file-path claim ("A imports src/util.ts") must still verify.
+    // A imports B  ⟺  A ∈ dependents(B) (the graph resolves that edge).
+    const found =
+      edges.some((e) => hit(e.from, b) || e.names.some((n) => hit(n, b))) ||
+      knowledge.queryDependents(b).some((d) => hit(d, a));
     return { verdict: found ? "verified" : "contradicted", claim, detail: found ? `${a} imports ${b}` : `${a} does not import ${b} (imports: ${edges.map((e) => e.from).join(", ") || "none"})` };
   }
 

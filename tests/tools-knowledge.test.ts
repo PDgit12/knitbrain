@@ -71,6 +71,9 @@ describe("MCP knowledge tools (query_imports/exports/dependents + scan)", () => 
     call("knitbrain_scan");
     const v = (claim: string) => JSON.parse(call("knitbrain_verify_claim", { claim })) as { verdict: string };
     expect(v("a.ts imports b.js").verdict).toBe("verified");
+    // A1: the natural file-path form must ALSO verify — the specifier "./b.js"
+    // resolves to the file b.ts, so "a.ts imports b.ts" is true (was false-negative).
+    expect(v("a.ts imports b.ts").verdict).toBe("verified");
     expect(v("b.ts imports a.js").verdict).toBe("contradicted");
     expect(v("b.ts exports foo").verdict).toBe("verified");
     expect(v("b.ts exports nope").verdict).toBe("contradicted");

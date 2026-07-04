@@ -20,6 +20,16 @@ describe("tokenizer (rung 1)", () => {
   it("uses the o200k_base encoding", () => {
     expect(activeTokenizerName()).toBe("o200k_base");
   });
+
+  it("bounds enormous low-entropy payloads (no BPE stall)", () => {
+    // A multi-MB single-char run stalls the raw BPE tokenizer for minutes.
+    // The guard must estimate above the cap and return promptly (~chars/4).
+    const huge = "x".repeat(9_000_000);
+    const t0 = Date.now();
+    const n = countTokens(huge);
+    expect(Date.now() - t0).toBeLessThan(1000); // returns fast, no stall
+    expect(n).toBe(Math.ceil(huge.length / 4)); // char-based estimate above cap
+  });
 });
 
 describe("measurement harness (rung 1)", () => {

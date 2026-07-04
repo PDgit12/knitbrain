@@ -45,7 +45,9 @@ describe("adherence: plan-mode directive + handshake protocol", () => {
       }),
     ) as { autoPlanMode: boolean; directive: string };
     expect(out.autoPlanMode).toBe(true);
-    expect(out.directive).toContain("ENTER YOUR HOST'S PLAN MODE NOW");
+    // Cross-platform plan gate: forceful STOP + plan-mode imperative (works on any host)
+    expect(out.directive).toContain("STOP");
+    expect(out.directive).toContain("plan mode");
     expect(out.directive).toContain("knitbrain_record_false_positive"); // FP loop advertised at the decision point
   });
 
@@ -65,7 +67,8 @@ describe("adherence: plan-mode directive + handshake protocol", () => {
         files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
       }),
     ) as { directive: string };
-    expect(out.directive).toContain("ENTER YOUR HOST'S PLAN MODE NOW");
+    expect(out.directive).toContain("STOP");
+    expect(out.directive).toContain("plan mode");
   });
 
   it("knitbrain_run: complex task MATERIALIZES agent .md files (puppeteer mode)", () => {

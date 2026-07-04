@@ -179,6 +179,18 @@ describe("onboard adaptive gaps (Gap B): judge what's missing, ask only for gaps
     expect(res.kind).toBe("agent");
     expect(existsSync(res.path!)).toBe(true);
   });
+
+  // A2: a gap-filled agent for a domain that HAS code is scoped to that domain's
+  // files (src/<domain>/**), not the over-broad "(whole project)" default.
+  it("gap-fill agent scope is derived from the domain's real files", () => {
+    const store = createSkillsStore(join(root, "skills-scope"));
+    const files = ["src/db/pool.ts", "src/db/migrate.ts", "src/db/query.ts"];
+    const gap = computeOnboardGaps(["db"], { skills: [], agents: [] }, false)[0]!;
+    const res = resolveOnboardGap(gap, { skills: store, style: STYLE, projectRoot: root, files });
+    const body = readFileSync(res.path!, "utf8");
+    expect(body).toContain("src/db/**");
+    expect(body).not.toContain("(whole project)");
+  });
 });
 
 describe("onboard → load_session workflow driver (Gap D, tool-level)", () => {
