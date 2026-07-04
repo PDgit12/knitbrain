@@ -20,6 +20,7 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(paths).toContain(".mcp.json");
     expect(paths).toContain(".claude/commands/meter.md");
     expect(paths).toContain(".claude/commands/handoff.md");
+    expect(paths).toContain(".claude/commands/goal.md");
     expect(paths).toContain(".claude/rules/knitbrain.md");
   });
 
@@ -80,7 +81,7 @@ describe("platform adapter matrix (rung 16)", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-plat-"));
     try {
       const written = applyArtifacts(root, claudeArtifacts(cfg), cfg);
-      expect(written.length).toBe(6); // .mcp.json + settings.json(hooks) + 3 commands (meter/handoff/terse) + rules
+      expect(written.length).toBe(7); // .mcp.json + settings.json(hooks) + 4 commands (meter/handoff/terse/goal) + rules
       for (const p of written) expect(existsSync(join(root, p))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
