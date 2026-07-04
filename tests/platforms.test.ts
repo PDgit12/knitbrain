@@ -29,6 +29,8 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(goal.content).toContain("knitbrain_run"); // orchestrate first (classify + skill + agents)
     expect(goal.content).toContain("knitbrain_run_loop"); // still gated by the verify loop
     expect(goal.content).toContain("proposes agents"); // agent fan-out wording
+    expect(goal.content).toContain("--for"); // wall-clock duration flag
+    expect(goal.content).toContain("deadline_ms"); // passed through to the loop engine
     expect(goal.content).toMatch(/NEVER fake .*met=true/i); // anti-sycophancy preserved
   });
 

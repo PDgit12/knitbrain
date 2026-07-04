@@ -73,10 +73,12 @@ function wikiLog(ctx: ToolContext, event: string, title: string): void {
   logSpine(ctx.wiki, event, title);
 }
 
-/** Cross-call state for knitbrain_run_loop: which goal, how many cycles so far. */
+/** Cross-call state for knitbrain_run_loop: which goal, how many cycles so far,
+ * and when the loop started (for the optional wall-clock deadline). */
 interface LoopState {
   goal: string;
   iter: number;
+  startedAt?: number;
 }
 function loadLoopState(path: string): LoopState | null {
   if (!existsSync(path)) return null;
@@ -1057,6 +1059,7 @@ export const TOOLS: readonly ToolDef[] = [
         verify_cmd: { type: "string", description: "Shell command that is the hard gate — exit 0 = pass (e.g. 'npm test')." },
         rubric: { type: "array", items: { type: "string" }, description: "Advisory checklist you self-verify each cycle; the verify_cmd is the hard gate." },
         max_iters: { type: "number", description: "Cap on cycles across calls (default 6)." },
+        deadline_ms: { type: "number", description: "Optional wall-clock budget in ms. Loop stops with met=false, stopped='deadline' once elapsed since the first cycle exceeds it. Either cap (deadline or max_iters) ends the loop; a real met=true ends it early." },
       },
       required: ["goal", "verify_cmd"],
       additionalProperties: false,
@@ -1067,13 +1070,25 @@ export const TOOLS: readonly ToolDef[] = [
       const verifyCmd = str(args, "verify_cmd");
       const rubric = Array.isArray(args["rubric"]) ? (args["rubric"] as string[]) : [];
       const maxIters = typeof args["max_iters"] === "number" && args["max_iters"] > 0 ? Math.floor(args["max_iters"]) : 6;
+      const deadlineMs = typeof args["deadline_ms"] === "number" && args["deadline_ms"] > 0 ? args["deadline_ms"] : undefined;
       const statePath = loopStatePath();
 
       const prev = loadLoopState(statePath);
-      const priorIters = prev && prev.goal === goal ? prev.iter : 0;
+      const sameGoal = prev !== null && prev.goal === goal;
+      const priorIters = sameGoal ? prev.iter : 0;
+      // Wall-clock budget starts on the first cycle for this goal; a new goal resets it.
+      const startedAt = sameGoal && typeof prev.startedAt === "number" ? prev.startedAt : Date.now();
       if (priorIters >= maxIters) {
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters: priorIters, directive: `Loop hit max_iters=${maxIters} for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
+      }
+      // Time budget: checked at cycle START so an in-budget cycle still runs (and can meet).
+      if (deadlineMs !== undefined) {
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs >= deadlineMs) {
+          clearLoopState(statePath);
+          return JSON.stringify({ met: false, stopped: "deadline", iters: priorIters, elapsed_ms: elapsedMs, deadline_ms: deadlineMs, directive: `Loop hit its time budget (${elapsedMs}ms ≥ ${deadlineMs}ms) for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
+        }
       }
 
       // ONE cycle: the host agent already did this cycle's work; we run the REAL
@@ -1115,15 +1130,17 @@ export const TOOLS: readonly ToolDef[] = [
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters, detail }, null, 2);
       }
-      saveLoopState(statePath, { goal, iter: iters });
+      saveLoopState(statePath, { goal, iter: iters, startedAt });
+      const remainingMs = deadlineMs !== undefined ? Math.max(0, deadlineMs - (Date.now() - startedAt)) : undefined;
       return JSON.stringify(
         {
           met: false,
           iter: iters,
           max_iters: maxIters,
+          ...(deadlineMs !== undefined ? { deadline_ms: deadlineMs, remaining_ms: remainingMs } : {}),
           detail,
           rubric,
-          directive: `Cycle ${iters}/${maxIters}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
+          directive: `Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
         },
         null,
         2,

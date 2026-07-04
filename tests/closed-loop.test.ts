@@ -15,6 +15,7 @@ import { createMeter } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
 import { TOOLS, type ToolContext } from "../src/mcp/tools.js";
+import { loopStatePath } from "../src/paths.js";
 
 // Minimal injectable steps for the controller invariants.
 const steps = (over: Partial<ClosedLoopSteps>): ClosedLoopSteps => ({
@@ -190,6 +191,30 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     const ctx = mkCtx();
     loopTool().run({ goal: "make the check pass now", verify_cmd: "true" }, ctx);
     expect(ctx.wiki!.recentLog(5).some((l) => l.includes("loop"))).toBe(true);
+  });
+
+  it("stops at the time budget: failing gate past deadline_ms → met=false, stopped=deadline", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    // Cycle 1: fails the gate, persists loop state (goal, iter, startedAt).
+    const c1 = JSON.parse(t.run({ goal: "fix within a time budget here", verify_cmd: "false", deadline_ms: 1000 }, ctx));
+    expect(c1.met).toBe(false);
+    expect(c1.iter).toBe(1);
+    // Backdate startedAt so the next cycle is past the budget — deterministic, no sleep.
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.startedAt = Date.now() - 5000;
+    writeFileSync(sp, JSON.stringify(st));
+    const c2 = JSON.parse(t.run({ goal: "fix within a time budget here", verify_cmd: "false", deadline_ms: 1000 }, ctx));
+    expect(c2.met).toBe(false);
+    expect(c2.stopped).toBe("deadline");
+    expect(c2.elapsed_ms).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("a real met=true ends early even with a generous time budget", () => {
+    const out = JSON.parse(loopTool().run({ goal: "make the check pass now", verify_cmd: "true", deadline_ms: 999999 }, mkCtx()));
+    expect(out.met).toBe(true);
+    expect(out.iters).toBe(1);
   });
 
   it("rejects a vague, GATE-LESS goal (empty verify_cmd) without running", () => {
