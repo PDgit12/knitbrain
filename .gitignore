@@ -28,3 +28,7 @@ docs/AUDIT-PROMPT.md
 # internal working docs (kept local, not published)
 docs/ARCHITECTURE.md
 docs/ROADMAP.md
+docs/TOOL-AUDIT.md
+
+# Internal launch/marketing working files — never publish
+marketing/
