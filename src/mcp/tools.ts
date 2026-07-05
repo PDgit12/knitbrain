@@ -5,17 +5,17 @@ import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
-import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
+import { classifyTask, classifySegments, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
 import { searchCode } from "../engine/retrieval.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
-import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
+import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, loadHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
 import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
-import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes } from "../engine/onboard.js";
+import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes, detectResumeState, resumeBrief } from "../engine/onboard.js";
 import { terseStore } from "../compress-file.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -73,10 +73,12 @@ function wikiLog(ctx: ToolContext, event: string, title: string): void {
   logSpine(ctx.wiki, event, title);
 }
 
-/** Cross-call state for knitbrain_run_loop: which goal, how many cycles so far. */
+/** Cross-call state for knitbrain_run_loop: which goal, how many cycles so far,
+ * and when the loop started (for the optional wall-clock deadline). */
 interface LoopState {
   goal: string;
   iter: number;
+  startedAt?: number;
 }
 function loadLoopState(path: string): LoopState | null {
   if (!existsSync(path)) return null;
@@ -146,6 +148,9 @@ function strictness(): Strictness {
 }
 /** Writes that must be preceded by classification this session. */
 const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff"]);
+/** Above this live-token reading right after a load_session reset, the host
+ * session probably did NOT actually clear — load_session surfaces a caution. */
+const SESSION_NOT_RESET_TOKENS = 50_000;
 /** Tools that mark the session as classified (loop-entry → opens the gate). */
 const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run", "knitbrain_onboard"]);
 // Per-session state keyed by the connection's ToolContext (one ctx per MCP
@@ -275,9 +280,10 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       const tags = Array.isArray(args["tags"]) ? (args["tags"] as string[]) : [];
-      // Routed through the brain facade: recordLearning + spine line in one call.
-      // Storage-side terse (reuses compressProse; default off → no change).
-      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: terseStore(str(args, "summary")), lesson: terseStore(str(args, "lesson")), tags });
+      // Routed through the brain facade → memory.recordLearning, which applies
+      // the anti-* cleanse (scrub secrets + terse) at the storage layer — the
+      // single gate, so no double-terse here.
+      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: str(args, "summary"), lesson: str(args, "lesson"), tags });
       return duplicate ? `duplicate of existing learning ${id}` : `recorded learning ${id}`;
     },
   },
@@ -367,7 +373,19 @@ export const TOOLS: readonly ToolDef[] = [
       // Gap D: re-surface the standing workflow every session (drift-proof) so
       // nothing needs re-explaining. Null until onboard has composed one.
       const workflow = loadWorkflow(workflowPath());
-      return JSON.stringify({ ...session, wikiRecent, workflow }, null, 2);
+      // Clear-detection: reset() zeroed knitbrain's own tracking, but the
+      // realUsage probe reads the live transcript. If it's still large right
+      // after a "fresh" load, the host session did NOT actually clear — a
+      // resume that assumes a fresh window would be wrong. Surface it as a
+      // neutral fact (not an accusation — a real /clear that reuses the
+      // transcript file could also read high), so the caller verifies instead
+      // of trusting a fresh-session assumption on the user's word.
+      const live = ctx.meter.read().usedTokens;
+      const clearCheck =
+        live > SESSION_NOT_RESET_TOKENS
+          ? `live context probe still shows ~${Math.round(live / 1000)}k tokens — if you just cleared, the reset may not have taken; verify before assuming a fresh window`
+          : undefined;
+      return JSON.stringify({ ...session, wikiRecent, workflow, ...(clearCheck ? { clearCheck } : {}) }, null, 2);
     },
   },
   {
@@ -466,14 +484,22 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
       const scopeAdjust = ctx.calibration.get().scopeAdjust;
-      const cls = classifyTask(str(args, "description"), files, scopeAdjust);
+      const description = str(args, "description");
+      const cls = classifyTask(description, files, scopeAdjust);
+      // Gap 7: per-segment tiers for a multi-part task — plan the complex parts,
+      // build the trivial ones (empty for a single-part task).
+      const segments = classifySegments(description, scopeAdjust);
       // The JSON alone is too passive — agents follow imperatives, not flags.
       const directive = cls.autoPlanMode
         ? `${PLAN_GATE} Then execute the phases in order. Wrong verdict? knitbrain_record_false_positive.`
         : cls.tier === "trivial" || cls.tier === "inquiry"
           ? "Execute directly — no ceremony. Wrong verdict? knitbrain_record_false_positive."
           : "Execute the phases in order (no plan-mode needed). Wrong verdict? knitbrain_record_false_positive.";
-      return JSON.stringify({ ...cls, directive }, null, 2);
+      const segNote =
+        segments.some((s) => s.autoPlanMode) && !segments.every((s) => s.tier === segments[0]!.tier)
+          ? " Multi-part: PLAN the complex segment(s), BUILD the trivial ones — don't force one mode on all."
+          : "";
+      return JSON.stringify({ ...cls, ...(segments.length ? { segments } : {}), directive: directive + segNote }, null, 2);
     },
   },
   {
@@ -576,7 +602,10 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const task = str(args, "task");
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
-      const cls = classifyTask(task, files, ctx.calibration.get().scopeAdjust);
+      const scopeAdj = ctx.calibration.get().scopeAdjust;
+      const cls = classifyTask(task, files, scopeAdj);
+      // Gap 7: per-segment tiers so the loop plans complex parts, builds trivial.
+      const segments = classifySegments(task, scopeAdj);
 
       // Legs 1+2: see what the user already has, so we dedupe (never re-propose
       // an agent they already wrote) and can compose in their style.
@@ -646,13 +675,23 @@ export const TOOLS: readonly ToolDef[] = [
             })
           : [];
 
-      // HOST COMMANDS the agent can run itself (autonomous loop).
+      // HOST COMMANDS the agent can run itself (autonomous loop): knitbrain's
+      // own slash-commands PLUS the user's scanned commands (Gap 2b — mix the
+      // user's whole toolkit into orchestration, not just knitbrain's).
       const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
       const commands = platforms.flatMap((p) => slashCommands(p));
+      const idx = loadHostIndex(hostIndexPath());
+      // `?? []` forward-migrates a legacy index written before commands/hooks
+      // existed (the fields are absent, not empty) — never throw on old data.
+      const userCommands = (idx?.commands ?? []).map((c) => ({ name: c.name, source: c.source, description: c.description }));
+      // Hooks already firing on this host — so the loop leverages existing
+      // automation (e.g. a lint-on-save hook) instead of re-doing it.
+      const userHooks = (idx?.hooks ?? []).map((h) => ({ event: h.event, matcher: h.matcher, source: h.source }));
 
       return JSON.stringify(
         {
           classification: cls,
+          ...(segments.length ? { segments } : {}),
           existing: {
             skills: host.skills.length,
             agents: host.agents.length,
@@ -661,6 +700,11 @@ export const TOOLS: readonly ToolDef[] = [
           skill,
           agents,
           host_commands: commands,
+          // Gap 2b: the user's own slash-commands + active hooks, so the loop
+          // mixes and matches the whole toolkit (plugins included), not just
+          // knitbrain's built-ins. Empty until knitbrain_onboard builds the index.
+          user_commands: userCommands,
+          active_hooks: userHooks,
           // The standing driver's per-part ownership (composed by onboard) —
           // surfaced per task so the loop works in the owning domain instead
           // of only seeing routing at load_session.
@@ -1012,6 +1056,8 @@ export const TOOLS: readonly ToolDef[] = [
       saveHostIndex(buildHostIndex(host), hostIndexPath());
       const sk = countBySource(host.skills);
       const ag = countBySource(host.agents);
+      const cm = countBySource(host.commands);
+      const hk = countBySource(host.hooks);
       // Gap B: judge what's MISSING and ask ONLY for the gaps (empty when covered).
       const gaps = computeOnboardGaps(
         detectDomains(ctx.knowledge.listFiles()),
@@ -1027,17 +1073,26 @@ export const TOOLS: readonly ToolDef[] = [
         greenfield
           ? [...INTENT_QUESTIONS, "Repo has no code yet — list the intended parts/modules of the system (comma-separated, e.g. 'orchestrator, scheduler, model-runtime'), so each part gets routed + a scoped agent."]
           : [...INTENT_QUESTIONS];
+      // Gap 5: detect where the work stands (git + goal.md + last intent) so a
+      // resumed session CONTINUES instead of re-running the intent interview.
+      const resume = detectResumeState(process.cwd());
+      const brief = resumeBrief(resume);
       return JSON.stringify(
         {
           greeting:
             `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned. ` +
             `Toolkit: ${host.skills.length} skill(s) [${sk.project} project · ${sk.global} global · ${sk.plugin} plugin], ` +
-            `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin].`,
+            `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin], ` +
+            `${host.commands.length} command(s) [${cm.project} project · ${cm.global} global · ${cm.plugin} plugin], ` +
+            `${host.hooks.length} hook(s) [${hk.project} project · ${hk.global} global · ${hk.plugin} plugin].`,
+          resumeState: brief ? resume : undefined,
           questions,
           adaptiveQuestions: gaps.map((g) => g.question),
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
-          directive:
-            gaps.length > 0
+          directive: brief
+            ? // Mid-work detected: resume, don't interview.
+              `${brief} (Onboarding intent interview is optional here — the project is already in motion; run it only if the charter/workflow is missing.)`
+            : gaps.length > 0
               ? `Ask the ${questions.length} questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with \`create: [<gap name>, ...]\` FIRST - then persist intent with \`answers\`, so the composed workflow ROUTING covers the just-created agents/skills.`
               : `Ask the user these ${questions.length} questions IN CHAT, then call knitbrain_onboard again with \`answers\` (an array of their ${questions.length} replies, in order) to write the Project Charter + constraints that shape this project's loop.`,
         },
@@ -1057,6 +1112,7 @@ export const TOOLS: readonly ToolDef[] = [
         verify_cmd: { type: "string", description: "Shell command that is the hard gate — exit 0 = pass (e.g. 'npm test')." },
         rubric: { type: "array", items: { type: "string" }, description: "Advisory checklist you self-verify each cycle; the verify_cmd is the hard gate." },
         max_iters: { type: "number", description: "Cap on cycles across calls (default 6)." },
+        deadline_ms: { type: "number", description: "Optional wall-clock budget in ms. Loop stops with met=false, stopped='deadline' once elapsed since the first cycle exceeds it. Either cap (deadline or max_iters) ends the loop; a real met=true ends it early." },
       },
       required: ["goal", "verify_cmd"],
       additionalProperties: false,
@@ -1067,13 +1123,25 @@ export const TOOLS: readonly ToolDef[] = [
       const verifyCmd = str(args, "verify_cmd");
       const rubric = Array.isArray(args["rubric"]) ? (args["rubric"] as string[]) : [];
       const maxIters = typeof args["max_iters"] === "number" && args["max_iters"] > 0 ? Math.floor(args["max_iters"]) : 6;
+      const deadlineMs = typeof args["deadline_ms"] === "number" && args["deadline_ms"] > 0 ? args["deadline_ms"] : undefined;
       const statePath = loopStatePath();
 
       const prev = loadLoopState(statePath);
-      const priorIters = prev && prev.goal === goal ? prev.iter : 0;
+      const sameGoal = prev !== null && prev.goal === goal;
+      const priorIters = sameGoal ? prev.iter : 0;
+      // Wall-clock budget starts on the first cycle for this goal; a new goal resets it.
+      const startedAt = sameGoal && typeof prev.startedAt === "number" ? prev.startedAt : Date.now();
       if (priorIters >= maxIters) {
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters: priorIters, directive: `Loop hit max_iters=${maxIters} for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
+      }
+      // Time budget: checked at cycle START so an in-budget cycle still runs (and can meet).
+      if (deadlineMs !== undefined) {
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs >= deadlineMs) {
+          clearLoopState(statePath);
+          return JSON.stringify({ met: false, stopped: "deadline", iters: priorIters, elapsed_ms: elapsedMs, deadline_ms: deadlineMs, directive: `Loop hit its time budget (${elapsedMs}ms ≥ ${deadlineMs}ms) for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
+        }
       }
 
       // ONE cycle: the host agent already did this cycle's work; we run the REAL
@@ -1115,15 +1183,17 @@ export const TOOLS: readonly ToolDef[] = [
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters, detail }, null, 2);
       }
-      saveLoopState(statePath, { goal, iter: iters });
+      saveLoopState(statePath, { goal, iter: iters, startedAt });
+      const remainingMs = deadlineMs !== undefined ? Math.max(0, deadlineMs - (Date.now() - startedAt)) : undefined;
       return JSON.stringify(
         {
           met: false,
           iter: iters,
           max_iters: maxIters,
+          ...(deadlineMs !== undefined ? { deadline_ms: deadlineMs, remaining_ms: remainingMs } : {}),
           detail,
           rubric,
-          directive: `Cycle ${iters}/${maxIters}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
+          directive: `Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
         },
         null,
         2,

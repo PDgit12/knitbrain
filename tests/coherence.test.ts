@@ -102,6 +102,27 @@ describe("producer→consumer coherence (the wiring contract)", () => {
     expect(tool("knitbrain_load_session").run({}, ctx)).toContain("alpha");
   });
 
+  it("load_session flags a session that did NOT actually reset (clear-detection)", () => {
+    const ccr = createFileCCRStore(join(root, "ccr-cd"));
+    const base: ToolContext = {
+      ccr,
+      memory: createMemory(join(root, "mem-cd")),
+      knowledge: createKnowledge(root, join(root, "kb-cd")),
+      feedback: createFeedback(join(root, "fb-cd")),
+      team: createTeamBoard(join(root, "team-cd"), ccr),
+      meter: createMeter(join(root, "meter-cd-hi"), { realUsage: () => 200_000 }),
+      skills: createSkillsStore(join(root, "skills-cd")),
+      calibration: createCalibration(join(root, "cal-cd")),
+      wiki: createWikiStore(join(root, "wiki-cd")),
+    };
+    const hi = JSON.parse(tool("knitbrain_load_session").run({}, base) as string) as { clearCheck?: string };
+    expect(hi.clearCheck).toMatch(/reset may not have taken/);
+    // a genuinely fresh session (low live usage) gets NO false warning.
+    const low: ToolContext = { ...base, meter: createMeter(join(root, "meter-cd-lo"), { realUsage: () => 1_000 }) };
+    const fresh = JSON.parse(tool("knitbrain_load_session").run({}, low) as string) as { clearCheck?: string };
+    expect(fresh.clearCheck).toBeUndefined();
+  });
+
   it("skill_save → run() serves the saved skill with its record; outcome updates it", () => {
     const ctx = mkCtx();
     tool("knitbrain_skill_save").run({ name: "wire-check", body: "steps", triggers: ["wire", "checker"] }, ctx);

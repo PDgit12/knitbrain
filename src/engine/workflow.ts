@@ -66,6 +66,39 @@ export function classifyTask(description: string, files: string[] = [], scopeAdj
   };
 }
 
+/** One part of a multi-part task with its own tier — so the loop can PLAN the
+ * complex segments and BUILD the trivial ones instead of one tier for the whole. */
+export interface SegmentClassification {
+  text: string;
+  tier: Tier;
+  autoPlanMode: boolean;
+}
+
+/** Split a task description into its parts on natural connectors: numbered
+ * items, ` and `/`;`/` then `/newlines. Returns the trimmed, non-trivial parts. */
+export function splitSegments(description: string): string[] {
+  return description
+    .split(/\s*(?:;|\n|\bthen\b|\band then\b|,\s*and\b|\band\b|^\s*\d+[.)]\s*)\s*/gim)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 6);
+}
+
+/**
+ * Gap 7 — per-segment tiers. A single tier for "refactor auth AND fix a typo"
+ * is wrong: one segment wants plan-mode, the other is trivial. Split the task
+ * and classify each part so the loop mixes plan/build per segment. Returns []
+ * for a single-part task (the top-level Classification already covers it).
+ * Segments are classified on their TEXT intent (no per-segment file list).
+ */
+export function classifySegments(description: string, scopeAdjust = 0): SegmentClassification[] {
+  const parts = splitSegments(description);
+  if (parts.length <= 1) return [];
+  return parts.map((text) => {
+    const c = classifyTask(text, [], scopeAdjust);
+    return { text, tier: c.tier, autoPlanMode: c.autoPlanMode };
+  });
+}
+
 /** The intent + shape a per-user workflow is composed from (Gap D). */
 export interface WorkflowDoc {
   project: string;

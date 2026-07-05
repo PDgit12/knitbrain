@@ -241,7 +241,10 @@ export function createWikiStore(root: string): WikiStore {
       const s = slug(input.title);
       const links = (input.links ?? []).map(slug);
       const summary = input.content.split(/\r?\n/).find((l) => l.trim().length > 0)?.slice(0, 100) ?? input.title;
-      const fm = `---\nkind: ${input.kind}\ntitle: ${input.title}\ndate: ${today()}\nsummary: ${summary.replace(/\n/g, " ")}\n---\n`;
+      // Strip newlines from the title before it goes into frontmatter — a raw
+      // newline would inject a bogus `key: value` line and corrupt the index parse.
+      const safeTitle = input.title.replace(/[\r\n]+/g, " ").trim();
+      const fm = `---\nkind: ${input.kind}\ntitle: ${safeTitle}\ndate: ${today()}\nsummary: ${summary.replace(/\n/g, " ")}\n---\n`;
       const linkLine = links.length ? `\nrelated: ${links.map((l) => `[[${l}]]`).join(" · ")}\n` : "";
       writeAtomic(pagePath(s), `${fm}\n${input.content.trim()}\n${linkLine}`);
       const touched = [s];

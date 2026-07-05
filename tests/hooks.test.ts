@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decidePreToolUse, READ_REDIRECT_BYTES } from "../src/hooks/pretooluse.js";
+import { decideLoopStop } from "../src/hooks/stop.js";
 import { applyArtifacts, claudeArtifacts } from "../src/platforms.js";
 import { generateConfig } from "../src/setup.js";
 
@@ -178,5 +179,33 @@ describe("SessionStart hook (auto protocol + memory injection)", () => {
     expect(KNITBRAIN_HOOKS.SessionStart[0]!.hooks[0]!.command).toBe("knitbrain-hook sessionstart");
     expect(KNITBRAIN_HOOKS.Stop[0]!.hooks[0]!.command).toBe("knitbrain-hook stop");
     expect(KNITBRAIN_HOOKS.UserPromptSubmit[0]!.hooks[0]!.command).toBe("knitbrain-hook userpromptsubmit");
+  });
+});
+
+describe("Stop hook (Gap 6b — enforce the loop, block once)", () => {
+  let dir: string;
+  let p: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kb-stop-")); p = join(dir, "loop-state.json"); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("no loop-state → allow stop (null)", () => {
+    expect(decideLoopStop(p)).toBeNull();
+  });
+
+  it("unmet goal → blocks the FIRST stop, then allows the second (no trap)", () => {
+    writeFileSync(p, JSON.stringify({ goal: "ship X", iter: 2 }));
+    const first = decideLoopStop(p);
+    expect(first?.decision).toBe("block");
+    expect(first?.reason).toContain("ship X");
+    expect(first?.reason).toMatch(/UNMET/);
+    // marker persisted → second stop is not trapped
+    expect(JSON.parse(readFileSync(p, "utf8")).stopNudged).toBe(true);
+    expect(decideLoopStop(p)).toBeNull();
+  });
+
+  it("malformed loop-state → allow stop, never throw", () => {
+    writeFileSync(p, "{ broken");
+    expect(() => decideLoopStop(p)).not.toThrow();
+    expect(decideLoopStop(p)).toBeNull();
   });
 });

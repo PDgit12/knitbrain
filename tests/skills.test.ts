@@ -147,4 +147,14 @@ describe("skill compounding loop (signal → adjustment)", () => {
     expect(migrated.constraints).toEqual([]);
     expect(migrated.wins).toBe(0);
   });
+
+  it("scrubs secrets from a skill body on save + folded failure note (security gate)", () => {
+    const s = createSkillsStore(mkdtempSync(join(tmpdir(), "kb-skillsec-")));
+    const saved = s.save({ name: "deploy", body: "run with ghp_abcdefghijklmnopqrstuvwxyz0123456789 then push" });
+    expect(saved.body).toContain("[REDACTED:GITHUB-TOKEN]");
+    expect(saved.body).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    const after = s.outcome("deploy", false, "leaked AKIAIOSFODNN7EXAMPLE in the log");
+    expect(after!.body).toContain("[REDACTED:AWS-KEY]");
+    expect(after!.body).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
 });

@@ -86,6 +86,16 @@ Answer terse. Same facts, fewer words:
 Example — verbose: "The reason your component re-renders is likely that you're creating a new object reference on each render; consider useMemo."
 Terse: "New object ref each render → re-render. Wrap in useMemo."`;
 
+/**
+ * Goal-loop steering (Gap 6 — the thesis: turn any platform into a loop).
+ * Injected every turn by the UserPromptSubmit hook so the DEFAULT stance is
+ * "drive this to a checkable gate", not "answer once" — the loop is opt-out
+ * (pure questions), not opt-in (/goal). Kept to one line: it costs tokens on
+ * every prompt, so it states the stance and defers mechanics to knitbrain_run.
+ */
+export const GOAL_LOOP_NUDGE =
+  "Every actionable request is a GOAL — don't just answer once, DRIVE it: knitbrain_run to classify + get the skill/agents, then close on a checkable gate with knitbrain_run_loop (loop until met OR max_iters OR --for deadline, not a single pass). Pure question/inquiry → answer directly, no loop.";
+
 export type TerseLevel = "lite" | "full" | "ultra";
 
 /** Output-side terse instruction at a chosen level. Single source: the CLI
@@ -133,7 +143,7 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
     {
       path: ".claude/commands/goal.md",
       mode: "write",
-      content: `---\ndescription: Start a knitbrain goal loop — drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the knitbrain loop. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n3. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters }\` (max_iters default 6).\n4. Each cycle, follow the returned directive: make the smallest real fix, then call \`knitbrain_run_loop\` again.\n5. NEVER fake \`met=true\`. Stop only at a real \`met=true\` or \`max_iters\`, then report the honest final state (what passed, what's still open).\n`,
+      content: `---\ndescription: Run the full knitbrain workflow for a goal — orchestrate skill + agents, then drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the full knitbrain workflow. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. ORCHESTRATE FIRST — call the \`knitbrain_run\` tool with the goal and ADHERE to the verdict:\n   - \`autoPlanMode=true\` → enter your host's plan mode and get approval before any edit;\n   - adopt the returned SKILL; refine it while working, then \`knitbrain_skill_save\`;\n   - if it proposes agents, spawn them via your host's sub-agent mechanism and coordinate on \`knitbrain_team_post\` / \`knitbrain_team_board\`;\n   - run the listed host slash-commands when useful.\n3. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n4. Read an optional \`--for <duration>\` from the args (e.g. \`30m\`, \`1h\`, \`90s\`) and convert it to milliseconds — that's the wall-clock budget.\n5. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters, deadline_ms }\` (max_iters default 6; omit \`deadline_ms\` when no \`--for\` was given).\n6. Each cycle, follow the returned directive: make the smallest real fix (delegating to the spawned agents where apt), then call \`knitbrain_run_loop\` again with the SAME goal so iteration + the time budget carry across calls.\n7. NEVER fake \`met=true\`. Stop only at a real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline (\`stopped:"deadline"\`), then report the honest final state (what passed, what's still open) and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n`,
     },
     {
       path: ".claude/rules/knitbrain.md",

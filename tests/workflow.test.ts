@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type WorkflowDoc } from "../src/engine/workflow.js";
+import { classifyTask, classifySegments, splitSegments, composeWorkflow, saveWorkflow, loadWorkflow, type WorkflowDoc } from "../src/engine/workflow.js";
 
 describe("workflow classifier (rung 10)", () => {
   it("inquiry: a question with no files just answers", () => {
@@ -71,6 +71,28 @@ describe("workflow classifier: read-only intent guard (Gap G)", () => {
     expect(c.tier).not.toBe("inquiry");
     expect(c.tier).toBe("complex"); // 2 files + write intent
     expect(c.autoPlanMode).toBe(true);
+  });
+
+  it("Gap 7: splitSegments breaks a multi-part task on natural connectors", () => {
+    const parts = splitSegments("refactor the auth architecture and fix the typo in README");
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(parts.some((p) => /auth architecture/.test(p))).toBe(true);
+    expect(parts.some((p) => /typo/.test(p))).toBe(true);
+  });
+
+  it("Gap 7: classifySegments gives per-segment tiers (plan complex, build trivial)", () => {
+    const segs = classifySegments("refactor the auth architecture and fix a typo in the README file");
+    expect(segs.length).toBeGreaterThanOrEqual(2);
+    const complex = segs.find((s) => /architecture/.test(s.text));
+    const trivial = segs.find((s) => /typo/.test(s.text));
+    expect(complex!.tier).toBe("complex");
+    expect(complex!.autoPlanMode).toBe(true);
+    expect(trivial!.tier).toBe("trivial");
+    expect(trivial!.autoPlanMode).toBe(false);
+  });
+
+  it("Gap 7: a single-part task yields NO segment breakdown", () => {
+    expect(classifySegments("fix the auth bug")).toEqual([]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
+import { cleanseForBrain } from "./cleanse.js";
 
 /** Handoff freshness: flag a handoff older than this, auto-clear past the hard limit. */
 const HANDOFF_STALE_DAYS = 7;
@@ -94,7 +95,10 @@ export function createMemory(root: string): Memory {
   return {
     recordLearning(input) {
       const all = load();
-      const summary = input.summary.trim();
+      // Anti-* cleanse before the write: scrub secrets (always) + terse (gated).
+      // Dedup on the cleansed summary so it matches what's actually stored.
+      const summary = cleanseForBrain(input.summary.trim());
+      const lesson = cleanseForBrain(input.lesson);
       // Dedup by substring match on summary.
       const dup = all.find(
         (l) => l.summary.includes(summary) || summary.includes(l.summary),
@@ -109,7 +113,7 @@ export function createMemory(root: string): Memory {
         id,
         date: new Date().toISOString().slice(0, 10),
         summary,
-        lesson: input.lesson,
+        lesson,
         tags: input.tags ?? [],
         helpful: 0,
         unhelpful: 0,
@@ -165,9 +169,13 @@ export function createMemory(root: string): Memory {
     },
 
     saveHandoff(state) {
+      // Anti-* cleanse: scrub secrets (always) + terse (gated). The handoff is
+      // re-injected into EVERY resumed session, so terse-storing it cuts a
+      // recurring token cost, and scrubbing stops a leaked credential from
+      // being persisted and replayed each session.
       // Timestamped so loadSession can detect a stale handoff (a weeks-old
       // resume poisons the next session — the protocol's own warning).
-      writeAtomic(handoffPath, JSON.stringify({ state, savedAt: new Date().toISOString() }));
+      writeAtomic(handoffPath, JSON.stringify({ state: cleanseForBrain(state), savedAt: new Date().toISOString() }));
     },
 
     loadSession() {

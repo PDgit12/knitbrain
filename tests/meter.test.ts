@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMeter } from "../src/engine/meter.js";
+import { createMeter, modelWindow, detectBillingMode } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
@@ -156,6 +156,83 @@ describe("meter realUsage probe — fire on the REAL host window, not just knitb
       const m = createMeter(join(r, "m"), { windowTokens: 200000, realUsage: () => null });
       m.onToolOutput(1000);
       expect(m.read().usedTokens).toBe(1000);
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+});
+
+describe("meter modelWindow — current-gen Claude is 1M, not stale 200k", () => {
+  it("maps frontier Claude (opus-4-8, sonnet-5, fable-5) to 1M", () => {
+    expect(modelWindow("claude-opus-4-8")).toBe(1_000_000); // verified live this session
+    expect(modelWindow("claude-sonnet-5")).toBe(1_000_000);
+    expect(modelWindow("claude-fable-5")).toBe(1_000_000);
+    expect(modelWindow("claude-opus-5")).toBe(1_000_000);
+  });
+  it("keeps legacy/unverified Claude conservative at 200k", () => {
+    expect(modelWindow("claude-3-5-sonnet-20241022")).toBe(200_000);
+    expect(modelWindow("claude-2.1")).toBe(200_000);
+  });
+  it("explicit 1M-beta marker still wins", () => {
+    expect(modelWindow("claude-sonnet-4-5[1m]")).toBe(1_000_000);
+  });
+});
+
+describe("meter detectBillingMode — Gap 8 api vs plan optimization", () => {
+  it("api: explicit key, proxy base url, or KNITBRAIN_BILLING override", () => {
+    expect(detectBillingMode({ ANTHROPIC_API_KEY: "sk-x" } as NodeJS.ProcessEnv)).toBe("api");
+    expect(detectBillingMode({ ANTHROPIC_BASE_URL: "http://127.0.0.1:8788" } as NodeJS.ProcessEnv)).toBe("api");
+    expect(detectBillingMode({ KNITBRAIN_BILLING: "api" } as NodeJS.ProcessEnv)).toBe("api");
+  });
+  it("plan: subscription host with no api key", () => {
+    expect(detectBillingMode({ CLAUDECODE: "1" } as NodeJS.ProcessEnv)).toBe("plan");
+    expect(detectBillingMode({ KNITBRAIN_BILLING: "plan" } as NodeJS.ProcessEnv)).toBe("plan");
+  });
+  it("unknown when nothing distinguishes", () => {
+    expect(detectBillingMode({} as NodeJS.ProcessEnv)).toBe("unknown");
+  });
+  it("read() carries billingMode; tailored hint only appears under pressure", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-bill-"));
+    try {
+      process.env["KNITBRAIN_BILLING"] = "api";
+      const m = createMeter(join(r, "m"), { windowTokens: 1000, handoffAt: 0.85 });
+      m.onToolOutput(100); // 10% → ok, no hint
+      const ok = m.read();
+      expect(ok.billingMode).toBe("api");
+      expect(ok.advice).not.toContain("pay-per-token");
+      m.onToolOutput(800); // 90% → handoff, hint appears
+      expect(m.read().advice).toContain("pay-per-token");
+    } finally {
+      delete process.env["KNITBRAIN_BILLING"];
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("meter realModel probe — proactive window kills the FALSE 'clear now'", () => {
+  it("198k on a probed 1M model reads healthy, NOT a false handoff", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-rmodel-"));
+    try {
+      // Exactly the episode that exposed the gap: 198k used, default 200k
+      // window → WOULD fire handoff. With the transcript model probed as
+      // opus-4-8 (1M), it's ~20% — healthy.
+      const m = createMeter(join(r, "m"), { realUsage: () => 198_000, realModel: () => "claude-opus-4-8" });
+      const reading = m.read();
+      expect(reading.windowTokens).toBe(1_000_000);
+      expect(reading.usedPct).toBe(19.8);
+      expect(reading.status).toBe("ok"); // NO false clear-now
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+  it("198k with NO model probe still fires handoff on the conservative 200k default", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-rmodel2-"));
+    try {
+      const m = createMeter(join(r, "m"), { realUsage: () => 198_000 });
+      expect(m.read().status).toBe("handoff"); // unchanged: honest for a real 200k model
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+  it("unknown probed model → default path unchanged (no false comfort)", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-rmodel3-"));
+    try {
+      const m = createMeter(join(r, "m"), { realUsage: () => 198_000, realModel: () => "some-unknown-model" });
+      expect(m.read().status).toBe("handoff"); // modelWindow null → stays 200k
     } finally { rmSync(r, { recursive: true, force: true }); }
   });
 });

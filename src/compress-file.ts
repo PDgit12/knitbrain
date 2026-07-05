@@ -54,15 +54,20 @@ export function compressProse(text: string): string {
 
 /**
  * Storage-side terse: the SAME compressProse transform, applied to brain-write
- * prose (learning summaries/lessons, skill bodies) to cut what every future
- * recall surfaces. Reuses compressProse (no second implementation). Gated:
- *   - default OFF (KNITBRAIN_TERSE_STORE !== "1") → byte-identical to today;
+ * prose (learning summaries/lessons, skill bodies, handoffs) to cut what every
+ * future recall surfaces. The brain is re-injected each session (handoff + top
+ * learnings), so terse storage is a RECURRING token saving — the "caveman in
+ * the brain" optimization. Reuses compressProse (no second implementation).
+ * Gated:
+ *   - default ON; set KNITBRAIN_TERSE_STORE=0 to store verbatim instead;
  *   - structured text with `- claim:` lines (the Project Charter) is NEVER
  *     rewritten — the lint/charter depend on those lines verbatim.
+ * Safe: compressProse byte-preserves code, URLs, and filesystem paths, and
+ * drops only filler/hedging/articles — technical substance always survives.
  * Output-side terse stays separate (the prompt-level TERSE_MODE in platforms.ts).
  */
 export function terseStore(text: string): string {
-  if (process.env["KNITBRAIN_TERSE_STORE"] !== "1") return text;
+  if (process.env["KNITBRAIN_TERSE_STORE"] === "0") return text;
   if (/^\s*[-*]\s*claim:/im.test(text)) return text;
   return compressProse(text);
 }

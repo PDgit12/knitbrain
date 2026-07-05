@@ -14,14 +14,16 @@ describe("memory engine (rung 8)", () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it("records and retrieves a learning by id", () => {
+  it("records and retrieves a learning by id (terse-stored: articles dropped)", () => {
     const { id, duplicate } = mem.recordLearning({
       summary: "always normalize the prefix",
       lesson: "CacheAligner keeps the system prompt byte-stable across turns",
       tags: ["proxy", "cache"],
     });
     expect(duplicate).toBe(false);
-    expect(mem.getLearning(id)?.summary).toBe("always normalize the prefix");
+    // terseStore is default-ON (the caveman-in-brain optimization): the article
+    // "the" is dropped, technical substance kept.
+    expect(mem.getLearning(id)?.summary).toBe("always normalize prefix");
   });
 
   it("dedups by summary substring", () => {

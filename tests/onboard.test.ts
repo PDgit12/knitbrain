@@ -7,7 +7,7 @@ import { createWikiStore } from "../src/engine/wiki.js";
 import { createMemory } from "../src/engine/memory.js";
 import { projectTranscriptDir } from "../src/engine/usage.js";
 import { createSkillsStore } from "../src/engine/skills.js";
-import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests, goalCheckboxes } from "../src/engine/onboard.js";
+import { runOnboard, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, projectHasTests, goalCheckboxes, parseGoalProgress, detectResumeState, resumeBrief } from "../src/engine/onboard.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { createFeedback } from "../src/engine/feedback.js";
@@ -115,14 +115,20 @@ describe("terseStore (brain-write terse, reuse compress-file)", () => {
     else process.env["KNITBRAIN_TERSE_STORE"] = prev;
   });
 
-  it("default OFF → byte-identical", () => {
+  it("default ON → terses prose (the caveman-in-brain optimization)", () => {
     delete process.env["KNITBRAIN_TERSE_STORE"];
+    const t = "The reason that the component re-renders is basically that you are creating a new object.";
+    expect(terseStore(t).length).toBeLessThan(t.length); // filler dropped by default
+  });
+
+  it("opt-out KNITBRAIN_TERSE_STORE=0 → byte-identical", () => {
+    process.env["KNITBRAIN_TERSE_STORE"] = "0";
     const t = "The reason that the component re-renders is basically that you are creating a new object.";
     expect(terseStore(t)).toBe(t);
   });
 
   it("ON → shortens prose (fewer chars) but never touches claim: lines or code", () => {
-    process.env["KNITBRAIN_TERSE_STORE"] = "1";
+    delete process.env["KNITBRAIN_TERSE_STORE"]; // default ON
     const prose = "The reason that the component re-renders is basically that you are creating a new object on each render.";
     const out = terseStore(prose);
     expect(out.length).toBeLessThan(prose.length); // filler dropped
@@ -327,5 +333,58 @@ describe("onboard greenfield gating (Gap 1): 'no code yet' only when truly empty
     const { questions } = firstCall(mkCtx());
     expect(questions.length).toBe(INTENT_QUESTIONS.length + 1); // 6
     expect(questions.some((q) => /no code yet/i.test(q))).toBe(true);
+  });
+});
+
+describe("Gap 5 — resume detection (continue, don't re-ask)", () => {
+  it("parseGoalProgress splits [x] done from [ ] todo", () => {
+    const md = `# Goal\n- [x] scan plugins\n- [X] wrap prompts\n- [ ] caveman storage\n* [ ] ship\nnot a box`;
+    const { done, todo } = parseGoalProgress(md);
+    expect(done).toEqual(["scan plugins", "wrap prompts"]);
+    expect(todo).toEqual(["caveman storage", "ship"]);
+  });
+
+  it("detectResumeState combines injected git + goal.md into a brief", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-resume-"));
+    try {
+      writeFileSync(join(cwd, "goal.md"), `- [x] gap2\n- [ ] gap5\n- [ ] gap4`);
+      // Fake git runner — deterministic, no real repo needed.
+      const git = (args: string): string => {
+        if (args.startsWith("rev-parse")) return "feat/goal-orchestrate";
+        if (args.startsWith("merge-base HEAD main")) return "abc123";
+        if (args.startsWith("log")) return "d4c8dc0 feat(host-scan): commands+hooks\n2366d6e feat(hooks): goal-loop default";
+        if (args.startsWith("status")) return " M src/mcp/tools.ts\n?? scratch.txt";
+        return "";
+      };
+      const s = detectResumeState(cwd, undefined, { git });
+      expect(s.branch).toBe("feat/goal-orchestrate");
+      expect(s.shipped).toEqual(["feat(host-scan): commands+hooks", "feat(hooks): goal-loop default"]);
+      expect(s.inFlight).toEqual(["src/mcp/tools.ts", "scratch.txt"]);
+      expect(s.goalDone).toEqual(["gap2"]);
+      expect(s.goalTodo).toEqual(["gap5", "gap4"]);
+      const brief = resumeBrief(s);
+      expect(brief).toContain("CONTINUE from here");
+      expect(brief).toContain("do NOT ask what to do");
+      expect(brief).toContain("feat/goal-orchestrate");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  it("no work anywhere → empty brief (fresh repo falls back to the interview)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-resume2-"));
+    try {
+      const git = (): string => ""; // not a git repo / nothing shipped
+      const s = detectResumeState(cwd, undefined, { git });
+      expect(resumeBrief(s)).toBe("");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  it("real git path (no injection) on a temp dir degrades gracefully — never throws", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-resume3-"));
+    try {
+      // Not a git repo → makeGit's execSync fails on every call → empty, no throw.
+      // (Assert only the resilience contract; the result depends on whether the
+      // temp dir happens to sit under a repo, so don't pin it.)
+      expect(() => resumeBrief(detectResumeState(cwd))).not.toThrow();
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 });

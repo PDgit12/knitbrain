@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { execSync } from "node:child_process";
 import type { Knowledge } from "./knowledge.js";
 import type { WikiStore } from "./wiki.js";
 import { ingestTranscript, parseTranscriptTurns } from "./wiki.js";
@@ -267,6 +268,121 @@ export function detectDomains(files: string[]): string[] {
 export function goalCheckboxes(goal: string, parts: string[]): string[] {
   const g = goal.replace(/\s+/g, " ").trim() || "the current goal";
   return parts.length > 0 ? parts.map((d) => `- [ ] ${d}: ${g}`) : [`- [ ] ${g}`];
+}
+
+/**
+ * Gap 5 — resume detection. Onboarding imports the transcript but never told
+ * the agent WHERE the work stands, so a resumed session asked "what do I do?"
+ * instead of continuing. This diffs the live signals — git (what shipped / what's
+ * in flight), goal.md checkboxes (done / todo), and the last user intent — into
+ * a structured brief so the brain picks up mid-stream instead of re-asking.
+ */
+export interface ResumeState {
+  branch: string;
+  /** Commit subjects on this branch not yet on main — recently DONE work. */
+  shipped: string[];
+  /** Uncommitted / untracked paths — IN-FLIGHT work. */
+  inFlight: string[];
+  /** Checked goal.md boxes — DONE. */
+  goalDone: string[];
+  /** Unchecked goal.md boxes — the explicit TODO. */
+  goalTodo: string[];
+  /** The last thing the user actually asked (newest transcript). */
+  lastIntent: string;
+}
+
+/** Split a goal.md body into done ([x]) vs todo ([ ]) checkbox lines. */
+export function parseGoalProgress(goalMd: string): { done: string[]; todo: string[] } {
+  const done: string[] = [];
+  const todo: string[] = [];
+  for (const line of goalMd.split(/\r?\n/)) {
+    const m = /^\s*[-*]\s*\[( |x|X)\]\s*(.+)$/.exec(line);
+    if (!m) continue;
+    (m[1] === " " ? todo : done).push(m[2]!.trim());
+  }
+  return { done, todo };
+}
+
+type GitRunner = (args: string) => string;
+
+/** Default git runner — quiet, cwd-scoped, never throws (empty on any failure,
+ * e.g. not a git repo). */
+function makeGit(cwd: string): GitRunner {
+  return (args) => {
+    try {
+      return execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      return "";
+    }
+  };
+}
+
+/**
+ * Detect where the work stands so a resumed session CONTINUES instead of asking.
+ * All signals are best-effort — a missing git repo, goal.md, or transcript each
+ * degrade to empty, never throw. `git` is injectable for tests.
+ */
+export function detectResumeState(
+  cwd: string,
+  home: string = homedir(),
+  opts: { git?: GitRunner } = {},
+): ResumeState {
+  const git = opts.git ?? makeGit(cwd);
+  const branch = git("rev-parse --abbrev-ref HEAD") || "";
+  // Commits ahead of main (fall back to origin/main, then the last few commits).
+  const base = git("merge-base HEAD main") ? "main" : git("merge-base HEAD origin/main") ? "origin/main" : "";
+  const logRange = base ? `${base}..HEAD` : "-5";
+  const shipped = git(`log --oneline ${logRange}`)
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^[0-9a-f]+\s+/, "").trim())
+    .filter(Boolean);
+  const inFlight = git("status --porcelain")
+    .split(/\r?\n/)
+    .map((l) => l.slice(3).trim())
+    .filter(Boolean);
+  // goal.md checkboxes (project root).
+  let goalDone: string[] = [];
+  let goalTodo: string[] = [];
+  const goalPath = join(cwd, "goal.md");
+  if (existsSync(goalPath)) {
+    try {
+      ({ done: goalDone, todo: goalTodo } = parseGoalProgress(readFileSync(goalPath, "utf8")));
+    } catch {
+      /* unreadable goal.md — leave empty */
+    }
+  }
+  // Last user intent from the newest transcript.
+  let lastIntent = "";
+  const transcripts = listTranscripts(cwd, home);
+  if (transcripts.length > 0) {
+    try {
+      const turns = parseTranscriptTurns(readFileSync(transcripts[0]!, "utf8"));
+      const lastUser = [...turns].reverse().find((t) => t.role === "user" && t.text.trim().length > 0);
+      if (lastUser) lastIntent = lastUser.text.replace(/\s+/g, " ").trim().slice(0, 200);
+    } catch {
+      /* unreadable transcript — leave empty */
+    }
+  }
+  return { branch, shipped, inFlight, goalDone, goalTodo, lastIntent };
+}
+
+/**
+ * Format the resume state as a directive that tells the agent to CONTINUE from
+ * the detected point, not re-ask. Empty string when there's nothing to resume
+ * (fresh repo, no work) so onboard falls back to the normal intent interview.
+ */
+export function resumeBrief(s: ResumeState): string {
+  const hasWork = s.shipped.length > 0 || s.inFlight.length > 0 || s.goalTodo.length > 0;
+  if (!hasWork) return "";
+  const parts: string[] = [];
+  if (s.branch) parts.push(`On branch \`${s.branch}\`.`);
+  if (s.shipped.length > 0) parts.push(`DONE (${s.shipped.length} commit${s.shipped.length === 1 ? "" : "s"}): ${s.shipped.slice(0, 5).join("; ")}${s.shipped.length > 5 ? " …" : ""}.`);
+  if (s.goalDone.length > 0) parts.push(`Goal boxes done: ${s.goalDone.length}.`);
+  if (s.inFlight.length > 0) parts.push(`IN-FLIGHT (uncommitted): ${s.inFlight.slice(0, 8).join(", ")}${s.inFlight.length > 8 ? " …" : ""}.`);
+  if (s.goalTodo.length > 0) parts.push(`TODO (goal boxes): ${s.goalTodo.slice(0, 5).join("; ")}${s.goalTodo.length > 5 ? " …" : ""}.`);
+  if (s.lastIntent) parts.push(`Last ask: "${s.lastIntent}".`);
+  parts.push("CONTINUE from here — resume the in-flight/TODO work; do NOT ask what to do.");
+  return parts.join(" ");
 }
 
 function safeMtime(p: string): number {

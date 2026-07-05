@@ -54,7 +54,30 @@ export interface HostAgent {
   description: string;
   tools: string[];
   model: string;
+  /** Frontmatter keys in file order — the user's scheme, for replication. */
+  fmKeys?: string[];
   body: string;
+  /** Which surface it was found on (project/global/plugin). */
+  source: HostSource;
+}
+
+/** A slash-command definition — `.claude/commands/<name>.md` (frontmatter + body). */
+export interface HostCommand {
+  name: string;
+  description: string;
+  body: string;
+  /** Which surface it was found on (project/global/plugin). */
+  source: HostSource;
+}
+
+/** One event→command hook binding, flattened from settings.json / plugin hooks.json. */
+export interface HostHook {
+  /** Lifecycle event, e.g. SessionStart, PostToolUse, UserPromptSubmit. */
+  event: string;
+  /** Tool/event matcher pattern (empty = fires on all). */
+  matcher: string;
+  /** The shell command the hook runs. */
+  command: string;
   /** Which surface it was found on (project/global/plugin). */
   source: HostSource;
 }
@@ -152,9 +175,81 @@ export function scanHostAgents(claudeDir: string, io: HostIO = realIO, source: H
       description: asStr(fm["description"]),
       tools: asList(fm["tools"]),
       model: asStr(fm["model"]),
+      // parseFrontmatter builds `fm` in file order, so Object.keys is the user's
+      // actual frontmatter scheme — captured so generated agents replicate it.
+      fmKeys: Object.keys(fm),
       body,
       source,
     });
+  }
+  return out;
+}
+
+/** Scan `<claudeDir>/commands/*.md`. Returns [] if the dir is absent. */
+export function scanHostCommands(claudeDir: string, io: HostIO = realIO, source: HostSource = "project"): HostCommand[] {
+  const cmdDir = join(claudeDir, "commands");
+  if (!io.exists(cmdDir)) return [];
+  const out: HostCommand[] = [];
+  for (const entry of io.readDir(cmdDir)) {
+    if (!entry.endsWith(".md")) continue;
+    const file = join(cmdDir, entry);
+    let raw: string;
+    try {
+      raw = io.readFile(file);
+    } catch {
+      continue; // unreadable command — skip, never break the scan
+    }
+    const { fm, body } = parseFrontmatter(raw);
+    out.push({
+      name: asStr(fm["name"]) || entry.replace(/\.md$/, ""),
+      description: asStr(fm["description"]),
+      body,
+      source,
+    });
+  }
+  return out;
+}
+
+/**
+ * Flatten a hooks config object — `{ Event: [{ matcher?, hooks: [{ command }] }] }`
+ * — into individual event→command bindings. Shared by settings.json (project/
+ * global) and plugin `hooks/hooks.json`, which both nest under a `hooks` key.
+ */
+function flattenHooks(hooksObj: unknown, source: HostSource, out: HostHook[]): void {
+  if (!hooksObj || typeof hooksObj !== "object") return;
+  for (const [event, groups] of Object.entries(hooksObj as Record<string, unknown>)) {
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      if (!group || typeof group !== "object") continue;
+      const matcher = typeof (group as Record<string, unknown>)["matcher"] === "string" ? String((group as Record<string, unknown>)["matcher"]) : "";
+      const inner = (group as Record<string, unknown>)["hooks"];
+      if (!Array.isArray(inner)) continue;
+      for (const h of inner) {
+        const command = h && typeof h === "object" && typeof (h as Record<string, unknown>)["command"] === "string" ? String((h as Record<string, unknown>)["command"]) : "";
+        if (command) out.push({ event, matcher, command, source });
+      }
+    }
+  }
+}
+
+/**
+ * Scan the host's hook bindings. For project/global surfaces that's
+ * `settings.json` + `settings.local.json` (top-level `hooks` key); for a
+ * plugin it's `hooks/hooks.json` (`hooks` key). Malformed JSON is skipped, not
+ * fatal — a broken settings file must never break the toolkit scan.
+ */
+export function scanHostHooks(claudeDir: string, io: HostIO = realIO, source: HostSource = "project"): HostHook[] {
+  const out: HostHook[] = [];
+  const files = source === "plugin" ? [join(claudeDir, "hooks", "hooks.json")] : [join(claudeDir, "settings.json"), join(claudeDir, "settings.local.json")];
+  for (const file of files) {
+    if (!io.exists(file)) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(io.readFile(file));
+    } catch {
+      continue; // malformed settings — skip, never break the scan
+    }
+    if (parsed && typeof parsed === "object") flattenHooks((parsed as Record<string, unknown>)["hooks"], source, out);
   }
   return out;
 }
@@ -176,6 +271,10 @@ export interface StyleProfile {
   usesTriggers: boolean;
   /** Common `## ` section headers seen across bodies (most frequent first). */
   headers: string[];
+  /** The user's agent frontmatter scheme — keys in their dominant order, so a
+   * generated agent replicates their exact field set/order (Gap 3 fidelity).
+   * Optional: absent on a hand-built profile / when no agents were scanned. */
+  agentFrontmatterKeys?: string[];
 }
 
 export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfile {
@@ -202,6 +301,16 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
   for (const a of agents) if (a.model) modelCount.set(a.model, (modelCount.get(a.model) ?? 0) + 1);
   const model = [...modelCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
+  // Dominant frontmatter scheme: the most common key ORDER across the user's
+  // agents (keyed by the joined order so identical schemes aggregate).
+  const schemeCount = new Map<string, number>();
+  for (const a of agents) {
+    const keys = a.fmKeys ?? [];
+    if (keys.length > 0) schemeCount.set(keys.join(","), (schemeCount.get(keys.join(",")) ?? 0) + 1);
+  }
+  const dominantScheme = [...schemeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const agentFrontmatterKeys = dominantScheme ? dominantScheme.split(",") : [];
+
   return {
     medianBodyLen,
     terse,
@@ -209,6 +318,7 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
     ...(model ? { model } : {}),
     usesTriggers: skills.some((s) => s.triggers.length > 0 && s.triggers[0] !== ""),
     headers,
+    agentFrontmatterKeys,
   };
 }
 
@@ -362,7 +472,7 @@ function pluginRoots(home: string, io: HostIO, maxDepth = 5): string[] {
   const found: string[] = [];
   const walk = (dir: string, depth: number): void => {
     if (depth > maxDepth) return;
-    if (io.exists(join(dir, "skills")) || io.exists(join(dir, "agents"))) {
+    if (io.exists(join(dir, "skills")) || io.exists(join(dir, "agents")) || io.exists(join(dir, "commands")) || io.exists(join(dir, "hooks"))) {
       found.push(dir);
       return; // don't descend past a plugin root
     }
@@ -399,11 +509,19 @@ export function scanRoots(projectClaudeDir: string, home: string = homedir(), io
  * by name (case-insensitive, first-wins → project beats global beats plugin).
  * This is the brain's awareness of the user's whole toolkit.
  */
-export function scanHostAll(projectClaudeDir: string, home: string = homedir(), io: HostIO = realIO): { skills: HostSkill[]; agents: HostAgent[]; style: StyleProfile } {
+export function scanHostAll(
+  projectClaudeDir: string,
+  home: string = homedir(),
+  io: HostIO = realIO,
+): { skills: HostSkill[]; agents: HostAgent[]; commands: HostCommand[]; hooks: HostHook[]; style: StyleProfile } {
   const skills: HostSkill[] = [];
   const agents: HostAgent[] = [];
+  const commands: HostCommand[] = [];
+  const hooks: HostHook[] = [];
   const seenSkill = new Set<string>();
   const seenAgent = new Set<string>();
+  const seenCommand = new Set<string>();
+  const seenHook = new Set<string>();
   for (const { dir, source } of scanRoots(projectClaudeDir, home, io)) {
     for (const s of scanHostSkills(dir, io, source)) {
       const k = s.name.toLowerCase();
@@ -417,8 +535,23 @@ export function scanHostAll(projectClaudeDir: string, home: string = homedir(), 
       seenAgent.add(k);
       agents.push(a);
     }
+    for (const c of scanHostCommands(dir, io, source)) {
+      const k = c.name.toLowerCase();
+      if (seenCommand.has(k)) continue;
+      seenCommand.add(k);
+      commands.push(c);
+    }
+    // Hooks dedupe on identity (event|matcher|command), not name — the same
+    // binding declared on two surfaces is one hook, but distinct commands under
+    // one event are all kept.
+    for (const h of scanHostHooks(dir, io, source)) {
+      const k = `${h.event}|${h.matcher}|${h.command}`;
+      if (seenHook.has(k)) continue;
+      seenHook.add(k);
+      hooks.push(h);
+    }
   }
-  return { skills, agents, style: inferStyle(skills, agents) };
+  return { skills, agents, commands, hooks, style: inferStyle(skills, agents) };
 }
 
 /**
@@ -429,13 +562,17 @@ export function scanHostAll(projectClaudeDir: string, home: string = homedir(), 
 export interface HostIndex {
   skills: Array<{ name: string; description: string; source: HostSource; triggers: string[] }>;
   agents: Array<{ name: string; description: string; source: HostSource; tools: string[]; model: string }>;
+  commands: Array<{ name: string; description: string; source: HostSource }>;
+  hooks: Array<{ event: string; matcher: string; command: string; source: HostSource }>;
   updatedAt: string;
 }
 
-export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[] }): HostIndex {
+export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[]; commands?: HostCommand[]; hooks?: HostHook[] }): HostIndex {
   return {
     skills: scan.skills.map((s) => ({ name: s.name, description: s.description, source: s.source, triggers: s.triggers })),
     agents: scan.agents.map((a) => ({ name: a.name, description: a.description, source: a.source, tools: a.tools, model: a.model })),
+    commands: (scan.commands ?? []).map((c) => ({ name: c.name, description: c.description, source: c.source })),
+    hooks: (scan.hooks ?? []).map((h) => ({ event: h.event, matcher: h.matcher, command: h.command, source: h.source })),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -446,6 +583,27 @@ export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[] 
 export function saveHostIndex(index: HostIndex, path: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeAtomic(path, JSON.stringify(index, null, 2));
+}
+
+/** Load the persisted host index (the whole-toolkit inventory onboard built),
+ * or null if it doesn't exist yet / is unreadable. Lets knitbrain_run surface
+ * the user's own commands + hooks without a full re-scan every call. */
+export function loadHostIndex(path: string): HostIndex | null {
+  if (!existsSync(path)) return null;
+  try {
+    const idx = JSON.parse(readFileSync(path, "utf8")) as Partial<HostIndex>;
+    // Forward-migrate: commands/hooks were added after the first index shape,
+    // so backfill them on a legacy file rather than returning undefined arrays.
+    return {
+      skills: idx.skills ?? [],
+      agents: idx.agents ?? [],
+      commands: idx.commands ?? [],
+      hooks: idx.hooks ?? [],
+      updatedAt: idx.updatedAt ?? "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Count artifacts per source, for the onboard greeting. */
