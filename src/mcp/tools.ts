@@ -5,7 +5,7 @@ import type { Feedback } from "../engine/feedback.js";
 import type { TeamBoard } from "../engine/teams.js";
 import type { Meter } from "../engine/meter.js";
 import type { SkillsStore } from "../engine/skills.js";
-import { classifyTask, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
+import { classifyTask, classifySegments, composeWorkflow, saveWorkflow, loadWorkflow, type Tier } from "../engine/workflow.js";
 import { searchCode } from "../engine/retrieval.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
@@ -484,14 +484,22 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
       const scopeAdjust = ctx.calibration.get().scopeAdjust;
-      const cls = classifyTask(str(args, "description"), files, scopeAdjust);
+      const description = str(args, "description");
+      const cls = classifyTask(description, files, scopeAdjust);
+      // Gap 7: per-segment tiers for a multi-part task — plan the complex parts,
+      // build the trivial ones (empty for a single-part task).
+      const segments = classifySegments(description, scopeAdjust);
       // The JSON alone is too passive — agents follow imperatives, not flags.
       const directive = cls.autoPlanMode
         ? `${PLAN_GATE} Then execute the phases in order. Wrong verdict? knitbrain_record_false_positive.`
         : cls.tier === "trivial" || cls.tier === "inquiry"
           ? "Execute directly — no ceremony. Wrong verdict? knitbrain_record_false_positive."
           : "Execute the phases in order (no plan-mode needed). Wrong verdict? knitbrain_record_false_positive.";
-      return JSON.stringify({ ...cls, directive }, null, 2);
+      const segNote =
+        segments.some((s) => s.autoPlanMode) && !segments.every((s) => s.tier === segments[0]!.tier)
+          ? " Multi-part: PLAN the complex segment(s), BUILD the trivial ones — don't force one mode on all."
+          : "";
+      return JSON.stringify({ ...cls, ...(segments.length ? { segments } : {}), directive: directive + segNote }, null, 2);
     },
   },
   {
@@ -594,7 +602,10 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       const task = str(args, "task");
       const files = Array.isArray(args["files"]) ? (args["files"] as string[]) : [];
-      const cls = classifyTask(task, files, ctx.calibration.get().scopeAdjust);
+      const scopeAdj = ctx.calibration.get().scopeAdjust;
+      const cls = classifyTask(task, files, scopeAdj);
+      // Gap 7: per-segment tiers so the loop plans complex parts, builds trivial.
+      const segments = classifySegments(task, scopeAdj);
 
       // Legs 1+2: see what the user already has, so we dedupe (never re-propose
       // an agent they already wrote) and can compose in their style.
@@ -680,6 +691,7 @@ export const TOOLS: readonly ToolDef[] = [
       return JSON.stringify(
         {
           classification: cls,
+          ...(segments.length ? { segments } : {}),
           existing: {
             skills: host.skills.length,
             agents: host.agents.length,
