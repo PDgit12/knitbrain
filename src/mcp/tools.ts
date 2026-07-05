@@ -148,6 +148,9 @@ function strictness(): Strictness {
 }
 /** Writes that must be preceded by classification this session. */
 const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff"]);
+/** Above this live-token reading right after a load_session reset, the host
+ * session probably did NOT actually clear — load_session surfaces a caution. */
+const SESSION_NOT_RESET_TOKENS = 50_000;
 /** Tools that mark the session as classified (loop-entry → opens the gate). */
 const CLASSIFIERS = new Set(["knitbrain_classify_task", "knitbrain_run", "knitbrain_onboard"]);
 // Per-session state keyed by the connection's ToolContext (one ctx per MCP
@@ -370,7 +373,19 @@ export const TOOLS: readonly ToolDef[] = [
       // Gap D: re-surface the standing workflow every session (drift-proof) so
       // nothing needs re-explaining. Null until onboard has composed one.
       const workflow = loadWorkflow(workflowPath());
-      return JSON.stringify({ ...session, wikiRecent, workflow }, null, 2);
+      // Clear-detection: reset() zeroed knitbrain's own tracking, but the
+      // realUsage probe reads the live transcript. If it's still large right
+      // after a "fresh" load, the host session did NOT actually clear — a
+      // resume that assumes a fresh window would be wrong. Surface it as a
+      // neutral fact (not an accusation — a real /clear that reuses the
+      // transcript file could also read high), so the caller verifies instead
+      // of trusting a fresh-session assumption on the user's word.
+      const live = ctx.meter.read().usedTokens;
+      const clearCheck =
+        live > SESSION_NOT_RESET_TOKENS
+          ? `live context probe still shows ~${Math.round(live / 1000)}k tokens — if you just cleared, the reset may not have taken; verify before assuming a fresh window`
+          : undefined;
+      return JSON.stringify({ ...session, wikiRecent, workflow, ...(clearCheck ? { clearCheck } : {}) }, null, 2);
     },
   },
   {
