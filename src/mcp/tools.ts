@@ -15,7 +15,7 @@ import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
-import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes } from "../engine/onboard.js";
+import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes, detectResumeState, resumeBrief } from "../engine/onboard.js";
 import { terseStore } from "../compress-file.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
@@ -1031,6 +1031,10 @@ export const TOOLS: readonly ToolDef[] = [
         greenfield
           ? [...INTENT_QUESTIONS, "Repo has no code yet — list the intended parts/modules of the system (comma-separated, e.g. 'orchestrator, scheduler, model-runtime'), so each part gets routed + a scoped agent."]
           : [...INTENT_QUESTIONS];
+      // Gap 5: detect where the work stands (git + goal.md + last intent) so a
+      // resumed session CONTINUES instead of re-running the intent interview.
+      const resume = detectResumeState(process.cwd());
+      const brief = resumeBrief(resume);
       return JSON.stringify(
         {
           greeting:
@@ -1039,11 +1043,14 @@ export const TOOLS: readonly ToolDef[] = [
             `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin], ` +
             `${host.commands.length} command(s) [${cm.project} project · ${cm.global} global · ${cm.plugin} plugin], ` +
             `${host.hooks.length} hook(s) [${hk.project} project · ${hk.global} global · ${hk.plugin} plugin].`,
+          resumeState: brief ? resume : undefined,
           questions,
           adaptiveQuestions: gaps.map((g) => g.question),
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
-          directive:
-            gaps.length > 0
+          directive: brief
+            ? // Mid-work detected: resume, don't interview.
+              `${brief} (Onboarding intent interview is optional here — the project is already in motion; run it only if the charter/workflow is missing.)`
+            : gaps.length > 0
               ? `Ask the ${questions.length} questions, then the adaptiveQuestions. For each gap the user says YES to, call knitbrain_onboard again with \`create: [<gap name>, ...]\` FIRST - then persist intent with \`answers\`, so the composed workflow ROUTING covers the just-created agents/skills.`
               : `Ask the user these ${questions.length} questions IN CHAT, then call knitbrain_onboard again with \`answers\` (an array of their ${questions.length} replies, in order) to write the Project Charter + constraints that shape this project's loop.`,
         },
