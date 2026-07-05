@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.16.0
+
+The loop-engineering release: knitbrain turns any platform into a closed loop,
+and the brain now sees + orchestrates the user's whole toolkit. Backward-compatible
+except the terse-storage default (see below). **37 MCP tools**, 492 tests.
+
+- **Whole-toolkit awareness** — the host scan now enumerates the user's
+  slash-**commands** and **hooks** (project, global, and plugin), not just skills
+  and agents. `knitbrain_run` surfaces the user's own commands + active hooks so
+  the loop mixes and matches the whole toolkit, plugins included.
+- **Goal-loop is the default** — every actionable prompt is steered toward a
+  checkable gate (`GOAL_LOOP_NUDGE`, injected each turn), and the **Stop hook now
+  enforces** it: an unmet in-progress goal blocks the first stop and pushes
+  continuation (once — a deliberate second stop is never trapped).
+- **Resume detection** — onboarding diffs git + `goal.md` + last intent so a
+  resumed session continues the work instead of re-asking what to do.
+- **Anti-\* cleanse layer** — every brain write (learnings, handoff, skill bodies)
+  is scrubbed of credentials and terse-stored through one source (`engine/cleanse.ts`);
+  the hub and transcript-mining share the same secret detection.
+- **Terse brain-storage is now default-ON** (opt out with `KNITBRAIN_TERSE_STORE=0`).
+  The handoff is terse-stored too, so the recurring per-session re-injection costs
+  fewer tokens. Byte-preserves code, URLs, and paths — only filler is dropped.
+- **Honest context meter** — reads the running model from the transcript to get
+  the REAL window proactively, killing a false "clear now" that fired near 200k on
+  a 1M-window model. `load_session` flags a session that did not actually reset,
+  and the advice is tailored to the billing surface (api vs subscription).
+- **Generated agents replicate your frontmatter scheme** — exact field set + order,
+  not a fixed template.
+- **Per-segment tiers** — a multi-part task ("refactor X and fix a typo") is split
+  so the loop plans the complex parts and builds the trivial ones.
+- Security: skill bodies and wiki titles hardened; full vulnerability sweep.
+
 ## 0.7.0
 
 The onboard release: the brain stops waking up blank. **34 MCP tools** (was 33).
