@@ -86,6 +86,16 @@ Answer terse. Same facts, fewer words:
 Example — verbose: "The reason your component re-renders is likely that you're creating a new object reference on each render; consider useMemo."
 Terse: "New object ref each render → re-render. Wrap in useMemo."`;
 
+/**
+ * Goal-loop steering (Gap 6 — the thesis: turn any platform into a loop).
+ * Injected every turn by the UserPromptSubmit hook so the DEFAULT stance is
+ * "drive this to a checkable gate", not "answer once" — the loop is opt-out
+ * (pure questions), not opt-in (/goal). Kept to one line: it costs tokens on
+ * every prompt, so it states the stance and defers mechanics to knitbrain_run.
+ */
+export const GOAL_LOOP_NUDGE =
+  "Every actionable request is a GOAL — don't just answer once, DRIVE it: knitbrain_run to classify + get the skill/agents, then close on a checkable gate with knitbrain_run_loop (loop until met OR max_iters OR --for deadline, not a single pass). Pure question/inquiry → answer directly, no loop.";
+
 export type TerseLevel = "lite" | "full" | "ultra";
 
 /** Output-side terse instruction at a chosen level. Single source: the CLI

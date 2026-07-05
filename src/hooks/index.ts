@@ -21,6 +21,7 @@ import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 import { mineNewTranscripts } from "../learn.js";
+import { GOAL_LOOP_NUDGE } from "../platforms.js";
 import { join } from "node:path";
 
 function readStdin(): Promise<string> {
@@ -71,7 +72,8 @@ async function main(): Promise<void> {
       const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
       const r = meter.read();
       let out =
-        "knitbrain active — classify_task before non-trivial edits · search_code before reading files · knitbrain_read for big files · verify claims with output (no yes-man) · answer terse (same facts, fewer words) · record_learning before done.";
+        "knitbrain active — classify_task before non-trivial edits · search_code before reading files · knitbrain_read for big files · verify claims with output (no yes-man) · answer terse (same facts, fewer words) · record_learning before done.\n" +
+        GOAL_LOOP_NUDGE;
       // Live conversation-relative optimization (gap #2): how much smaller the
       // live window is than its unoptimized counterfactual.
       if (r.optimizationPct > 0) out += ` · optimized ${r.optimizationPct}% of the live window (saved ${r.savedTokens.toLocaleString()} tok)`;
