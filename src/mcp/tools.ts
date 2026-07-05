@@ -277,9 +277,10 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       const tags = Array.isArray(args["tags"]) ? (args["tags"] as string[]) : [];
-      // Routed through the brain facade: recordLearning + spine line in one call.
-      // Storage-side terse (reuses compressProse; default off → no change).
-      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: terseStore(str(args, "summary")), lesson: terseStore(str(args, "lesson")), tags });
+      // Routed through the brain facade → memory.recordLearning, which applies
+      // the anti-* cleanse (scrub secrets + terse) at the storage layer — the
+      // single gate, so no double-terse here.
+      const { id, duplicate } = brainOf(ctx).write({ kind: "learning", summary: str(args, "summary"), lesson: str(args, "lesson"), tags });
       return duplicate ? `duplicate of existing learning ${id}` : `recorded learning ${id}`;
     },
   },

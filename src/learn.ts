@@ -2,6 +2,7 @@ import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writ
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { containsSecret } from "./engine/cleanse.js";
 
 /**
  * `knitbrain learn` — offline failure mining with success correlation.
@@ -32,13 +33,14 @@ const FAIL_TEXT =
   /\b(does not exist|No such file|not found|command not found|ModuleNotFoundError|No module named|ENOENT|Permission denied|is a directory|InputValidationError)\b/i;
 const TOO_LARGE = /\b(exceeds maximum|too large|File content \(\d+|truncated)\b/i;
 
-/** Secrets must never reach CLAUDE.md (it's often committed). */
-const SECRET = /\b(hf_|sk-|ghp_|gho_|github_pat_|xox[abps]-|AKIA|ASIA)[A-Za-z0-9_-]{8,}/;
+// Hard credential detection is shared with the brain-write cleanse (single
+// source in engine/cleanse.ts). SECRET_WORDS is an extra, looser mining-only
+// heuristic: skip a line that even mentions a credential assignment.
 const SECRET_WORDS = /\b(password|secret|api[_-]?key|token)\s*[:=]/i;
 
 /** A learning is publishable only if it's short, single-line, and secret-free. */
 function publishable(text: string): boolean {
-  return text.length <= 220 && !text.includes("\n") && !SECRET.test(text) && !SECRET_WORDS.test(text);
+  return text.length <= 220 && !text.includes("\n") && !containsSecret(text) && !SECRET_WORDS.test(text);
 }
 
 /** Generic basenames that collide across unrelated files — useless as anchors. */

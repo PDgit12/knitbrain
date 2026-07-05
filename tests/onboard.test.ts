@@ -115,14 +115,20 @@ describe("terseStore (brain-write terse, reuse compress-file)", () => {
     else process.env["KNITBRAIN_TERSE_STORE"] = prev;
   });
 
-  it("default OFF → byte-identical", () => {
+  it("default ON → terses prose (the caveman-in-brain optimization)", () => {
     delete process.env["KNITBRAIN_TERSE_STORE"];
+    const t = "The reason that the component re-renders is basically that you are creating a new object.";
+    expect(terseStore(t).length).toBeLessThan(t.length); // filler dropped by default
+  });
+
+  it("opt-out KNITBRAIN_TERSE_STORE=0 → byte-identical", () => {
+    process.env["KNITBRAIN_TERSE_STORE"] = "0";
     const t = "The reason that the component re-renders is basically that you are creating a new object.";
     expect(terseStore(t)).toBe(t);
   });
 
   it("ON → shortens prose (fewer chars) but never touches claim: lines or code", () => {
-    process.env["KNITBRAIN_TERSE_STORE"] = "1";
+    delete process.env["KNITBRAIN_TERSE_STORE"]; // default ON
     const prose = "The reason that the component re-renders is basically that you are creating a new object on each render.";
     const out = terseStore(prose);
     expect(out.length).toBeLessThan(prose.length); // filler dropped

@@ -2,6 +2,7 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
+import { containsSecret } from "../engine/cleanse.js";
 
 /**
  * Knit Brain HUB — the shared-sessions server a team points at.
@@ -29,11 +30,10 @@ export interface Hub {
 /** Cap request bodies so one authenticated client can't exhaust hub memory. */
 const MAX_BODY_BYTES = 1_000_000;
 
-/** Obvious credential shapes. A board original is stored byte-exact for the
- * team, so we REJECT (never silently scrub — that would corrupt the original)
- * a posting that looks like it carries a live secret. Defense-in-depth, not a
- * guarantee: posters still must not paste secrets. */
-const SECRET_RE = /\b(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})\b/;
+// Credential detection shared with the brain-write cleanse (single source in
+// engine/cleanse.ts). A board original is stored byte-exact for the team, so we
+// REJECT (never silently scrub — that would corrupt the original) a posting that
+// looks like it carries a live secret. Defense-in-depth, not a guarantee.
 
 /** Sentinel returned (not thrown) when a body exceeds the cap, so the handler
  * can answer with a clean 413 instead of resetting the socket. */
@@ -132,7 +132,7 @@ export function createHub(root: string): Hub {
         if (typeof body.author !== "string" || typeof body.original !== "string") {
           return json(res, 400, { error: "author and original are required" });
         }
-        if (SECRET_RE.test(body.original) || SECRET_RE.test(body.summary ?? "")) {
+        if (containsSecret(body.original) || containsSecret(body.summary ?? "")) {
           return json(res, 400, { error: "posting looks like it contains a secret — redact before posting" });
         }
         const entry: HubEntry = {
