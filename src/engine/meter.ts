@@ -65,6 +65,10 @@ export interface MeterOptions {
    * source is available (then the meter falls back to its own tracking).
    */
   realUsage?: () => number | null;
+  /** Host's current model id (transcript probe) → proactive real window via
+   * modelWindow, so usedPct is honest BEFORE usage overflows a stale default.
+   * Null/unknown → the default/reactive path is unchanged. */
+  realModel?: () => string | null;
   /**
    * MCP-only hosts (no proxy, no realUsage data): assume this much standing
    * context (system prompt + instructions + chat) and label the reading an
@@ -98,6 +102,13 @@ const CACHE_COLD_MIN_TOKENS = 30_000;
 export function modelWindow(model: string): number | null {
   const m = model.toLowerCase();
   if (m.includes("[1m]") || m.includes("-1m")) return 1_000_000;
+  // Current-gen frontier Claude ships a 1M window (Opus 4.x incl.
+  // claude-opus-4-8 — verified live — Sonnet/Opus 5, the Claude 5 family /
+  // fable). Mapping ALL claude* → 200k pinned usedPct at ~100% near 200k on
+  // these, firing a FALSE "clear now" with ~800k of real headroom. Everything
+  // else Claude (legacy 2/3, Haiku, unverified) stays the conservative 200k —
+  // the reactive tier-heal still corrects if real usage overflows it.
+  if (/^claude-(opus-4|opus-5|sonnet-5|fable-5|fable|5)/.test(m)) return 1_000_000;
   if (m.startsWith("claude")) return 200_000;
   if (m.startsWith("gpt-5")) return 400_000;
   if (m.startsWith("gpt-4.1")) return 1_000_000;
@@ -179,9 +190,13 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       // estimate rather than silently under-reporting until handoff fires late.
       const estimated = real === 0 && state.lastRequestTokens === 0 && (opts.baselineTokens ?? 0) > 0;
       const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real) + (estimated ? opts.baselineTokens! : 0);
-      // Window precedence: explicit env override > window adopted from the
-      // request's model id (proxy path) > configured/default.
-      const baseWindow = envSet ? windowTokens : state.modelWindowTokens ?? windowTokens;
+      // Window precedence: explicit env override > window from the request's
+      // model id (proxy `onModel`) > window PROBED from the transcript model
+      // (Claude Code, proactive) > configured/default. The probe kills the
+      // false "clear now" that a stale 200k default fired near ~200k usage on a
+      // 1M-window model, before the reactive tier-heal could correct it.
+      const probedWindow = opts.realModel ? modelWindow(opts.realModel() ?? "") : null;
+      const baseWindow = envSet ? windowTokens : state.modelWindowTokens ?? probedWindow ?? windowTokens;
       // Auto-heal: if observed usage exceeds the configured window, the window
       // is stale (large-context model) — use the smallest standard tier that
       // actually fits, so usedPct/status are honest instead of pinned at 100%.

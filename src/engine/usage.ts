@@ -129,3 +129,61 @@ export function currentContextTokens(home: string = homedir()): number | null {
   }
   return null;
 }
+
+/**
+ * The model id the host is CURRENTLY running, read from the newest transcript's
+ * latest assistant message (`message.model`). Lets the context meter learn the
+ * REAL window proactively (via modelWindow) instead of reactively healing only
+ * after usage overflows a stale default — which produced a FALSE "clear now" at
+ * ~90-100% of a 200k default on a model whose real window is 1M. Claude Code
+ * only; null elsewhere (meter keeps its default/reactive path). Synthetic
+ * placeholder ids (e.g. "<synthetic>") are ignored — they carry no window.
+ */
+export function currentContextModel(home: string = homedir()): string | null {
+  const dir = join(home, ".claude", "projects");
+  if (!existsSync(dir)) return null;
+  let newest: string | null = null;
+  let newestMtime = 0;
+  for (const proj of readdirSync(dir)) {
+    const pd = join(dir, proj);
+    let files: string[];
+    try {
+      if (!statSync(pd).isDirectory()) continue;
+      files = readdirSync(pd);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      try {
+        const m = statSync(join(pd, f)).mtimeMs;
+        if (m > newestMtime) {
+          newestMtime = m;
+          newest = join(pd, f);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  if (!newest) return null;
+  let content: string;
+  try {
+    content = readFileSync(newest, "utf8");
+  } catch {
+    return null;
+  }
+  const lines = content.split("\n").filter((l) => l.includes('"model"'));
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let msg: { message?: { model?: string } };
+    try {
+      msg = JSON.parse(lines[i]!);
+    } catch {
+      continue;
+    }
+    const model = msg.message?.model;
+    // Ignore synthetic/placeholder ids Claude Code writes for non-model turns.
+    if (typeof model === "string" && model.length > 0 && !model.startsWith("<")) return model;
+  }
+  return null;
+}

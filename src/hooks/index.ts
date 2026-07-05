@@ -15,7 +15,7 @@ import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
 import { createWikiStore } from "../engine/wiki.js";
-import { currentContextTokens } from "../engine/usage.js";
+import { currentContextTokens, currentContextModel } from "../engine/usage.js";
 import { ccrRoot, memoryRoot, meterRoot, wikiRoot } from "../paths.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       // knitbrain_retrieve restores it. The subscription auto-compression path.
       const input = JSON.parse(await readStdin()) as PostToolUseInput;
       const ccr = createFileCCRStore(ccrRoot());
-      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
+      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
       const decision = decidePostToolUse(input, ccr, (n) => meter.onSaved(n));
       if (decision) process.stdout.write(JSON.stringify(decision));
       return;
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
       // session (SessionStart fires once; this fights mid-session forgetting —
       // the way caveman/ponytail stay active). Kept short to cost ~nothing; the
       // live real-window status only appends when the window is no longer "ok".
-      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens() });
+      const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
       const r = meter.read();
       let out =
         "knitbrain active — classify_task before non-trivial edits · search_code before reading files · knitbrain_read for big files · verify claims with output (no yes-man) · answer terse (same facts, fewer words) · record_learning before done.\n" +
