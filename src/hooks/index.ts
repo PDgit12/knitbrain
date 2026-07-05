@@ -16,7 +16,8 @@ import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
 import { createWikiStore } from "../engine/wiki.js";
 import { currentContextTokens, currentContextModel } from "../engine/usage.js";
-import { ccrRoot, memoryRoot, meterRoot, wikiRoot } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath } from "../paths.js";
+import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
@@ -110,6 +111,13 @@ async function main(): Promise<void> {
       return;
     }
     if (mode === "stop") {
+      // Gap 6b — ENFORCE the loop (not just steer): block the FIRST stop when a
+      // goal is still in progress, then fall through to the normal handoff.
+      const stopDecision = decideLoopStop(loopStatePath());
+      if (stopDecision) {
+        process.stdout.write(JSON.stringify(stopDecision));
+        return;
+      }
       // Session ending: ensure a resumable handoff EXISTS, but never clobber a
       // richer one the agent already wrote — only stamp a minimal marker when
       // there's nothing to resume from, so an abrupt end is still recoverable.
