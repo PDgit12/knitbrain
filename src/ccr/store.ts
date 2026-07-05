@@ -155,8 +155,19 @@ export function createFileCCRStore(root: string): CCRStore {
   return {
     put(original: string): string {
       const handle = sha256(original);
-      if (!existsSync(hotPath(handle)) && !existsSync(coldPath(handle))) {
+      const hot = existsSync(hotPath(handle));
+      const cold = existsSync(coldPath(handle));
+      if (!hot && !cold) {
         writeAtomic(hotPath(handle), original);
+      } else if (hot) {
+        // L1: self-heal a corrupt hot file — we hold the true bytes now, so a
+        // pre-corrupted file (which would make every future get throw
+        // CCRIntegrityError forever) gets rewritten instead of left broken.
+        try {
+          if (sha256(readFileSync(hotPath(handle), "utf8")) !== handle) writeAtomic(hotPath(handle), original);
+        } catch {
+          writeAtomic(hotPath(handle), original);
+        }
       }
       meta.set(handle, { lastUsed: Date.now(), retrievals: meta.get(handle)?.retrievals ?? 0 });
       saveManifestBatched();
@@ -178,11 +189,22 @@ export function createFileCCRStore(root: string): CCRStore {
     get(handle: string): string {
       assertHandle(handle);
       if (existsSync(hotPath(handle))) {
-        const data = readFileSync(hotPath(handle), "utf8");
-        if (sha256(data) !== handle) throw new CCRIntegrityError(handle);
-        const m = meta.get(handle) ?? { lastUsed: 0, retrievals: 0 };
-        meta.set(handle, { lastUsed: Date.now(), retrievals: m.retrievals + 1 });
-        return data;
+        // M7: TOCTOU — a concurrent demote/maintain can rmSync the hot file
+        // between existsSync and readFileSync. A raw ENOENT here would bypass
+        // the typed error contract AND skip the cold copy demote just wrote.
+        // Fall through to the cold tier on ENOENT instead of throwing.
+        let data: string | null = null;
+        try {
+          data = readFileSync(hotPath(handle), "utf8");
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+        }
+        if (data !== null) {
+          if (sha256(data) !== handle) throw new CCRIntegrityError(handle);
+          const m = meta.get(handle) ?? { lastUsed: 0, retrievals: 0 };
+          meta.set(handle, { lastUsed: Date.now(), retrievals: m.retrievals + 1 });
+          return data;
+        }
       }
       if (existsSync(coldPath(handle))) {
         const data = gunzipSync(readFileSync(coldPath(handle))).toString("utf8");

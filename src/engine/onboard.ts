@@ -310,7 +310,7 @@ type GitRunner = (args: string) => string;
 function makeGit(cwd: string): GitRunner {
   return (args) => {
     try {
-      return execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      return execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000, killSignal: "SIGKILL" }).trim();
     } catch {
       return "";
     }

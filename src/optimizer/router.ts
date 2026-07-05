@@ -184,6 +184,13 @@ export function compress(text: string, ccr: CCRStore, options: CompressOptions =
     contentType = inner.contentType; // handler may refine (e.g., text → prose)
     handle = ccr.put(text);
     skeleton = inner.skeleton.replace(/⟨recall:[0-9a-f]{64}⟩/g, `⟨recall:${handle}⟩`);
+    // Passthrough inner handlers (e.g. line-count-too-short text) emit no
+    // marker at all — the replace above is then a no-op and the returned
+    // skeleton would carry no pointer back to the true original in CCR.
+    // Guarantee one is present whenever this strip path is taken.
+    if (!skeleton.includes("⟨recall:")) {
+      skeleton = `${skeleton}\n⟨recall:${handle}⟩`;
+    }
   } else {
     const result = byType(text, detect(text));
     contentType = result.contentType;

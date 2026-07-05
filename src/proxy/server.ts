@@ -174,7 +174,22 @@ async function handle(req: IncomingMessage, res: ServerResponse, cfg: ProxyConfi
     };
     res.writeHead(upstream.status, headersOut);
     if (upstream.body) {
-      Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
+      const nodeStream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
+      // If the client disconnects mid-stream, `res` fires "close" before the
+      // upstream body has finished draining. Cancel it so the upstream socket
+      // isn't left open reading a response nobody will consume. A normally
+      // completed response also fires "close", but by then nodeStream is
+      // already ended/destroyed and cancel() on an ended stream is a no-op.
+      res.on("close", () => {
+        if (!nodeStream.destroyed) {
+          try {
+            nodeStream.destroy();
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      nodeStream.pipe(res);
     } else {
       res.end();
     }

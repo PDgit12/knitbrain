@@ -287,6 +287,17 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
         content = JSON.stringify({ ...parsed, hooks }, null, 2) + "\n";
       }
     }
+    // M8: knitbrain-owned "write" files (goal.md, rules, …) must stay current
+    // with the installed version, so we DO overwrite — but back up an existing
+    // file whose content differs first, so a user edit is always recoverable
+    // from <path>.bak. (write-if-absent files already skipped above.)
+    if (a.mode === "write" && existsSync(full)) {
+      try {
+        if (readFileSync(full, "utf8") !== content) writeAtomic(`${full}.bak`, readFileSync(full, "utf8"));
+      } catch {
+        /* backup is best-effort — never block the write on it */
+      }
+    }
     writeAtomic(full, content);
     written.push(a.path);
   }

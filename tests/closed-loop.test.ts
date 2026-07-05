@@ -217,6 +217,49 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     expect(out.iters).toBe(1);
   });
 
+  it("M3: crash-stale loop-state does NOT instantly trip the deadline on the next run", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "resume this after a crash please";
+    // cycle 1: fails, persists {goal, iter:1, startedAt: now}
+    const c1 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c1.iter).toBe(1);
+    // simulate a crash long ago: backdate startedAt past the 6h stale window
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.startedAt = Date.now() - 7 * 60 * 60 * 1000;
+    writeFileSync(sp, JSON.stringify(st));
+    // next run WITH a deadline must treat the stale state as fresh (not stopped:deadline on cycle 0)
+    const c2 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9, deadline_ms: 60_000 }, ctx));
+    expect(c2.stopped).not.toBe("deadline");
+    expect(c2.iter).toBe(1); // stale reset → iteration counter restarts, not inherited
+  });
+
+  it("M3: a whitespace-only change to the goal does NOT reset the caps (normalized compare)", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const c1 = JSON.parse(t.run({ goal: "fix  the   thing", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c1.iter).toBe(1);
+    // reworded whitespace only → must be the SAME loop (iter advances, cap holds)
+    const c2 = JSON.parse(t.run({ goal: "fix the thing", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c2.met).toBe(false);
+    expect(c2.stopped).toBe("max-iters"); // cap held across the reworded goal
+  });
+
+  it("M4: the Stop-hook stopNudged flag survives a run_loop cycle", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "keep the stop flag please";
+    t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx); // persist state
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.stopNudged = true; // the Stop hook set this
+    writeFileSync(sp, JSON.stringify(st));
+    t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx); // another cycle
+    const after = JSON.parse(readFileSync(sp, "utf8"));
+    expect(after.stopNudged).toBe(true); // not wiped — escape hatch stays reliable
+  });
+
   it("rejects a vague, GATE-LESS goal (empty verify_cmd) without running", () => {
     const out = JSON.parse(loopTool().run({ goal: "x", verify_cmd: "" }, mkCtx()));
     expect(out.met).toBe(false);

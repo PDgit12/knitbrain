@@ -141,7 +141,7 @@ Percentages from different taps overlap the same bill; they add, they don't mult
 
 | Platform | MCP tools | Auto-compression | Slash commands | Notes |
 |---|---|---|---|---|
-| Claude Code | ✅ | ✅ hooks (deepest) | `/meter` `/handoff` `/terse` | full lifecycle hooks |
+| Claude Code | ✅ | ✅ hooks (deepest) | `/goal` `/meter` `/handoff` `/terse` | full lifecycle hooks |
 | Cursor · Windsurf · Cline | ✅ | via `knitbrain_read` | — | native config written by `setup` |
 | Copilot (VS Code + CLI) | ✅ | via `knitbrain_read` | — | `.vscode/mcp.json` + `.github/instructions` |
 | Codex and any MCP client | ✅ | via `knitbrain_read` | — | one universal server entry |
