@@ -84,15 +84,26 @@ export function generateAgentMarkdown(spec: AgentSpec, style?: StyleProfile): st
   const gate = spec.reviewGate
     ? "- **Review gate:** this is a sensitive domain — before any edit, re-verify the exact source (knitbrain_query_dependents + read the real file via knitbrain_retrieve) and have the change reviewed.\n"
     : "";
-  // Style-match: mirror the frontmatter shape the user's own agents use, so a
-  // generated agent looks like theirs, not a fixed template.
-  const modelLine = style?.usesModel ? `model: ${spec.model ?? style.model ?? "inherit"}\n` : "";
-  const triggersLine = style?.usesTriggers ? `triggers: ${(spec.triggers?.length ? spec.triggers : [spec.name]).join(", ")}\n` : "";
+  // Style-match: replicate the frontmatter SCHEME the user's own agents use —
+  // their exact field set + order (Gap 3 fidelity) — so a generated agent looks
+  // like theirs, not a fixed template. Only keys we can fill honestly are
+  // emitted; a user-only key we can't value (e.g. `color:`) is skipped.
+  const fillable: Record<string, string> = {
+    name: spec.name,
+    description,
+    tools,
+    ...(style?.usesModel ? { model: spec.model ?? style.model ?? "inherit" } : {}),
+    ...(style?.usesTriggers ? { triggers: (spec.triggers?.length ? spec.triggers : [spec.name]).join(", ") } : {}),
+  };
+  const scheme = style?.agentFrontmatterKeys?.length ? style.agentFrontmatterKeys : ["name", "description", "tools", "model", "triggers"];
+  // Follow the user's order EXACTLY; only prepend `name` if their scheme lacks
+  // it (it's required), then append any fillable key their scheme omitted.
+  const base = scheme.includes("name") ? scheme : ["name", ...scheme];
+  const ordered = [...new Set([...base, ...Object.keys(fillable)])];
+  const fmLines = ordered.filter((k) => fillable[k] !== undefined && fillable[k] !== "").map((k) => `${k}: ${fillable[k]}`);
   return `---
-name: ${spec.name}
-description: ${description}
-tools: ${tools}
-${modelLine}${triggersLine}---
+${fmLines.join("\n")}
+---
 
 You are the **${spec.name}** agent for this project.
 

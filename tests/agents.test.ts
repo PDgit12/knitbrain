@@ -42,6 +42,36 @@ describe("create_agent (rung 11)", () => {
     expect(md).toContain("6000 tokens"); // context budget
   });
 
+  it("replicates the user's frontmatter scheme + order (Gap 3 fidelity)", () => {
+    // User's agents put description first, then model, then name, then tools —
+    // and use triggers. A generated agent must follow THAT order/set.
+    const md = generateAgentMarkdown(
+      { name: "engine", scope: "src/engine/**", tools: ["Read", "Edit"] },
+      {
+        medianBodyLen: 200,
+        terse: true,
+        usesModel: true,
+        model: "opus",
+        usesTriggers: true,
+        headers: [],
+        agentFrontmatterKeys: ["description", "model", "name", "tools", "triggers"],
+      },
+    );
+    const fm = md.split("---")[1]!;
+    const lines = fm.trim().split("\n").map((l) => l.split(":")[0]);
+    expect(lines).toEqual(["description", "model", "name", "tools", "triggers"]);
+    expect(fm).toContain("model: opus");
+  });
+
+  it("omits a scheme key it cannot fill honestly (e.g. no triggers when unused)", () => {
+    const md = generateAgentMarkdown(
+      { name: "x", tools: ["Read"] },
+      { medianBodyLen: 100, terse: false, usesModel: false, usesTriggers: false, headers: [], agentFrontmatterKeys: ["name", "description", "tools", "model"] },
+    );
+    expect(md).not.toContain("model:"); // usesModel false → skipped
+    expect(md).not.toContain("triggers:");
+  });
+
   it("writes the agent file to .claude/agents", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-agent-"));
     try {

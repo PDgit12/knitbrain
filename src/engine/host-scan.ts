@@ -54,6 +54,8 @@ export interface HostAgent {
   description: string;
   tools: string[];
   model: string;
+  /** Frontmatter keys in file order — the user's scheme, for replication. */
+  fmKeys?: string[];
   body: string;
   /** Which surface it was found on (project/global/plugin). */
   source: HostSource;
@@ -173,6 +175,9 @@ export function scanHostAgents(claudeDir: string, io: HostIO = realIO, source: H
       description: asStr(fm["description"]),
       tools: asList(fm["tools"]),
       model: asStr(fm["model"]),
+      // parseFrontmatter builds `fm` in file order, so Object.keys is the user's
+      // actual frontmatter scheme — captured so generated agents replicate it.
+      fmKeys: Object.keys(fm),
       body,
       source,
     });
@@ -266,6 +271,10 @@ export interface StyleProfile {
   usesTriggers: boolean;
   /** Common `## ` section headers seen across bodies (most frequent first). */
   headers: string[];
+  /** The user's agent frontmatter scheme — keys in their dominant order, so a
+   * generated agent replicates their exact field set/order (Gap 3 fidelity).
+   * Optional: absent on a hand-built profile / when no agents were scanned. */
+  agentFrontmatterKeys?: string[];
 }
 
 export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfile {
@@ -292,6 +301,16 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
   for (const a of agents) if (a.model) modelCount.set(a.model, (modelCount.get(a.model) ?? 0) + 1);
   const model = [...modelCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
+  // Dominant frontmatter scheme: the most common key ORDER across the user's
+  // agents (keyed by the joined order so identical schemes aggregate).
+  const schemeCount = new Map<string, number>();
+  for (const a of agents) {
+    const keys = a.fmKeys ?? [];
+    if (keys.length > 0) schemeCount.set(keys.join(","), (schemeCount.get(keys.join(",")) ?? 0) + 1);
+  }
+  const dominantScheme = [...schemeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const agentFrontmatterKeys = dominantScheme ? dominantScheme.split(",") : [];
+
   return {
     medianBodyLen,
     terse,
@@ -299,6 +318,7 @@ export function inferStyle(skills: HostSkill[], agents: HostAgent[]): StyleProfi
     ...(model ? { model } : {}),
     usesTriggers: skills.some((s) => s.triggers.length > 0 && s.triggers[0] !== ""),
     headers,
+    agentFrontmatterKeys,
   };
 }
 
