@@ -21,6 +21,19 @@ describe("wiki-brain (leg 5) — ingest / index / log / cross-ref / lint", () =>
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+  it("sanitizes a newline in the title so it can't inject frontmatter", () => {
+    const w = createWikiStore(root);
+    const { page } = w.ingest({
+      title: "Legit\nmalicious: injected",
+      kind: "entity",
+      content: "body",
+    });
+    const raw = w.page(page)!;
+    // the frontmatter title line stays single; no injected `malicious:` key.
+    expect(raw).toContain("title: Legit malicious: injected");
+    expect(raw).not.toMatch(/^malicious:/m);
+  });
+
   it("ingest writes a page, rebuilds the index, appends the log, stubs cross-refs", () => {
     const w = createWikiStore(root);
     const { page, touched } = w.ingest({

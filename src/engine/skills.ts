@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
+import { scrubSecrets } from "./cleanse.js";
 
 /**
  * Skills engine — find-or-write executable playbooks.
@@ -126,9 +127,13 @@ AFTER: refine this skill w/ what you learned → knitbrain_skill_save (same name
       const all = load();
       const triggers =
         input.triggers && input.triggers.length > 0 ? input.triggers : tokenize(input.name);
+      // Security gate: a skill body must not carry a credential into the store
+      // (skills are re-served into future sessions). Scrub here so every caller
+      // — tool handler and internal composeSkill — is covered uniformly.
+      const body = scrubSecrets(input.body);
       const existing = all.find((s) => s.name === input.name);
       if (existing) {
-        existing.body = input.body;
+        existing.body = body;
         existing.triggers = [...new Set([...existing.triggers, ...triggers])];
         if (input.constraints) existing.constraints = [...new Set([...existing.constraints, ...input.constraints])];
         existing.updatedAt = new Date().toISOString();
@@ -139,7 +144,7 @@ AFTER: refine this skill w/ what you learned → knitbrain_skill_save (same name
         id: createHash("sha256").update(input.name + Date.now()).digest("hex").slice(0, 8),
         name: input.name,
         triggers,
-        body: input.body,
+        body,
         constraints: input.constraints ?? [],
         uses: 0,
         wins: 0,
@@ -158,8 +163,9 @@ AFTER: refine this skill w/ what you learned → knitbrain_skill_save (same name
       else skill.losses += 1;
       // A failure note is knowledge — fold it into the playbook's pitfalls so
       // the ADJUSTMENT is concrete, not just a counter.
-      if (!worked && note && note.trim().length > 0 && !skill.body.includes(note)) {
-        skill.body += `\n- pitfall (reported ${new Date().toISOString().slice(0, 10)}): ${note.trim()}`;
+      if (!worked && note && note.trim().length > 0) {
+        const clean = scrubSecrets(note.trim());
+        if (!skill.body.includes(clean)) skill.body += `\n- pitfall (reported ${new Date().toISOString().slice(0, 10)}): ${clean}`;
       }
       skill.updatedAt = new Date().toISOString();
       persist(all);
