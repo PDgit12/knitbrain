@@ -10,7 +10,7 @@ import { searchCode } from "../engine/retrieval.js";
 import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
-import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
+import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, loadHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
 import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
@@ -649,9 +649,18 @@ export const TOOLS: readonly ToolDef[] = [
             })
           : [];
 
-      // HOST COMMANDS the agent can run itself (autonomous loop).
+      // HOST COMMANDS the agent can run itself (autonomous loop): knitbrain's
+      // own slash-commands PLUS the user's scanned commands (Gap 2b — mix the
+      // user's whole toolkit into orchestration, not just knitbrain's).
       const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
       const commands = platforms.flatMap((p) => slashCommands(p));
+      const idx = loadHostIndex(hostIndexPath());
+      // `?? []` forward-migrates a legacy index written before commands/hooks
+      // existed (the fields are absent, not empty) — never throw on old data.
+      const userCommands = (idx?.commands ?? []).map((c) => ({ name: c.name, source: c.source, description: c.description }));
+      // Hooks already firing on this host — so the loop leverages existing
+      // automation (e.g. a lint-on-save hook) instead of re-doing it.
+      const userHooks = (idx?.hooks ?? []).map((h) => ({ event: h.event, matcher: h.matcher, source: h.source }));
 
       return JSON.stringify(
         {
@@ -664,6 +673,11 @@ export const TOOLS: readonly ToolDef[] = [
           skill,
           agents,
           host_commands: commands,
+          // Gap 2b: the user's own slash-commands + active hooks, so the loop
+          // mixes and matches the whole toolkit (plugins included), not just
+          // knitbrain's built-ins. Empty until knitbrain_onboard builds the index.
+          user_commands: userCommands,
+          active_hooks: userHooks,
           // The standing driver's per-part ownership (composed by onboard) —
           // surfaced per task so the loop works in the owning domain instead
           // of only seeing routing at load_session.

@@ -565,6 +565,27 @@ export function saveHostIndex(index: HostIndex, path: string): void {
   writeAtomic(path, JSON.stringify(index, null, 2));
 }
 
+/** Load the persisted host index (the whole-toolkit inventory onboard built),
+ * or null if it doesn't exist yet / is unreadable. Lets knitbrain_run surface
+ * the user's own commands + hooks without a full re-scan every call. */
+export function loadHostIndex(path: string): HostIndex | null {
+  if (!existsSync(path)) return null;
+  try {
+    const idx = JSON.parse(readFileSync(path, "utf8")) as Partial<HostIndex>;
+    // Forward-migrate: commands/hooks were added after the first index shape,
+    // so backfill them on a legacy file rather than returning undefined arrays.
+    return {
+      skills: idx.skills ?? [],
+      agents: idx.agents ?? [],
+      commands: idx.commands ?? [],
+      hooks: idx.hooks ?? [],
+      updatedAt: idx.updatedAt ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Count artifacts per source, for the onboard greeting. */
 export function countBySource(items: Array<{ source: HostSource }>): { project: number; global: number; plugin: number } {
   return {

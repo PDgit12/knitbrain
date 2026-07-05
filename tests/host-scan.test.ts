@@ -23,6 +23,7 @@ import {
   scanHostAll,
   buildHostIndex,
   saveHostIndex,
+  loadHostIndex,
   countBySource,
   HOST_IMPORT_MARK,
 } from "../src/engine/host-scan.js";
@@ -269,6 +270,18 @@ describe("host-scan: scanHostAll — whole-user surface (project + global + plug
     expect(idx.commands.some((c) => c.name === "deploy" && c.source === "plugin")).toBe(true);
     expect(idx.commands.every((c) => !("body" in c))).toBe(true);
     expect(idx.hooks.some((h) => h.event === "SessionStart" && h.command === "echo hi")).toBe(true);
+  });
+
+  it("saveHostIndex → loadHostIndex round-trips commands + hooks (Gap 2b feed)", () => {
+    const scan = scanHostAll(projectClaudeDir, home);
+    const p = join(home, "idx.json");
+    saveHostIndex(buildHostIndex(scan), p);
+    const loaded = loadHostIndex(p);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.commands.some((c) => c.name === "deploy")).toBe(true);
+    expect(loaded!.hooks.some((h) => h.event === "PostToolUse")).toBe(true);
+    // missing file → null, never throws
+    expect(loadHostIndex(join(home, "nope.json"))).toBeNull();
   });
 
   it("malformed settings.json is skipped, not fatal", () => {
