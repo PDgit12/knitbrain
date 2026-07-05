@@ -80,7 +80,13 @@ export function readProjectUsage(cwd: string, home: string = homedir()): Platfor
  * REAL window, not just knitbrain's slice. Claude Code only — the one host with
  * a readable per-message token transcript; null elsewhere (meter falls back).
  */
-export function currentContextTokens(home: string = homedir()): number | null {
+/**
+ * The newest transcript's content across ALL projects (globally), or null. The
+ * shared substrate for currentContextTokens + currentContextModel — both scan
+ * ~/.claude/projects for the most-recently-touched .jsonl, so the walk lives
+ * once here. Best-effort: unreadable dirs/files are skipped, never throw.
+ */
+function newestTranscriptContent(home: string): string | null {
   const dir = join(home, ".claude", "projects");
   if (!existsSync(dir)) return null;
   let newest: string | null = null;
@@ -108,12 +114,16 @@ export function currentContextTokens(home: string = homedir()): number | null {
     }
   }
   if (!newest) return null;
-  let content: string;
   try {
-    content = readFileSync(newest, "utf8");
+    return readFileSync(newest, "utf8");
   } catch {
     return null;
   }
+}
+
+export function currentContextTokens(home: string = homedir()): number | null {
+  const content = newestTranscriptContent(home);
+  if (content === null) return null;
   const lines = content.split("\n").filter((l) => l.includes('"usage"'));
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     let msg: { message?: { usage?: Record<string, number> } };
@@ -140,39 +150,8 @@ export function currentContextTokens(home: string = homedir()): number | null {
  * placeholder ids (e.g. "<synthetic>") are ignored — they carry no window.
  */
 export function currentContextModel(home: string = homedir()): string | null {
-  const dir = join(home, ".claude", "projects");
-  if (!existsSync(dir)) return null;
-  let newest: string | null = null;
-  let newestMtime = 0;
-  for (const proj of readdirSync(dir)) {
-    const pd = join(dir, proj);
-    let files: string[];
-    try {
-      if (!statSync(pd).isDirectory()) continue;
-      files = readdirSync(pd);
-    } catch {
-      continue;
-    }
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      try {
-        const m = statSync(join(pd, f)).mtimeMs;
-        if (m > newestMtime) {
-          newestMtime = m;
-          newest = join(pd, f);
-        }
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  if (!newest) return null;
-  let content: string;
-  try {
-    content = readFileSync(newest, "utf8");
-  } catch {
-    return null;
-  }
+  const content = newestTranscriptContent(home);
+  if (content === null) return null;
   const lines = content.split("\n").filter((l) => l.includes('"model"'));
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     let msg: { message?: { model?: string } };
