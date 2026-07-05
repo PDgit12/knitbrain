@@ -15,6 +15,8 @@ import {
   parseFrontmatter,
   scanHostSkills,
   scanHostAgents,
+  scanHostCommands,
+  scanHostHooks,
   registerHostSkills,
   composeSkill,
   scanHost,
@@ -186,6 +188,21 @@ describe("host-scan: scanHostAll — whole-user surface (project + global + plug
       `---\nname: plugin-skill\ndescription: from a plugin\n---\nplugin body\n`);
     writeFileSync(join(plugin, "agents", "plugin-agent.md"),
       `---\nname: plugin-agent\ndescription: plugin agent\ntools: Read\n---\nbody\n`);
+    // GLOBAL commands + hooks (settings.json).
+    mkdirSync(join(home, ".claude", "commands"), { recursive: true });
+    writeFileSync(join(home, ".claude", "commands", "ship.md"),
+      `---\ndescription: ship the branch\n---\n# Ship\nrun tests then push\n`);
+    writeFileSync(join(home, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "echo hi" }] }] } }));
+    // PLUGIN commands (commands-only sub-plugin — must still be found as a root)
+    // + plugin hooks (hooks/hooks.json).
+    const cmdPlugin = join(home, ".claude", "plugins", "marketplaces", "acme", "cmd-only-plugin");
+    mkdirSync(join(cmdPlugin, "commands"), { recursive: true });
+    writeFileSync(join(cmdPlugin, "commands", "deploy.md"),
+      `---\ndescription: plugin deploy command\n---\ndeploy body\n`);
+    mkdirSync(join(plugin, "hooks"), { recursive: true });
+    writeFileSync(join(plugin, "hooks", "hooks.json"),
+      JSON.stringify({ description: "plug", hooks: { PostToolUse: [{ hooks: [{ type: "command", command: "node plug.js" }] }] } }));
     // PROJECT .claude: its own shared-name skill (must WIN the dedup).
     projectClaudeDir = join(home, "proj", ".claude");
     mkdirSync(join(projectClaudeDir, "skills", "shared-name"), { recursive: true });
@@ -222,5 +239,51 @@ describe("host-scan: scanHostAll — whole-user surface (project + global + plug
     expect(sk.project).toBe(1);
     expect(sk.global).toBe(1); // rust-testing (shared-name dedup'd to project)
     expect(sk.plugin).toBe(1);
+  });
+
+  it("scans commands across global + plugin surfaces, tagged by source", () => {
+    const { commands } = scanHostAll(projectClaudeDir, home);
+    const byName = new Map(commands.map((c) => [c.name, c]));
+    expect(byName.get("ship")!.source).toBe("global");
+    expect(byName.get("ship")!.description).toBe("ship the branch");
+    // commands-only plugin (no skills/agents) is STILL discovered as a root.
+    expect(byName.get("deploy")!.source).toBe("plugin");
+  });
+
+  it("scans + flattens hooks from settings.json (global) + hooks.json (plugin)", () => {
+    const { hooks } = scanHostAll(projectClaudeDir, home);
+    const global = hooks.find((h) => h.event === "SessionStart");
+    expect(global).toBeDefined();
+    expect(global!.matcher).toBe("startup");
+    expect(global!.command).toBe("echo hi");
+    expect(global!.source).toBe("global");
+    const plug = hooks.find((h) => h.event === "PostToolUse");
+    expect(plug!.command).toBe("node plug.js");
+    expect(plug!.source).toBe("plugin");
+    expect(plug!.matcher).toBe(""); // no matcher declared → empty
+  });
+
+  it("buildHostIndex carries commands + hooks without bodies", () => {
+    const scan = scanHostAll(projectClaudeDir, home);
+    const idx = buildHostIndex(scan);
+    expect(idx.commands.some((c) => c.name === "deploy" && c.source === "plugin")).toBe(true);
+    expect(idx.commands.every((c) => !("body" in c))).toBe(true);
+    expect(idx.hooks.some((h) => h.event === "SessionStart" && h.command === "echo hi")).toBe(true);
+  });
+
+  it("malformed settings.json is skipped, not fatal", () => {
+    writeFileSync(join(home, ".claude", "settings.json"), "{ not valid json");
+    expect(() => scanHostAll(projectClaudeDir, home)).not.toThrow();
+    const { hooks } = scanHostAll(projectClaudeDir, home);
+    // global hook gone (broken file), plugin hook still present.
+    expect(hooks.some((h) => h.event === "SessionStart")).toBe(false);
+    expect(hooks.some((h) => h.event === "PostToolUse")).toBe(true);
+  });
+
+  it("absent commands/hooks dirs return empty, never throw", () => {
+    const empty = mkdtempSync(join(tmpdir(), "kb-empty-"));
+    expect(scanHostCommands(join(empty, ".claude"))).toEqual([]);
+    expect(scanHostHooks(join(empty, ".claude"))).toEqual([]);
+    rmSync(empty, { recursive: true, force: true });
   });
 });

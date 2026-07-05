@@ -1014,6 +1014,8 @@ export const TOOLS: readonly ToolDef[] = [
       saveHostIndex(buildHostIndex(host), hostIndexPath());
       const sk = countBySource(host.skills);
       const ag = countBySource(host.agents);
+      const cm = countBySource(host.commands);
+      const hk = countBySource(host.hooks);
       // Gap B: judge what's MISSING and ask ONLY for the gaps (empty when covered).
       const gaps = computeOnboardGaps(
         detectDomains(ctx.knowledge.listFiles()),
@@ -1034,7 +1036,9 @@ export const TOOLS: readonly ToolDef[] = [
           greeting:
             `Imported ${imp.sessionsIngested} past session(s), ${imp.filesScanned} file(s) scanned. ` +
             `Toolkit: ${host.skills.length} skill(s) [${sk.project} project · ${sk.global} global · ${sk.plugin} plugin], ` +
-            `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin].`,
+            `${host.agents.length} agent(s) [${ag.project} project · ${ag.global} global · ${ag.plugin} plugin], ` +
+            `${host.commands.length} command(s) [${cm.project} project · ${cm.global} global · ${cm.plugin} plugin], ` +
+            `${host.hooks.length} hook(s) [${hk.project} project · ${hk.global} global · ${hk.plugin} plugin].`,
           questions,
           adaptiveQuestions: gaps.map((g) => g.question),
           gaps: gaps.map((g) => ({ name: g.name, kind: g.kind })),
