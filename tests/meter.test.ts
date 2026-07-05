@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMeter, modelWindow } from "../src/engine/meter.js";
+import { createMeter, modelWindow, detectBillingMode } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
@@ -173,6 +173,37 @@ describe("meter modelWindow — current-gen Claude is 1M, not stale 200k", () =>
   });
   it("explicit 1M-beta marker still wins", () => {
     expect(modelWindow("claude-sonnet-4-5[1m]")).toBe(1_000_000);
+  });
+});
+
+describe("meter detectBillingMode — Gap 8 api vs plan optimization", () => {
+  it("api: explicit key, proxy base url, or KNITBRAIN_BILLING override", () => {
+    expect(detectBillingMode({ ANTHROPIC_API_KEY: "sk-x" } as NodeJS.ProcessEnv)).toBe("api");
+    expect(detectBillingMode({ ANTHROPIC_BASE_URL: "http://127.0.0.1:8788" } as NodeJS.ProcessEnv)).toBe("api");
+    expect(detectBillingMode({ KNITBRAIN_BILLING: "api" } as NodeJS.ProcessEnv)).toBe("api");
+  });
+  it("plan: subscription host with no api key", () => {
+    expect(detectBillingMode({ CLAUDECODE: "1" } as NodeJS.ProcessEnv)).toBe("plan");
+    expect(detectBillingMode({ KNITBRAIN_BILLING: "plan" } as NodeJS.ProcessEnv)).toBe("plan");
+  });
+  it("unknown when nothing distinguishes", () => {
+    expect(detectBillingMode({} as NodeJS.ProcessEnv)).toBe("unknown");
+  });
+  it("read() carries billingMode; tailored hint only appears under pressure", () => {
+    const r = mkdtempSync(join(tmpdir(), "kb-bill-"));
+    try {
+      process.env["KNITBRAIN_BILLING"] = "api";
+      const m = createMeter(join(r, "m"), { windowTokens: 1000, handoffAt: 0.85 });
+      m.onToolOutput(100); // 10% → ok, no hint
+      const ok = m.read();
+      expect(ok.billingMode).toBe("api");
+      expect(ok.advice).not.toContain("pay-per-token");
+      m.onToolOutput(800); // 90% → handoff, hint appears
+      expect(m.read().advice).toContain("pay-per-token");
+    } finally {
+      delete process.env["KNITBRAIN_BILLING"];
+      rmSync(r, { recursive: true, force: true });
+    }
   });
 });
 

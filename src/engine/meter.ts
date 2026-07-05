@@ -35,6 +35,33 @@ export interface MeterReading {
   status: "ok" | "warn" | "handoff";
   /** Human advice matching the status. */
   advice: string;
+  /** Billing surface (Gap 8): api = pay-per-token (optimize OUTPUT tokens hard),
+   * plan = subscription (context window is the constraint), unknown = can't tell. */
+  billingMode: "api" | "plan" | "unknown";
+}
+
+/**
+ * Which billing surface the user is on, from the environment:
+ *   - an explicit ANTHROPIC_API_KEY, or a base URL pointed at the knitbrain
+ *     proxy, means pay-per-token → optimizing OUTPUT tokens (terse) saves $;
+ *   - Claude Code without an API key is a subscription/plan → the context
+ *     WINDOW is the constraint, so CCR compression + timely handoff matter most.
+ * Best-effort: returns "unknown" when nothing distinguishes them.
+ */
+export function detectBillingMode(env: NodeJS.ProcessEnv = process.env): "api" | "plan" | "unknown" {
+  if (env["KNITBRAIN_BILLING"] === "api" || env["KNITBRAIN_BILLING"] === "plan") return env["KNITBRAIN_BILLING"];
+  const base = env["ANTHROPIC_BASE_URL"] ?? "";
+  if (base.includes("8788") || base.includes("knitbrain")) return "api"; // proxy setup = api keys
+  if (env["ANTHROPIC_API_KEY"]) return "api";
+  if (env["CLAUDECODE"] || env["CLAUDE_CODE"]) return "plan"; // subscription host
+  return "unknown";
+}
+
+/** One-line optimization hint tailored to the billing surface (Gap 8). */
+function billingHint(mode: "api" | "plan" | "unknown"): string {
+  if (mode === "api") return " [api/pay-per-token: push OUTPUT terse (ultra) — every output token is billed; knitbrain terse ultra].";
+  if (mode === "plan") return " [plan/subscription: the context WINDOW is the budget — lean on CCR compression + save a handoff before it fills].";
+  return "";
 }
 
 export interface Meter {
@@ -229,9 +256,13 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
         state.savedTokens > 0
           ? Math.round((state.savedTokens / (usedTokens + state.savedTokens)) * 1000) / 10
           : 0;
+      // Gap 8: tailor the optimization guidance to the billing surface — only
+      // when the window is under pressure (no point nagging a healthy window).
+      const billingMode = detectBillingMode();
+      if (status !== "ok") advice += billingHint(billingMode);
       // Report the EFFECTIVE window so the dashboard/meter show the honest
       // denominator (e.g. "420k / 1M"), not the stale configured 200k.
-      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice };
+      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice, billingMode };
     },
     reset() {
       state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens };
