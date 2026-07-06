@@ -17,6 +17,7 @@ import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
 import { scanAndIngest, persistIntent, INTENT_QUESTIONS, computeOnboardGaps, resolveOnboardGap, detectDomains, projectHasTests, goalCheckboxes, detectResumeState, resumeBrief } from "../engine/onboard.js";
 import { terseStore } from "../compress-file.js";
+import { scrubSecrets } from "../engine/cleanse.js";
 import { skillHealth } from "../engine/skills.js";
 import { loadHubConfig, mirrorToHub } from "../hub/client.js";
 import { detectPlatforms } from "../setup.js";
@@ -79,6 +80,13 @@ interface LoopState {
   goal: string;
   iter: number;
   startedAt?: number;
+  /** Sticky: the Stop hook nudged once. Carried across run_loop cycles so the
+   * "stop again to end" escape hatch stays reliable (M4). */
+  stopNudged?: boolean;
+  /** Self-heal: last few FAILED-cycle reasons, so the next directive can tell
+   * the agent what NOT to repeat instead of retrying the same dead end.
+   * Capped to 3 entries; cleared with the rest of the state on met/max_iters. */
+  failures?: Array<{ iter: number; detail: string }>;
 }
 function loadLoopState(path: string): LoopState | null {
   if (!existsSync(path)) return null;
@@ -147,7 +155,7 @@ function strictness(): Strictness {
   return v === "off" || v === "warn" ? v : "block";
 }
 /** Writes that must be preceded by classification this session. */
-const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff"]);
+const GATED_WRITES = new Set(["knitbrain_record_learning", "knitbrain_skill_save", "knitbrain_save_handoff", "knitbrain_wiki_ingest"]);
 /** Above this live-token reading right after a load_session reset, the host
  * session probably did NOT actually clear — load_session surfaces a caution. */
 const SESSION_NOT_RESET_TOKENS = 50_000;
@@ -810,11 +818,14 @@ export const TOOLS: readonly ToolDef[] = [
     run: (args, ctx) => {
       // The SDK does not enforce inputSchema server-side — validate here, or a
       // mis-named param silently posts an empty finding.
-      const content = str(args, "content");
+      const rawContent = str(args, "content");
       const author = str(args, "author");
-      if (content.trim() === "" || author.trim() === "") {
+      if (rawContent.trim() === "" || author.trim() === "") {
         return "refused: team_post needs non-empty `author` and `content`.";
       }
+      // Anti-exfiltration (H2): scrub secrets BEFORE the board stores or the hub
+      // mirrors this over the network — a pasted key must never leave the machine.
+      const content = scrubSecrets(rawContent);
       const e = ctx.team.post(author, content);
       wikiLog(ctx, "team", `${author}: ${content.slice(0, 60)}`);
       // Shared sessions: mirror to the team hub when joined — fire-and-forget,
@@ -1127,10 +1138,20 @@ export const TOOLS: readonly ToolDef[] = [
       const statePath = loopStatePath();
 
       const prev = loadLoopState(statePath);
-      const sameGoal = prev !== null && prev.goal === goal;
-      const priorIters = sameGoal ? prev.iter : 0;
-      // Wall-clock budget starts on the first cycle for this goal; a new goal resets it.
-      const startedAt = sameGoal && typeof prev.startedAt === "number" ? prev.startedAt : Date.now();
+      // M3: compare on a NORMALIZED goal so a whitespace/wording tweak can't
+      // silently reset the caps (unbounded loop), and treat crash-stale state
+      // (older than STALE_MS) as a fresh start so it can't instantly trip the
+      // deadline/max-iters on cycle 0.
+      const goalKey = goal.trim().replace(/\s+/g, " ");
+      const LOOP_STALE_MS = 6 * 60 * 60 * 1000;
+      const prevFresh =
+        prev !== null &&
+        prev.goal === goalKey &&
+        typeof prev.startedAt === "number" &&
+        Date.now() - prev.startedAt < LOOP_STALE_MS;
+      const priorIters = prevFresh ? prev.iter : 0;
+      // Wall-clock budget starts on the first cycle for this goal; a new/stale goal resets it.
+      const startedAt = prevFresh ? prev.startedAt! : Date.now();
       if (priorIters >= maxIters) {
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters: priorIters, directive: `Loop hit max_iters=${maxIters} for "${goal}" without the verify gate passing (${verifyCmd}). Stop and reassess.` }, null, 2);
@@ -1147,9 +1168,14 @@ export const TOOLS: readonly ToolDef[] = [
       // ONE cycle: the host agent already did this cycle's work; we run the REAL
       // verify gate + review and either report met or hand back the directive.
       // SECURITY: verify_cmd is the user's own project command, run in their cwd.
+      // H1: a hanging verify_cmd (watch mode, prompt-for-input) must not block
+      // the MCP server forever. Bound it by the remaining deadline budget when a
+      // deadline is set, else a 120s default. Timeout throws → failed grade.
+      const verifyTimeoutMs =
+        deadlineMs !== undefined ? Math.max(1_000, deadlineMs - (Date.now() - startedAt)) : 120_000;
       const shellRun = (cmd: string): boolean => {
         try {
-          execSync(cmd, { stdio: "ignore" });
+          execSync(cmd, { stdio: "ignore", timeout: verifyTimeoutMs, killSignal: "SIGKILL" });
           return true;
         } catch {
           return false;
@@ -1183,8 +1209,25 @@ export const TOOLS: readonly ToolDef[] = [
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters, detail }, null, 2);
       }
-      saveLoopState(statePath, { goal, iter: iters, startedAt });
+      // Self-heal: record this cycle's failure (capped detail, last 3 kept) so
+      // the next directive can call out the ROOT CAUSE instead of retrying it.
+      const priorFailures = prevFresh ? (prev?.failures ?? []) : [];
+      const failures = [...priorFailures, { iter: iters, detail: detail.slice(0, 400) }].slice(-3);
+      saveLoopState(statePath, {
+        goal: goalKey,
+        iter: iters,
+        startedAt,
+        failures,
+        ...(prev?.stopNudged ? { stopNudged: true } : {}),
+      });
       const remainingMs = deadlineMs !== undefined ? Math.max(0, deadlineMs - (Date.now() - startedAt)) : undefined;
+      // Directive surfaces PRIOR cycles' failures only — this cycle's detail is
+      // already in the directive body; echoing it as "previous" would be noise.
+      const prevWindow = failures.slice(0, -1); // pruned window minus this cycle
+      const failurePrefix =
+        prevWindow.length > 0
+          ? `previous failures — ${prevWindow.map((f) => `iter ${f.iter}: ${f.detail}`).join("; ")}. Address the ROOT CAUSE of these; do not repeat them. `
+          : "";
       return JSON.stringify(
         {
           met: false,
@@ -1193,7 +1236,7 @@ export const TOOLS: readonly ToolDef[] = [
           ...(deadlineMs !== undefined ? { deadline_ms: deadlineMs, remaining_ms: remainingMs } : {}),
           detail,
           rubric,
-          directive: `Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
+          directive: `${failurePrefix}Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
         },
         null,
         2,

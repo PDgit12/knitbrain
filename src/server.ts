@@ -30,6 +30,12 @@ export { VERSION, SERVER_NAME } from "./version.js";
  * @param ccr injectable store (tests pass a temp store; default is the
  *            local-first store under ~/.knitbrain/ccr).
  */
+/** H3: conservative CCR retention run at server startup so the recall store
+ * stays bounded. Hot entries idle >7d demote to cold; caps bound both tiers.
+ * Lossless is preserved — demote gzips, purge only removes the least-retrieved
+ * cold entries beyond the cap. */
+const DEFAULT_MAINTAIN = { hotMaxAgeMs: 7 * 24 * 60 * 60 * 1000, hotMaxEntries: 2_000, coldMaxEntries: 10_000 };
+
 export function buildServer(
   ccr: CCRStore = createFileCCRStore(ccrRoot()),
   memory: Memory = createMemory(memoryRoot()),
@@ -51,6 +57,15 @@ export function buildServer(
   // agentId is set per-call from the MCP handshake + env (zero-setup platform +
   // billing detection); see the CallTool handler below.
   const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, wiki };
+
+  // H3: run the CCR janitor once at startup. Every tool output puts a permanent
+  // file; without this the store grows without bound (maintain had no prod
+  // caller). Best-effort — a maintenance failure must never block server boot.
+  try {
+    ccr.maintain(DEFAULT_MAINTAIN);
+  } catch {
+    /* janitor is best-effort — never block startup on it */
+  }
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((t) => ({

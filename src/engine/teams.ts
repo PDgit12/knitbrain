@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
 import { join } from "node:path";
 import type { CCRStore } from "../ccr/store.js";
 import { compress } from "../optimizer/router.js";
+import { scrubSecrets } from "./cleanse.js";
 
 /** One posting on the shared board: a compressed skeleton + a CCR handle to the full original. */
 export interface BoardEntry {
@@ -50,7 +51,12 @@ export function createTeamBoard(root: string, ccr: CCRStore): TeamBoard {
   };
 
   return {
-    post(author, content) {
+    post(author, rawContent) {
+      // H2: scrub secrets at the storage layer so EVERY caller (MCP tool, hub,
+      // a direct engine call) is protected — a pasted key never enters the
+      // board, the CCR original, or a hub mirror. Defense-in-depth with the
+      // tool-layer scrub. Matches wiki.ingest's cleanse-on-write.
+      const content = scrubSecrets(rawContent);
       const r = compress(content, ccr);
       // Always keep the pristine original recoverable, compressed or not.
       const handle = r.compressed ? r.handle : ccr.put(content);
@@ -61,7 +67,28 @@ export function createTeamBoard(root: string, ccr: CCRStore): TeamBoard {
         handle,
         ts: new Date().toISOString(),
       };
-      save([...load(), entry]);
+      // M6: two agents posting concurrently each load N and write N+1, silently
+      // dropping one — the exact "N parallel agents" case the board exists for.
+      // Reload immediately before the write and retry while the file keeps
+      // changing under us; merge by id so a retry re-picks-up a rival's entry
+      // instead of clobbering it. Narrows the lost-update window to the atomic
+      // write itself. (A single-writer lock would fully close it; the board is
+      // best-effort shared context, so a bounded CAS is the right tradeoff.)
+      const mtime = (): number => {
+        try {
+          return statSync(path).mtimeMs;
+        } catch {
+          return 0;
+        }
+      };
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const before = mtime();
+        const byId = new Map<string, BoardEntry>();
+        for (const e of load()) byId.set(e.id, e);
+        byId.set(entry.id, entry);
+        save([...byId.values()]);
+        if (mtime() === before) break; // nobody wrote between our load and save
+      }
       return entry;
     },
     board() {

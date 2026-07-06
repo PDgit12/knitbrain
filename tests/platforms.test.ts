@@ -6,10 +6,14 @@ import { generateConfig } from "../src/setup.js";
 import {
   applyArtifacts,
   claudeArtifacts,
+  claudeLoopArtifacts,
   cursorArtifacts,
+  codexArtifacts,
+  geminiArtifacts,
   vscodeArtifacts,
   codexSnippet,
   universalArtifacts,
+  slashCommands,
   GOAL_LOOP_NUDGE,
 } from "../src/platforms.js";
 
@@ -119,5 +123,68 @@ describe("platform adapter matrix (rung 16)", () => {
     const snip = codexSnippet(cfg);
     expect(snip).toContain("[mcp_servers.knitbrain]");
     expect(snip).toContain("OPENAI_BASE_URL");
+  });
+});
+
+describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber, .bak)", () => {
+  it("codexArtifacts writes a valid .codex/hooks.json with PreToolUse", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-codex-"));
+    try {
+      applyArtifacts(root, codexArtifacts(), cfg);
+      const parsed = JSON.parse(readFileSync(join(root, ".codex/hooks.json"), "utf8"));
+      expect(parsed.PreToolUse[0].hooks[0].command).toBe("knitbrain-hook pretooluse");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("geminiArtifacts writes .gemini/settings.json with hooks nested under 'hooks', preserving a pre-existing user setting", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-gemini-"));
+    try {
+      mkdirSync(join(root, ".gemini"), { recursive: true });
+      writeFileSync(join(root, ".gemini/settings.json"), JSON.stringify({ theme: "dark" }));
+      applyArtifacts(root, geminiArtifacts(), cfg);
+      const parsed = JSON.parse(readFileSync(join(root, ".gemini/settings.json"), "utf8"));
+      expect(parsed.hooks.AfterAgent[0].hooks[0].command).toBe("knitbrain-hook stop");
+      expect(parsed.theme).toBe("dark"); // user setting preserved
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cursorArtifacts writes .cursor/hooks.json; re-apply dedupes by command and preserves a user-added hook entry", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-cursor-hooks-"));
+    try {
+      applyArtifacts(root, cursorArtifacts(), cfg);
+      let parsed = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
+      expect(parsed.hooks.beforeShellExecution.some((h: { command: string }) => h.command === "knitbrain-hook pretooluse")).toBe(true);
+      // user adds their own hook entry to the same event
+      parsed.hooks.beforeShellExecution.push({ command: "my-own-hook" });
+      writeFileSync(join(root, ".cursor/hooks.json"), JSON.stringify(parsed));
+      // re-apply
+      applyArtifacts(root, cursorArtifacts(), cfg);
+      parsed = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
+      const commands = parsed.hooks.beforeShellExecution.map((h: { command: string }) => h.command);
+      expect(commands.filter((c: string) => c === "knitbrain-hook pretooluse")).toHaveLength(1); // deduped, not doubled
+      expect(commands).toContain("my-own-hook"); // user's version + entry preserved
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("claudeLoopArtifacts writes .claude/commands/loop.md, cross-referencing /goal", () => {
+    const loop = claudeLoopArtifacts().find((a) => a.path === ".claude/commands/loop.md")!;
+    expect(loop).toBeDefined();
+    expect(loop.content).toContain("/goal");
+  });
+
+  it("goal.md content references /loop (explicit --for/--iters budget escape hatch)", () => {
+    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal.md")!;
+    expect(goal.content).toContain("/loop");
+  });
+
+  it("slashCommands('claude-code') includes /loop", () => {
+    const cmds = slashCommands("claude-code").map((c) => c.cmd);
+    expect(cmds).toContain("/loop");
   });
 });

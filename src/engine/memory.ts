@@ -99,10 +99,25 @@ export function createMemory(root: string): Memory {
       // Dedup on the cleansed summary so it matches what's actually stored.
       const summary = cleanseForBrain(input.summary.trim());
       const lesson = cleanseForBrain(input.lesson);
-      // Dedup by substring match on summary.
-      const dup = all.find(
-        (l) => l.summary.includes(summary) || summary.includes(l.summary),
-      );
+      // M5: dedup safely. Raw bidirectional substring silently dropped distinct
+      // learnings — a short/generic summary swallowed longer ones, and an empty
+      // summary matched everything. Require a meaningful anchor length, and only
+      // treat as duplicate on normalized equality or when a SUBSTANTIAL prefix
+      // overlaps — never on a tiny/empty summary.
+      const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
+      const ns = norm(summary);
+      const DEDUP_MIN = 12;
+      const dup = all.find((l) => {
+        const nl = norm(l.summary);
+        // Exact normalized equality dedups at ANY length (re-recording the same
+        // summary is a duplicate) — but never treat an empty summary as a match.
+        if (ns.length > 0 && nl === ns) return true;
+        // Fuzzy near-duplicate (prefix overlap) ONLY above the anchor length, so
+        // a short/generic summary can't silently swallow a distinct learning.
+        if (ns.length < DEDUP_MIN || nl.length < DEDUP_MIN) return false;
+        const [short, long] = ns.length <= nl.length ? [ns, nl] : [nl, ns];
+        return long.startsWith(short) && short.length / long.length > 0.8;
+      });
       if (dup) return { id: dup.id, duplicate: true };
 
       const id = createHash("sha256")

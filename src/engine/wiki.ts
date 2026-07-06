@@ -1,6 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeAtomic } from "../atomic.js";
+import { scrubSecrets } from "./cleanse.js";
+
+/** Log rotation caps (H4). The log grows on EVERY prompt via the hook, so it is
+ * appended O(1) and rotated (keep the newest lines) once it crosses the byte cap. */
+const LOG_MAX_BYTES = 512_000;
+const LOG_KEEP_LINES = 500;
 
 /**
  * Wiki-brain (leg 5): a compounding markdown knowledge base the LLM maintains.
@@ -240,13 +246,17 @@ export function createWikiStore(root: string): WikiStore {
     ingest(input) {
       const s = slug(input.title);
       const links = (input.links ?? []).map(slug);
-      const summary = input.content.split(/\r?\n/).find((l) => l.trim().length > 0)?.slice(0, 100) ?? input.title;
+      // M1: scrub secrets BEFORE anything is written to the brain — a wiki page
+      // persists and is re-injected every session, so an unscrubbed key would
+      // leak forever. Matches the memory route's cleanse-on-write.
+      const content = scrubSecrets(input.content);
+      const summary = content.split(/\r?\n/).find((l) => l.trim().length > 0)?.slice(0, 100) ?? input.title;
       // Strip newlines from the title before it goes into frontmatter — a raw
       // newline would inject a bogus `key: value` line and corrupt the index parse.
-      const safeTitle = input.title.replace(/[\r\n]+/g, " ").trim();
+      const safeTitle = scrubSecrets(input.title).replace(/[\r\n]+/g, " ").trim();
       const fm = `---\nkind: ${input.kind}\ntitle: ${safeTitle}\ndate: ${today()}\nsummary: ${summary.replace(/\n/g, " ")}\n---\n`;
       const linkLine = links.length ? `\nrelated: ${links.map((l) => `[[${l}]]`).join(" · ")}\n` : "";
-      writeAtomic(pagePath(s), `${fm}\n${input.content.trim()}\n${linkLine}`);
+      writeAtomic(pagePath(s), `${fm}\n${content.trim()}\n${linkLine}`);
       const touched = [s];
       // Stub any linked page that doesn't exist yet (so cross-refs resolve).
       for (const l of links) {
@@ -264,8 +274,25 @@ export function createWikiStore(root: string): WikiStore {
 
     log(event, title) {
       const line = `## [${today()}] ${event} | ${title}\n`;
-      const prior = existsSync(logPath) ? readFileSync(logPath, "utf8") : "# Wiki Log\n\n";
-      writeAtomic(logPath, prior + line);
+      // H4: this runs on EVERY prompt (userpromptsubmit hook). Read-whole +
+      // rewrite-whole was O(n) per call on an unbounded file = quadratic hot
+      // path. Seed the header once, then O(1) append; rotate (keep newest lines)
+      // when it crosses the cap. Best-effort — a log write never breaks a tool.
+      try {
+        if (!existsSync(logPath)) {
+          writeAtomic(logPath, "# Wiki Log\n\n");
+        } else if (statSync(logPath).size > LOG_MAX_BYTES) {
+          const kept = readFileSync(logPath, "utf8")
+            .split(/\r?\n/)
+            .filter((l) => l.startsWith("## ["))
+            .slice(-LOG_KEEP_LINES)
+            .join("\n");
+          writeAtomic(logPath, `# Wiki Log\n\n${kept}\n`);
+        }
+        appendFileSync(logPath, line);
+      } catch {
+        /* best-effort logging — never break a tool on a log write */
+      }
     },
 
     recentLog(n) {

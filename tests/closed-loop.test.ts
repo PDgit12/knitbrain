@@ -217,6 +217,49 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     expect(out.iters).toBe(1);
   });
 
+  it("M3: crash-stale loop-state does NOT instantly trip the deadline on the next run", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "resume this after a crash please";
+    // cycle 1: fails, persists {goal, iter:1, startedAt: now}
+    const c1 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c1.iter).toBe(1);
+    // simulate a crash long ago: backdate startedAt past the 6h stale window
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.startedAt = Date.now() - 7 * 60 * 60 * 1000;
+    writeFileSync(sp, JSON.stringify(st));
+    // next run WITH a deadline must treat the stale state as fresh (not stopped:deadline on cycle 0)
+    const c2 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9, deadline_ms: 60_000 }, ctx));
+    expect(c2.stopped).not.toBe("deadline");
+    expect(c2.iter).toBe(1); // stale reset → iteration counter restarts, not inherited
+  });
+
+  it("M3: a whitespace-only change to the goal does NOT reset the caps (normalized compare)", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const c1 = JSON.parse(t.run({ goal: "fix  the   thing", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c1.iter).toBe(1);
+    // reworded whitespace only → must be the SAME loop (iter advances, cap holds)
+    const c2 = JSON.parse(t.run({ goal: "fix the thing", verify_cmd: "false", max_iters: 2 }, ctx));
+    expect(c2.met).toBe(false);
+    expect(c2.stopped).toBe("max-iters"); // cap held across the reworded goal
+  });
+
+  it("M4: the Stop-hook stopNudged flag survives a run_loop cycle", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "keep the stop flag please";
+    t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx); // persist state
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.stopNudged = true; // the Stop hook set this
+    writeFileSync(sp, JSON.stringify(st));
+    t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx); // another cycle
+    const after = JSON.parse(readFileSync(sp, "utf8"));
+    expect(after.stopNudged).toBe(true); // not wiped — escape hatch stays reliable
+  });
+
   it("rejects a vague, GATE-LESS goal (empty verify_cmd) without running", () => {
     const out = JSON.parse(loopTool().run({ goal: "x", verify_cmd: "" }, mkCtx()));
     expect(out.met).toBe(false);
@@ -227,5 +270,49 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     // The crux: one command drives even a short goal when a hard gate backs it.
     const out = JSON.parse(loopTool().run({ goal: "make green", verify_cmd: `node -e ""` }, mkCtx()));
     expect(out.met).toBe(true); // gate passes → goal met by the objective measure
+  });
+
+  it("self-heals: the next directive surfaces the prior cycle's failure detail", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "heal from a repeated failure please";
+    const c1 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c1.met).toBe(false);
+    expect(c1.directive).not.toContain("previous failures"); // first cycle: no history yet
+    const c2 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c2.met).toBe(false);
+    // 2nd cycle's directive calls out the 1st cycle's failure detail so the
+    // agent doesn't repeat the dead end.
+    expect(c2.directive).toContain("previous failures");
+    expect(c2.directive).toContain("iter 1: verify FAILED: false");
+    const sp = loopStatePath();
+    const afterC2 = JSON.parse(readFileSync(sp, "utf8"));
+    expect(afterC2.failures).toHaveLength(2);
+  });
+
+  it("self-heals: failures[] history prunes to the last 3 entries after 4+ failed cycles", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "prune the failure history please";
+    t.run({ goal, verify_cmd: "false", max_iters: 99 }, ctx); // cycle 1 → persists failures[iter1]
+    // Directly seed 3 prior failures (edit the state file, matching the
+    // existing state-edit pattern in this file) so the next failing cycle
+    // pushes the total past the cap.
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.iter = 3;
+    st.failures = [
+      { iter: 1, detail: "verify FAILED: false" },
+      { iter: 2, detail: "verify FAILED: false" },
+      { iter: 3, detail: "verify FAILED: false" },
+    ];
+    writeFileSync(sp, JSON.stringify(st));
+    const c4 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 99 }, ctx));
+    expect(c4.iter).toBe(4);
+    const after = JSON.parse(readFileSync(sp, "utf8"));
+    expect(after.failures).toHaveLength(3); // capped, oldest (iter 1) dropped
+    expect(after.failures.map((f: { iter: number }) => f.iter)).toEqual([2, 3, 4]);
+    expect(c4.directive).toContain("iter 2:"); // oldest surfaced failure is now iter 2, not iter 1
+    expect(c4.directive).not.toContain("iter 1:");
   });
 });

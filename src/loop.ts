@@ -24,6 +24,18 @@ interface LoopOpts {
   agent: string;
   verify: string | null;
   interactive: boolean;
+  /** M9: optional wall-clock budget in ms (from --for 30m|1h|90s). */
+  forMs?: number;
+}
+
+/** Parse a duration like `30m`, `1h`, `90s`, `500ms` → milliseconds (null if unparseable). */
+export function parseDuration(s: string): number | null {
+  const m = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/i.exec(s.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? "s").toLowerCase();
+  const mult = unit === "ms" ? 1 : unit === "s" ? 1_000 : unit === "m" ? 60_000 : 3_600_000;
+  return n * mult;
 }
 
 function parseArgs(args: string[]): LoopOpts {
@@ -33,7 +45,10 @@ function parseArgs(args: string[]): LoopOpts {
     if (a === "--max") o.max = Math.max(1, Number(args[(i += 1)]) || 10);
     else if (a === "--agent") o.agent = args[(i += 1)] ?? o.agent;
     else if (a === "--verify") o.verify = args[(i += 1)] ?? null;
-    else if (a === "--interactive") o.interactive = true;
+    else if (a === "--for") {
+      const d = parseDuration(args[(i += 1)] ?? "");
+      if (d !== null) o.forMs = d;
+    } else if (a === "--interactive") o.interactive = true;
     else if (a && !a.startsWith("--")) o.goalFile = a;
   }
   return o;
@@ -99,8 +114,16 @@ export async function runLoop(args: string[]): Promise<number> {
   // green or the hard cap. `lastFail` non-empty at exhaustion ⇒ genuinely stuck.
   let lastFail = "";
 
+  const startedAt = Date.now();
   try {
     for (let iter = 1; iter <= o.max; iter += 1) {
+      // M9: wall-clock budget (--for). Either cap (iters or time) ends the loop;
+      // a met goal ends it early. Checked at cycle start so an in-budget cycle
+      // still runs fully.
+      if (o.forMs !== undefined && Date.now() - startedAt >= o.forMs) {
+        console.error(`[loop] hit --for time budget (${o.forMs}ms) after ${done} task(s) — stopping (goal not fully met).`);
+        return lastFail ? 1 : 0;
+      }
       const text = readFileSync(o.goalFile, "utf8");
       const m = TASK_RE.exec(text);
       if (!m) {

@@ -1,5 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
+import { workflowPath } from "../paths.js";
 
 /**
  * PreToolUse hook logic (pure — IO injected for tests).
@@ -12,20 +13,104 @@ import { isAbsolute, relative } from "node:path";
  */
 export interface PreToolUseInput {
   tool_name?: string;
-  tool_input?: { file_path?: string; [k: string]: unknown };
+  tool_input?: { file_path?: string; command?: string; [k: string]: unknown };
   cwd?: string;
 }
 
 /** Files larger than this are denied in favor of knitbrain_read. */
 export const READ_REDIRECT_BYTES = 20_000;
 
-export function decidePreToolUse(
-  input: PreToolUseInput,
-  io: { exists: (p: string) => boolean; sizeOf: (p: string) => number } = {
-    exists: existsSync,
-    sizeOf: (p) => statSync(p).size,
+/**
+ * Conservative CONSTRAINTS-line → forbidden-literal mapping (brain→body
+ * enforcement). Each entry: if the composed workflow's CONSTRAINTS line
+ * contains `trigger`, deny Bash commands containing ANY of `literals`.
+ * Deliberately narrow — false negatives (missed constraint) are fine,
+ * false positives (over-blocking) are not.
+ */
+const CONSTRAINT_RULES: Array<{ trigger: string; literals: string[] }> = [
+  { trigger: "publish", literals: ["npm publish"] },
+  { trigger: "force-push", literals: ["--force"] },
+  { trigger: "force push", literals: ["--force"] },
+  { trigger: "no-verify", literals: ["--no-verify"] },
+];
+
+/** Extract forbidden command literals for a given constraints line, gated to
+ * rules whose `literals` are also verified to relate to a "push" when the
+ * trigger is force-push-ish (so --force alone on an unrelated command isn't
+ * blocked). Fail-open: unknown/no triggers found → empty array. */
+function forbiddenLiteralsFor(constraintsLine: string): string[] {
+  const lower = constraintsLine.toLowerCase();
+  const literals: string[] = [];
+  for (const rule of CONSTRAINT_RULES) {
+    if (lower.includes(rule.trigger)) literals.push(...rule.literals);
+  }
+  return literals;
+}
+
+/** io.readWorkflow is optional so existing callers/tests need not supply it —
+ * absence, a missing file, or an unparseable CONSTRAINTS line all fail open
+ * (return null / no denial), never over-block. */
+export interface PreToolUseIo {
+  exists: (p: string) => boolean;
+  sizeOf: (p: string) => number;
+  readWorkflow?: () => string | null;
+}
+
+const defaultIo: PreToolUseIo = {
+  exists: existsSync,
+  sizeOf: (p) => statSync(p).size,
+  readWorkflow: () => {
+    try {
+      const path = workflowPath();
+      if (!existsSync(path)) return null;
+      return readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
   },
-): Record<string, unknown> | null {
+};
+
+/** Check a Bash command / Write path against the composed workflow's
+ * CONSTRAINTS line. Returns a deny decision or null (fail-open). */
+function decideConstraintDenial(input: PreToolUseInput, io: PreToolUseIo): Record<string, unknown> | null {
+  if (!io.readWorkflow) return null;
+  if (input.tool_name !== "Bash" && input.tool_name !== "Write") return null;
+
+  let text: string | null;
+  try {
+    text = io.readWorkflow();
+  } catch {
+    return null;
+  }
+  if (!text) return null;
+
+  const match = /^CONSTRAINTS:\s*(.*)$/m.exec(text);
+  if (!match) return null;
+  const constraintsLine = match[1]?.trim();
+  if (!constraintsLine) return null;
+
+  const literals = forbiddenLiteralsFor(constraintsLine);
+  if (literals.length === 0) return null;
+
+  const target = input.tool_name === "Bash" ? input.tool_input?.command : input.tool_input?.file_path;
+  if (typeof target !== "string" || target.length === 0) return null;
+
+  const hit = literals.find((lit) => target.includes(lit));
+  if (!hit) return null;
+
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `Blocked by project CONSTRAINTS: ${constraintsLine}`,
+    },
+  };
+}
+
+export function decidePreToolUse(input: PreToolUseInput, io: PreToolUseIo = defaultIo): Record<string, unknown> | null {
+  const constraintDenial = decideConstraintDenial(input, io);
+  if (constraintDenial) return constraintDenial;
+
   if (input.tool_name !== "Read") return null;
   const path = input.tool_input?.file_path;
   if (typeof path !== "string" || path.length === 0) return null;

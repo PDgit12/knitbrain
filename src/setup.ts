@@ -4,8 +4,11 @@ import { join } from "node:path";
 import {
   applyArtifacts,
   claudeArtifacts,
+  claudeLoopArtifacts,
   codexSnippet,
+  codexArtifacts,
   cursorArtifacts,
+  geminiArtifacts,
   vscodeArtifacts,
   windsurfArtifacts,
   universalArtifacts,
@@ -26,6 +29,7 @@ export type Platform =
   | "windsurf"
   | "zed"
   | "copilot-cli"
+  | "gemini"
   | "unknown";
 
 export interface DetectInputs {
@@ -53,6 +57,7 @@ export function detectPlatforms(inp: DetectInputs): Platform[] {
   if (inp.exists(join(inp.home, ".codeium", "windsurf"))) found.push("windsurf");
   if (inp.exists(join(inp.home, ".config", "zed"))) found.push("zed");
   if (inp.exists(join(inp.home, ".copilot"))) found.push("copilot-cli");
+  if (inp.exists(join(inp.home, ".gemini"))) found.push("gemini");
   return found.length > 0 ? found : ["unknown"];
 }
 
@@ -115,11 +120,13 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
 
   const artifacts = [];
   if (platforms.includes("claude-code") || platforms.includes("unknown")) {
-    artifacts.push(...claudeArtifacts(cfg));
+    artifacts.push(...claudeArtifacts(cfg), ...claudeLoopArtifacts());
   }
   if (platforms.includes("cursor")) artifacts.push(...cursorArtifacts());
   if (platforms.includes("vscode")) artifacts.push(...vscodeArtifacts());
   if (platforms.includes("windsurf")) artifacts.push(...windsurfArtifacts());
+  if (platforms.includes("codex")) artifacts.push(...codexArtifacts());
+  if (platforms.includes("gemini")) artifacts.push(...geminiArtifacts());
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
   // Universal AGENTS.md (every setup; never clobbers an existing one).
   for (const path of applyArtifacts(cwd, universalArtifacts(), cfg)) console.log(`  ✓ wrote ${path}`);
