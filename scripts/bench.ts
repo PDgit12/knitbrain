@@ -22,7 +22,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { activeTokenizerName } from "../src/tokenizer.js";
-import { measure, summarize, type Measurement } from "../src/measure.js";
+import { measure, summarize, type Measurement } from "./measure.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { compressJson } from "../src/optimizer/json.js";
 import { compressCode } from "../src/optimizer/code.js";
