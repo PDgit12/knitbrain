@@ -256,18 +256,48 @@ export function detectDomains(files: string[]): string[] {
 
 /**
  * Loop-ready goal checkboxes derived from the charter goal — actionable, never
- * the vague "design + implement + verify" boilerplate. When the project has
- * real parts (detected domains or declared greenfield modules) each part is its
- * own checkbox carrying the goal; otherwise the goal itself is ONE checkbox.
- *
- * Deliberately NOT split into sub-clauses: the loop runs ONE holistic verify
- * gate after each box, so a box must independently pass the gate. Splitting a
- * single goal into "A"/"B" clauses that only pass together would stall the loop
- * on the first box — real modules are independent units; sentence clauses are not.
+ * the vague "design + implement + verify" boilerplate, and never N identical
+ * copies of the same sentence. When the project has real parts (detected
+ * domains or declared greenfield modules) AND the goal's own clauses cleanly
+ * name ≥2 of them ("build the API and the dashboard"), each part gets its own
+ * DISTINCT clause as its checkbox. Otherwise the goal stays ONE checkbox (a
+ * single goal can't be safely split into per-domain sub-clauses that only pass
+ * together would stall the loop's holistic verify gate on the first box — real
+ * modules are independent units; sentence clauses are not) with a note listing
+ * the domains it covers, for manual decomposition as work reveals structure.
  */
 export function goalCheckboxes(goal: string, parts: string[]): string[] {
   const g = goal.replace(/\s+/g, " ").trim() || "the current goal";
-  return parts.length > 0 ? parts.map((d) => `- [ ] ${d}: ${g}`) : [`- [ ] ${g}`];
+  if (parts.length === 0) return [`- [ ] ${g}`];
+
+  // Try to split the goal into per-domain clauses instead of repeating the
+  // whole goal on every box — "build the API and the dashboard" should become
+  // two distinct checkboxes, not the same sentence twice. Only commit to this
+  // if at least 2 parts land on genuinely DISTINCT clauses; a coincidental
+  // single match (or all parts matching one clause) isn't a real split.
+  const clauses = g
+    .split(/[,;]| and | with /i)
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+  const matched = new Map<string, string>(); // part -> clause
+  const usedClauses = new Set<string>();
+  for (const part of parts) {
+    const needle = part.toLowerCase();
+    const clause = clauses.find((c) => c.toLowerCase().includes(needle) && !usedClauses.has(c));
+    if (clause) {
+      matched.set(part, clause);
+      usedClauses.add(clause);
+    }
+  }
+  if (matched.size >= 2) {
+    return [...matched.entries()].map(([d, clause]) => `- [ ] ${d}: ${clause}`);
+  }
+
+  // No clean split — keep the goal as ONE checkbox, but note the domains it
+  // covers so the loop can decompose it further as work reveals structure.
+  // The note line does NOT start with "- [ ]" so parseGoalProgress ignores it
+  // (it only matches lines starting with a checkbox marker).
+  return [`- [ ] ${g}`, `(covers domains: ${parts.join(", ")} — decompose into per-domain boxes as you go)`];
 }
 
 /**

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { createProxyServer } from "./server.js";
 import { createFileCCRStore } from "../ccr/store.js";
+import { createActivityLog } from "../engine/activity.js";
 import { createFeedback } from "../engine/feedback.js";
 import { createMeter } from "../engine/meter.js";
-import { ccrRoot, feedbackRoot, meterRoot } from "../paths.js";
+import { readSessionMark } from "../engine/receipt.js";
+import { activityRoot, ccrRoot, feedbackRoot, meterRoot } from "../paths.js";
 
 const port = Number(process.env["KNITBRAIN_PROXY_PORT"] ?? 8788);
 // Provider is auto-detected from the request path; upstreams are overridable.
@@ -17,7 +19,13 @@ const upstreams = {
     : {}),
 };
 
+// Project roots resolve from cwd — or KNITBRAIN_PROJECT_DIR when the proxy is
+// launched outside the project dir, so receipt attribution lands in the right
+// project ledger (risk cleared: proxy cwd ≠ project).
 const meter = createMeter(meterRoot());
+const activity = createActivityLog(activityRoot(), {
+  protectSince: () => readSessionMark(meterRoot())?.startTs ?? null,
+});
 
 // Output-side lever: KNITBRAIN_TERSE=1 appends a compact terse directive to
 // every request's system tail. Off by default — the proxy never alters the
@@ -38,6 +46,19 @@ const server = createProxyServer({
   onStats: (s) => {
     // The optimized request size IS the live context window usage.
     meter.onRequest(s.originalTokens, s.optimizedTokens);
+    // G1 attribution: proxy savings land in the same session ledger as MCP/hook
+    // savings, so the receipt can name Door 3's contribution.
+    if (s.originalTokens > s.optimizedTokens) {
+      activity.record({
+        agent: "proxy",
+        tool: "request",
+        summary: `optimized api request (${s.blocksCompressed} blocks)`,
+        saved: s.originalTokens - s.optimizedTokens,
+        source: "proxy",
+        rawTokens: s.originalTokens,
+        storedTokens: s.optimizedTokens,
+      });
+    }
     if (s.blocksCompressed > 0) {
       console.error(
         `[knitbrain-proxy] ${s.originalTokens}→${s.optimizedTokens} tok (saved ${s.savedPct}%, ${s.blocksCompressed} blocks)`,

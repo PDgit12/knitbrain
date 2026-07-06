@@ -6,6 +6,7 @@ import { decidePreToolUse, READ_REDIRECT_BYTES } from "../src/hooks/pretooluse.j
 import { decideLoopStop } from "../src/hooks/stop.js";
 import { applyArtifacts, claudeArtifacts } from "../src/platforms.js";
 import { generateConfig } from "../src/setup.js";
+import { adaptOutput } from "../src/hooks/adapters.js";
 
 const io = (size: number) => ({ exists: () => true, sizeOf: () => size });
 
@@ -249,5 +250,55 @@ describe("Stop hook (Gap 6b — enforce the loop, block once)", () => {
     writeFileSync(p, "{ broken");
     expect(() => decideLoopStop(p)).not.toThrow();
     expect(decideLoopStop(p)).toBeNull();
+  });
+});
+
+describe("adaptOutput — G1 receipt (non-blocking Stop systemMessage) per platform", () => {
+  const receipt = { systemMessage: "r" };
+
+  it("claude/codex/vscode pass the systemMessage through untouched", () => {
+    expect(adaptOutput("claude", "stop", receipt)).toEqual(receipt);
+    expect(adaptOutput("codex", "stop", receipt)).toEqual(receipt);
+    expect(adaptOutput("vscode", "stop", receipt)).toEqual(receipt);
+  });
+
+  it("cursor and gemini degrade to null (no lever for a passive receipt)", () => {
+    expect(adaptOutput("cursor", "stop", receipt)).toBeNull();
+    expect(adaptOutput("gemini", "stop", receipt)).toBeNull();
+  });
+
+  it("regression: a loop-block stop decision still adapts per-platform as before", () => {
+    const block = { decision: "block", reason: "goal unmet" };
+    expect(adaptOutput("claude", "stop", block)).toEqual(block);
+    expect(adaptOutput("cursor", "stop", block)).toEqual({ followup_message: "goal unmet" });
+    expect(adaptOutput("gemini", "stop", block)).toEqual({ decision: "deny", reason: "goal unmet" });
+    const vscodeOut = adaptOutput("vscode", "stop", block) as Record<string, unknown>;
+    expect(vscodeOut["continue"]).toBe(false);
+    expect(vscodeOut["stopReason"]).toBe("goal unmet");
+  });
+});
+
+describe("decidePostToolUse — onSaved info callback", () => {
+  it("passes {rawTokens, storedTokens} alongside the saved-tokens delta", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-ccr-info-"));
+    try {
+      const ccr = createFileCCRStore(root);
+      const original = Array.from({ length: 400 }, (_, i) => `  at frame ${i} module/path/file-${i}.ts:${i}:10`).join("\n");
+      let capturedInfo: { rawTokens: number; storedTokens: number } | undefined;
+      let capturedSaved = 0;
+      decidePostToolUse(
+        { tool_name: "Bash", tool_response: { stdout: original } },
+        ccr,
+        (n, info) => {
+          capturedSaved = n;
+          capturedInfo = info;
+        },
+      );
+      expect(capturedInfo).toBeDefined();
+      expect(capturedInfo!.rawTokens).toBeGreaterThan(capturedInfo!.storedTokens);
+      expect(capturedSaved).toBe(capturedInfo!.rawTokens - capturedInfo!.storedTokens);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

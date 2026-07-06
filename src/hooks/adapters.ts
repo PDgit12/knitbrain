@@ -24,6 +24,14 @@
  *                  (create_file/read_file/run_in_terminal) — normalizeInput maps
  *                  both back to the internal snake_case Read/Bash/Write shape.
  *
+ *   G1 receipt (Stop with `systemMessage`, no block — a non-blocking summary,
+ *   not a decision): claude/codex/vscode pass `{systemMessage}` through as-is
+ *   (Claude Code + VS Code render it to the user; codex ignores an unknown
+ *   key harmlessly). cursor/gemini get `null` instead — cursor's only Stop
+ *   affordance is `followup_message`, which injects a synthetic next agent
+ *   turn (wrong shape for a passive receipt); gemini's AfterAgent output is a
+ *   deny/retry contract (stray non-deny JSON risks being misread as one).
+ *
  * Where a host cannot perform the requested action (rewrite output on
  * codex/gemini, or context-inject on cursor's beforeSubmitPrompt), we never
  * silently drop the decision — we degrade to an additionalContext pointer so
@@ -217,6 +225,12 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
       // Cursor's stop cannot truly block — degrade to a follow-up nudge.
       return { followup_message: reason ?? (decision["reason"] as string | undefined) };
     }
+    if (mode === "stop" && typeof decision["systemMessage"] === "string") {
+      // G1 receipt (non-blocking systemMessage): cursor's only Stop lever is
+      // followup_message, which injects a synthetic agent turn — wrong shape
+      // for a passive receipt. Drop rather than misrepresent it as a turn.
+      return null;
+    }
     if (mode === "sessionstart" && additionalContext) {
       return { additional_context: additionalContext };
     }
@@ -238,6 +252,12 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
     }
     if (mode === "stop" && decision["decision"] === "block") {
       return { decision: "deny", reason: reason ?? (decision["reason"] as string | undefined) };
+    }
+    if (mode === "stop" && typeof decision["systemMessage"] === "string") {
+      // G1 receipt (non-blocking systemMessage): gemini's AfterAgent output is
+      // strictly a deny/retry contract — stray non-deny JSON risks being
+      // misread as one. Drop rather than risk a spurious retry.
+      return null;
     }
     if (additionalContext) {
       return { hookSpecificOutput: { additionalContext } };

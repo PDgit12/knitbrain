@@ -56,4 +56,10 @@ describe("MCP meta tools (metrics/skill_outcome)", () => {
   it("skill_outcome on an unknown skill returns a clear message", () => {
     expect(call("knitbrain_skill_outcome", { name: "no-such-skill", worked: false })).toContain("no skill named");
   });
+
+  it("knitbrain_context_meter returns JSON with a string receipt field", () => {
+    const parsed = JSON.parse(call("knitbrain_context_meter")) as Record<string, unknown>;
+    expect(typeof parsed["receipt"]).toBe("string");
+    expect((parsed["receipt"] as string).length).toBeGreaterThan(0);
+  });
 });

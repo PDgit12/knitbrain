@@ -12,9 +12,12 @@ export function ccrRoot(): string {
   return join(knitbrainHome(), "ccr");
 }
 
-/** Stable per-project id derived from the working directory. */
+/** Stable per-project id derived from the working directory.
+ * KNITBRAIN_PROJECT_DIR overrides cwd so a helper process launched elsewhere
+ * (the proxy, a cron trigger) still lands its state in the RIGHT project. */
 export function projectId(): string {
-  return createHash("sha256").update(process.cwd()).digest("hex").slice(0, 16);
+  const dir = process.env["KNITBRAIN_PROJECT_DIR"] ?? process.cwd();
+  return createHash("sha256").update(dir).digest("hex").slice(0, 16);
 }
 
 /** Per-project memory directory (learnings + sessions). */
