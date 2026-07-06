@@ -271,14 +271,28 @@ describe("goalCheckboxes (Gap 2): actionable tasks, never boilerplate", () => {
       "- [ ] build the parser and wire the CLI",
     ]);
   });
-  it("parts present → each part carries the goal", () => {
+  it("parts present but goal has no per-domain clauses → ONE checkbox + coverage note (never N duplicates)", () => {
     expect(goalCheckboxes("ship v1", ["api", "worker"])).toEqual([
-      "- [ ] api: ship v1",
-      "- [ ] worker: ship v1",
+      "- [ ] ship v1",
+      "(covers domains: api, worker — decompose into per-domain boxes as you go)",
     ]);
   });
   it("empty goal degrades gracefully", () => {
     expect(goalCheckboxes("", [])).toEqual(["- [ ] the current goal"]);
+  });
+
+  it("multi-clause goal that names ≥2 domains → distinct per-domain checkboxes, no duplicates", () => {
+    const boxes = goalCheckboxes("build the api and the worker", ["api", "worker"]);
+    expect(boxes).toEqual(["- [ ] api: build the api", "- [ ] worker: the worker"]);
+    expect(new Set(boxes).size).toBe(boxes.length); // no duplicate checkbox text
+  });
+
+  it("unmatchable goal (no domain name appears in any clause) → ONE checkbox + a covers-domains note", () => {
+    const boxes = goalCheckboxes("ship v1", ["api", "worker"]);
+    const checkboxLines = boxes.filter((b) => b.startsWith("- [ ]"));
+    expect(checkboxLines.length).toBe(1);
+    expect(checkboxLines[0]).toBe("- [ ] ship v1");
+    expect(boxes.some((b) => b.startsWith("(covers domains:") && b.includes("api") && b.includes("worker"))).toBe(true);
   });
 });
 

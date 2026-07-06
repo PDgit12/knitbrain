@@ -11,12 +11,16 @@
  *
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
+import { existsSync, statSync } from "node:fs";
 import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
 import { createWikiStore } from "../engine/wiki.js";
+import { createActivityLog } from "../engine/activity.js";
+import { createFeedback } from "../engine/feedback.js";
+import { markSessionStart, readSessionMark, recordRead, recordRedirect, buildReceipt } from "../engine/receipt.js";
 import { currentContextTokens, currentContextModel } from "../engine/usage.js";
-import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot } from "../paths.js";
 import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
@@ -56,7 +60,42 @@ async function main(): Promise<void> {
     const input = normalizeInput(platform, mode ?? "pretooluse", payload);
 
     if (mode === "pretooluse") {
-      const decision = decidePreToolUse(input as PreToolUseInput);
+      const preInput = input as PreToolUseInput;
+      // Ledger the read attempt (any Read, not just denied ones) so the G1
+      // receipt can compare read frequency vs redirect frequency later.
+      if (preInput.tool_name === "Read" && typeof preInput.tool_input?.file_path === "string") {
+        try {
+          const p = preInput.tool_input.file_path;
+          if (existsSync(p)) recordRead(meterRoot(), p, statSync(p).mtimeMs);
+        } catch {
+          /* receipt bookkeeping — never break the host */
+        }
+      }
+      const decision = decidePreToolUse(preInput);
+      // Distinguish the LARGE-READ redirect deny from a CONSTRAINTS deny by
+      // reason text — decidePreToolUse's redirect reason always starts with
+      // "Large file"; the constraints reason starts with "Blocked by project".
+      if (decision) {
+        const hso = decision["hookSpecificOutput"] as Record<string, unknown> | undefined;
+        const reason = hso?.["permissionDecisionReason"] as string | undefined;
+        if (typeof reason === "string" && reason.startsWith("Large file") && typeof preInput.tool_input?.file_path === "string") {
+          try {
+            const p = preInput.tool_input.file_path;
+            recordRedirect(meterRoot(), p);
+            createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null }).record({
+              agent: "hook",
+              tool: "Read",
+              summary: "redirected oversized read",
+              saved: 0,
+              source: "hook",
+              kind: "redirect",
+              file: p,
+            });
+          } catch {
+            /* receipt bookkeeping — never break the host */
+          }
+        }
+      }
       const out = adaptOutput(platform, "pretooluse", decision);
       if (out) process.stdout.write(JSON.stringify(out));
       return;
@@ -68,7 +107,23 @@ async function main(): Promise<void> {
       // knitbrain_retrieve restores it. The subscription auto-compression path.
       const ccr = createFileCCRStore(ccrRoot());
       const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
-      const decision = decidePostToolUse(input as PostToolUseInput, ccr, (n) => meter.onSaved(n));
+      const toolName = typeof (input as PostToolUseInput).tool_name === "string" ? (input as PostToolUseInput).tool_name! : "unknown";
+      const decision = decidePostToolUse(input as PostToolUseInput, ccr, (n, info) => {
+        meter.onSaved(n);
+        try {
+          createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null }).record({
+            agent: "hook",
+            tool: toolName,
+            summary: `skeletonized ${toolName} output`,
+            saved: n,
+            source: "hook",
+            rawTokens: info?.rawTokens,
+            storedTokens: info?.storedTokens,
+          });
+        } catch {
+          /* ledger is observability — never break the hook */
+        }
+      });
       const out = adaptOutput(platform, "posttooluse", decision);
       if (out) process.stdout.write(JSON.stringify(out));
       return;
@@ -131,6 +186,20 @@ async function main(): Promise<void> {
       } catch {
         /* never break session start */
       }
+      // G1 receipt: stamp a session marker (start-of-session meter/retrieval
+      // snapshot) so `stop` can compute this-session deltas via activity.since().
+      try {
+        const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
+        const r = meter.read();
+        // Retrievals-at-start: same feedback.stats() source the stop branch
+        // uses, kept cheap (small on-disk JSON, not the transcript).
+        const retrievals = createFeedback(feedbackRoot())
+          .stats()
+          .reduce((sum, s) => sum + s.retrievals, 0);
+        markSessionStart(meterRoot(), { savedTokens: r.savedTokens, usedTokens: r.usedTokens, retrievals });
+      } catch {
+        /* never break session start */
+      }
       return;
     }
     if (mode === "precompact") {
@@ -160,6 +229,24 @@ async function main(): Promise<void> {
         memory.saveHandoff(
           `[auto-handoff @ ${new Date().toISOString()}] Session ended. On resume: knitbrain_load_session, then knitbrain_run with your next task.`,
         );
+      }
+      // G1 receipt: end-of-session summary of what this session actually
+      // optimized (skeletonizations, redirects, retrievals) vs sessionstart's
+      // marker. Never on the loop-block path — only when the stop is real.
+      try {
+        const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
+        const meterReading = meter.read();
+        const mark = readSessionMark(meterRoot());
+        const activity = createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null });
+        const { events, trimmed } = mark ? activity.since(mark.startTs) : { events: [], trimmed: false };
+        const retrievalsTotal = createFeedback(feedbackRoot())
+          .stats()
+          .reduce((sum, s) => sum + s.retrievals, 0);
+        const receipt = buildReceipt({ meter: meterReading, mark, events, eventsTrimmed: trimmed, retrievalsTotal });
+        const out = adaptOutput(platform, "stop", { systemMessage: receipt });
+        if (out) process.stdout.write(JSON.stringify(out));
+      } catch {
+        /* receipt is observability — never break the host on stop */
       }
       return;
     }

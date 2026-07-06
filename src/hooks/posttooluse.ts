@@ -51,7 +51,7 @@ function extractText(resp: unknown): string | null {
 export function decidePostToolUse(
   input: PostToolUseInput,
   ccr: CCRStore,
-  onSaved: (savedTokens: number) => void = () => {},
+  onSaved: (savedTokens: number, info?: { rawTokens: number; storedTokens: number }) => void = () => {},
 ): Record<string, unknown> | null {
   if (!input.tool_name || !POSTTOOL_TARGETS.has(input.tool_name)) return null;
 
@@ -63,7 +63,7 @@ export function decidePostToolUse(
   const r = compress(text, ccr, { allowProse: true });
   if (!r.compressed) return null; // not worth it → leave the original untouched
 
-  onSaved(r.originalTokens - r.skeletonTokens);
+  onSaved(r.originalTokens - r.skeletonTokens, { rawTokens: r.originalTokens, storedTokens: r.skeletonTokens });
   return {
     hookSpecificOutput: {
       hookEventName: "PostToolUse",

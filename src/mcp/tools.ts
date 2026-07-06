@@ -11,7 +11,8 @@ import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, loadHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
-import { hostIndexPath, workflowPath, loopStatePath } from "../paths.js";
+import { hostIndexPath, workflowPath, loopStatePath, meterRoot } from "../paths.js";
+import { buildReceipt, readSessionMark, markSessionStart } from "../engine/receipt.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
 import { createBrain, type Brain } from "../engine/brain.js";
@@ -169,6 +170,10 @@ interface SessionState {
   verified: boolean;
   /** A learning was recorded this session. */
   learned: boolean;
+  /** knitbrain_optimize / knitbrain_read call ctx.meter.onSaved inside run(),
+   *  before dispatch's capture() step — queue their savings here so dispatch
+   *  can surface them to the activity ledger after the tool returns. */
+  pendingLedger?: Array<{ file?: string; rawTokens: number; storedTokens: number; saved: number }>;
 }
 const sessionState = new WeakMap<ToolContext, SessionState>();
 function sessionOf(ctx: ToolContext): SessionState {
@@ -223,7 +228,10 @@ export const TOOLS: readonly ToolDef[] = [
       const r = compress(text, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return text;
       ctx.feedback.onCompress(r.contentType, r.handle);
-      ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
+      const saved = r.originalTokens - r.skeletonTokens;
+      ctx.meter.onSaved(saved);
+      const optimizeSession = sessionOf(ctx);
+      (optimizeSession.pendingLedger ??= []).push({ rawTokens: r.originalTokens, storedTokens: r.skeletonTokens, saved });
       return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨recall:…⟩ handle for the exact original]`;
     },
   },
@@ -268,7 +276,10 @@ export const TOOLS: readonly ToolDef[] = [
       const r = compress(original, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return original; // small/incompressible → exact content
       ctx.feedback.onCompress(r.contentType, r.handle);
-      ctx.meter.onSaved(r.originalTokens - r.skeletonTokens);
+      const saved = r.originalTokens - r.skeletonTokens;
+      ctx.meter.onSaved(saved);
+      const readSession = sessionOf(ctx);
+      (readSession.pendingLedger ??= []).push({ file: requested, rawTokens: r.originalTokens, storedTokens: r.skeletonTokens, saved });
       return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨recall:${r.handle}⟩]`;
     },
   },
@@ -370,6 +381,17 @@ export const TOOLS: readonly ToolDef[] = [
     output: "data",
     run: (_args, ctx) => {
       ctx.meter.reset(); // new session starts a fresh window
+      // Session marker (G1 receipt): snapshot the fresh meter as the session's
+      // zero-point so knitbrain_context_meter can report SESSION deltas even on
+      // hook-less hosts (proxy/hooks also mark, but this covers MCP-only use).
+      // Best-effort — never block load_session on receipt bookkeeping.
+      try {
+        const snap = ctx.meter.read();
+        const retrievals = ctx.feedback.stats().reduce((a, s) => a + s.retrievals, 0);
+        markSessionStart(meterRoot(), { savedTokens: snap.savedTokens, usedTokens: snap.usedTokens, retrievals });
+      } catch {
+        // non-fatal
+      }
       // (Knowledge self-heals lazily: the first graph query in a fresh
       // project triggers a scan automatically — no manual init step.)
       // Gap E: auto-heal stale/contradicting wiki claims at session start.
@@ -401,7 +423,19 @@ export const TOOLS: readonly ToolDef[] = [
     description: "Token-window meter: how full the context is, tokens saved by optimization, and whether it's time to save a handoff and clear the session.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     output: "verbatim",
-    run: (_args, ctx) => JSON.stringify(ctx.meter.read(), null, 2),
+    run: (_args, ctx) => {
+      const meter = ctx.meter.read();
+      const mark = readSessionMark(meterRoot());
+      const since = mark ? ctx.activity?.since(mark.startTs) : undefined;
+      const events = since?.events ?? [];
+      const eventsTrimmed = since?.trimmed ?? false;
+      const retrievalsTotal = ctx.feedback.stats().reduce((a, s) => a + s.retrievals, 0);
+      return JSON.stringify(
+        { ...meter, receipt: buildReceipt({ meter, mark, events, eventsTrimmed, retrievalsTotal }) },
+        null,
+        2,
+      );
+    },
   },
   {
     name: "knitbrain_search_code",
@@ -1055,7 +1089,8 @@ export const TOOLS: readonly ToolDef[] = [
             ].join("\n"),
             "utf8",
           );
-          goalNote = ` goal.md written (${tasks.length} checkbox${tasks.length === 1 ? "" : "es"}, VERIFY honored by the loop) — start with \`knitbrain loop goal.md\` or knitbrain_run_loop.`;
+          const checkboxCount = tasks.filter((t) => t.startsWith("- [ ]")).length;
+          goalNote = ` goal.md written (${checkboxCount} checkbox${checkboxCount === 1 ? "" : "es"}, VERIFY honored by the loop) — start with \`knitbrain loop goal.md\` or knitbrain_run_loop.`;
         }
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written (ROUTING covers: ${domains.join(", ") || "none"}). knitbrain_load_session now surfaces your intent + workflow every session.${gapHint}${goalNote}`;
       }
@@ -1365,21 +1400,29 @@ function isJsonPayload(raw: string): boolean {
   }
 }
 
-function capture(tool: ToolDef, raw: string, ctx: ToolContext): { out: string; saved: number } {
+function capture(
+  tool: ToolDef,
+  raw: string,
+  ctx: ToolContext,
+): { out: string; saved: number; rawTokens?: number; storedTokens?: number } {
   let out = raw;
   let saved = 0;
+  let rawTokens: number | undefined;
+  let storedTokens: number | undefined;
   if (tool.output === "data" && !isJsonPayload(raw) && !ctx.feedback.shouldSkip(detect(raw))) {
     // TOIN self-tuning: if this kind gets over-retrieved, stop compressing it.
     const r = compress(raw, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
     if (r.compressed) {
       ctx.feedback.onCompress(r.contentType, r.handle);
       saved = r.originalTokens - r.skeletonTokens;
+      rawTokens = r.originalTokens;
+      storedTokens = r.skeletonTokens;
       ctx.meter.onSaved(saved);
       out = r.skeleton;
     }
   }
   ctx.meter.onToolOutput(countTokens(out));
-  return { out, saved };
+  return { out, saved, rawTokens, storedTokens };
 }
 
 /**
@@ -1405,7 +1448,7 @@ export function dispatch(
   if (tool.name === "knitbrain_record_learning") sessionOf(ctx).learned = true;
 
   // CAPTURE: compress + account.
-  const { out: captured, saved } = capture(tool, raw, ctx);
+  const { out: captured, saved, rawTokens, storedTokens } = capture(tool, raw, ctx);
   let out = captured;
 
   // Context meter advisory — except the exact-recovery tools, whose whole
@@ -1425,6 +1468,28 @@ export function dispatch(
     tool: tool.name,
     summary: raw.replace(/\s+/g, " ").trim().slice(0, 80),
     saved,
+    source: "mcp",
+    ...(rawTokens !== undefined && storedTokens !== undefined ? { rawTokens, storedTokens } : {}),
   });
+
+  // Drain pendingLedger: knitbrain_optimize / knitbrain_read call ctx.meter.onSaved
+  // INSIDE run(), before capture() ever sees them — their savings would
+  // otherwise be invisible to the activity ledger above. One event per entry.
+  const pending = sessionOf(ctx).pendingLedger;
+  if (pending && pending.length > 0) {
+    for (const entry of pending) {
+      ctx.activity?.record({
+        agent: ctx.agentId ?? "agent",
+        tool: tool.name,
+        summary: entry.file ?? "optimize",
+        saved: entry.saved,
+        source: "mcp",
+        file: entry.file,
+        rawTokens: entry.rawTokens,
+        storedTokens: entry.storedTokens,
+      });
+    }
+    sessionOf(ctx).pendingLedger = [];
+  }
   return out;
 }

@@ -12,6 +12,7 @@ import { createMeter, type Meter } from "./engine/meter.js";
 import { createSkillsStore, type SkillsStore } from "./engine/skills.js";
 import { createCalibration, type Calibration } from "./engine/calibration.js";
 import { createActivityLog, type ActivityLog } from "./engine/activity.js";
+import { readSessionMark } from "./engine/receipt.js";
 import { createWikiStore, type WikiStore } from "./engine/wiki.js";
 import { currentContextTokens, currentContextModel } from "./engine/usage.js";
 import { agentLabel } from "./mcp/host.js";
@@ -45,7 +46,11 @@ export function buildServer(
   meter: Meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel(), baselineTokens: 20_000 }),
   skills: SkillsStore = createSkillsStore(skillsRoot()),
   calibration: Calibration = createCalibration(calibrationRoot()),
-  activity: ActivityLog = createActivityLog(activityRoot()),
+  // protectSince: session-aware trim — the receipt needs the whole session's
+  // events, so trim never eats lines newer than the live session mark.
+  activity: ActivityLog = createActivityLog(activityRoot(), {
+    protectSince: () => readSessionMark(meterRoot())?.startTs ?? null,
+  }),
   wiki: WikiStore = createWikiStore(wikiRoot()),
 ): Server {
   const server = new Server(
