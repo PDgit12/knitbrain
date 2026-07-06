@@ -46,6 +46,48 @@ describe("PreToolUse hook (Layer 2 enforcement)", () => {
   });
 });
 
+describe("PreToolUse hook — workflow CONSTRAINTS denial (brain→body enforcement)", () => {
+  const ioWith = (workflowText: string | null) => ({ ...io(0), readWorkflow: () => workflowText });
+
+  it("denies a Bash command matching a CONSTRAINTS-line forbidden literal", () => {
+    const d = decidePreToolUse(
+      { tool_name: "Bash", tool_input: { command: "npm publish" } },
+      ioWith("GOAL: ship it\nCONSTRAINTS: no publish without OK\n"),
+    )!;
+    expect(d).not.toBeNull();
+    const out = d["hookSpecificOutput"] as Record<string, string>;
+    expect(out["permissionDecision"]).toBe("deny");
+    expect(out["permissionDecisionReason"]).toContain("CONSTRAINTS: no publish without OK");
+  });
+
+  it("readWorkflow absent → null (fail-open, old 2-field io objects still work)", () => {
+    expect(
+      decidePreToolUse({ tool_name: "Bash", tool_input: { command: "npm publish" } }, io(0)),
+    ).toBeNull();
+  });
+
+  it("a non-matching command is not denied", () => {
+    expect(
+      decidePreToolUse(
+        { tool_name: "Bash", tool_input: { command: "npm test" } },
+        ioWith("CONSTRAINTS: no publish without OK"),
+      ),
+    ).toBeNull();
+  });
+
+  it("no CONSTRAINTS line, or readWorkflow returning null → fail open", () => {
+    expect(
+      decidePreToolUse({ tool_name: "Bash", tool_input: { command: "npm publish" } }, ioWith(null)),
+    ).toBeNull();
+    expect(
+      decidePreToolUse(
+        { tool_name: "Bash", tool_input: { command: "npm publish" } },
+        ioWith("GOAL: ship it\n"),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("settings.json hooks wiring (non-clobbering)", () => {
   it("setup writes PreToolUse + PreCompact hooks and preserves user hooks", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-hooks-"));

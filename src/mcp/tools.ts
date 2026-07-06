@@ -83,6 +83,10 @@ interface LoopState {
   /** Sticky: the Stop hook nudged once. Carried across run_loop cycles so the
    * "stop again to end" escape hatch stays reliable (M4). */
   stopNudged?: boolean;
+  /** Self-heal: last few FAILED-cycle reasons, so the next directive can tell
+   * the agent what NOT to repeat instead of retrying the same dead end.
+   * Capped to 3 entries; cleared with the rest of the state on met/max_iters. */
+  failures?: Array<{ iter: number; detail: string }>;
 }
 function loadLoopState(path: string): LoopState | null {
   if (!existsSync(path)) return null;
@@ -1205,8 +1209,25 @@ export const TOOLS: readonly ToolDef[] = [
         clearLoopState(statePath);
         return JSON.stringify({ met: false, stopped: "max-iters", iters, detail }, null, 2);
       }
-      saveLoopState(statePath, { goal: goalKey, iter: iters, startedAt, ...(prev?.stopNudged ? { stopNudged: true } : {}) });
+      // Self-heal: record this cycle's failure (capped detail, last 3 kept) so
+      // the next directive can call out the ROOT CAUSE instead of retrying it.
+      const priorFailures = prevFresh ? (prev?.failures ?? []) : [];
+      const failures = [...priorFailures, { iter: iters, detail: detail.slice(0, 400) }].slice(-3);
+      saveLoopState(statePath, {
+        goal: goalKey,
+        iter: iters,
+        startedAt,
+        failures,
+        ...(prev?.stopNudged ? { stopNudged: true } : {}),
+      });
       const remainingMs = deadlineMs !== undefined ? Math.max(0, deadlineMs - (Date.now() - startedAt)) : undefined;
+      // Directive surfaces PRIOR cycles' failures only — this cycle's detail is
+      // already in the directive body; echoing it as "previous" would be noise.
+      const prevWindow = failures.slice(0, -1); // pruned window minus this cycle
+      const failurePrefix =
+        prevWindow.length > 0
+          ? `previous failures — ${prevWindow.map((f) => `iter ${f.iter}: ${f.detail}`).join("; ")}. Address the ROOT CAUSE of these; do not repeat them. `
+          : "";
       return JSON.stringify(
         {
           met: false,
@@ -1215,7 +1236,7 @@ export const TOOLS: readonly ToolDef[] = [
           ...(deadlineMs !== undefined ? { deadline_ms: deadlineMs, remaining_ms: remainingMs } : {}),
           detail,
           rubric,
-          directive: `Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
+          directive: `${failurePrefix}Cycle ${iters}/${maxIters}${remainingMs !== undefined ? ` (~${Math.round(remainingMs / 1000)}s of budget left)` : ""}: NOT met — ${detail}. Make the smallest fix toward "${goal}", then call knitbrain_run_loop again with the same goal. Hard gate: ${verifyCmd}.`,
         },
         null,
         2,

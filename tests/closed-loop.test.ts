@@ -271,4 +271,48 @@ describe("knitbrain_run_loop tool (Gap C): drives the loop until met or max-iter
     const out = JSON.parse(loopTool().run({ goal: "make green", verify_cmd: `node -e ""` }, mkCtx()));
     expect(out.met).toBe(true); // gate passes → goal met by the objective measure
   });
+
+  it("self-heals: the next directive surfaces the prior cycle's failure detail", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "heal from a repeated failure please";
+    const c1 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c1.met).toBe(false);
+    expect(c1.directive).not.toContain("previous failures"); // first cycle: no history yet
+    const c2 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 9 }, ctx));
+    expect(c2.met).toBe(false);
+    // 2nd cycle's directive calls out the 1st cycle's failure detail so the
+    // agent doesn't repeat the dead end.
+    expect(c2.directive).toContain("previous failures");
+    expect(c2.directive).toContain("iter 1: verify FAILED: false");
+    const sp = loopStatePath();
+    const afterC2 = JSON.parse(readFileSync(sp, "utf8"));
+    expect(afterC2.failures).toHaveLength(2);
+  });
+
+  it("self-heals: failures[] history prunes to the last 3 entries after 4+ failed cycles", () => {
+    const ctx = mkCtx();
+    const t = loopTool();
+    const goal = "prune the failure history please";
+    t.run({ goal, verify_cmd: "false", max_iters: 99 }, ctx); // cycle 1 → persists failures[iter1]
+    // Directly seed 3 prior failures (edit the state file, matching the
+    // existing state-edit pattern in this file) so the next failing cycle
+    // pushes the total past the cap.
+    const sp = loopStatePath();
+    const st = JSON.parse(readFileSync(sp, "utf8"));
+    st.iter = 3;
+    st.failures = [
+      { iter: 1, detail: "verify FAILED: false" },
+      { iter: 2, detail: "verify FAILED: false" },
+      { iter: 3, detail: "verify FAILED: false" },
+    ];
+    writeFileSync(sp, JSON.stringify(st));
+    const c4 = JSON.parse(t.run({ goal, verify_cmd: "false", max_iters: 99 }, ctx));
+    expect(c4.iter).toBe(4);
+    const after = JSON.parse(readFileSync(sp, "utf8"));
+    expect(after.failures).toHaveLength(3); // capped, oldest (iter 1) dropped
+    expect(after.failures.map((f: { iter: number }) => f.iter)).toEqual([2, 3, 4]);
+    expect(c4.directive).toContain("iter 2:"); // oldest surfaced failure is now iter 2, not iter 1
+    expect(c4.directive).not.toContain("iter 1:");
+  });
 });

@@ -24,6 +24,7 @@ import { sessionStartOutput } from "./sessionstart.js";
 import { mineNewTranscripts } from "../learn.js";
 import { GOAL_LOOP_NUDGE } from "../platforms.js";
 import { join } from "node:path";
+import { detectHookPlatform, normalizeEventName, normalizeInput, adaptOutput, type HookMode } from "./adapters.js";
 
 function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -35,12 +36,29 @@ function readStdin(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const mode = process.argv[2];
+  const cliMode = process.argv[2] as HookMode | undefined;
   try {
+    const raw = await readStdin();
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    } catch {
+      payload = {}; // malformed payload — fall through to CLI-arg mode, empty fields
+    }
+
+    const platform = detectHookPlatform(payload);
+    const rawEvent = payload["hook_event_name"];
+    // Payload's declared event wins when it maps to a known mode; the CLI arg
+    // (how claude invokes `knitbrain-hook <mode>`) is the fallback — this keeps
+    // claude behavior byte-for-byte unchanged when no/irrelevant event name.
+    const eventMode = typeof rawEvent === "string" ? normalizeEventName(platform, rawEvent) : null;
+    const mode: HookMode | undefined = eventMode ?? cliMode;
+    const input = normalizeInput(platform, mode ?? "pretooluse", payload);
+
     if (mode === "pretooluse") {
-      const input = JSON.parse(await readStdin()) as PreToolUseInput;
-      const decision = decidePreToolUse(input);
-      if (decision) process.stdout.write(JSON.stringify(decision));
+      const decision = decidePreToolUse(input as PreToolUseInput);
+      const out = adaptOutput(platform, "pretooluse", decision);
+      if (out) process.stdout.write(JSON.stringify(out));
       return;
     }
     if (mode === "posttooluse") {
@@ -48,11 +66,11 @@ async function main(): Promise<void> {
       // (Bash/Grep/Glob/WebFetch). Replaces the model-visible output via
       // updatedToolOutput; the exact original lands in the shared CCR store so
       // knitbrain_retrieve restores it. The subscription auto-compression path.
-      const input = JSON.parse(await readStdin()) as PostToolUseInput;
       const ccr = createFileCCRStore(ccrRoot());
       const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
-      const decision = decidePostToolUse(input, ccr, (n) => meter.onSaved(n));
-      if (decision) process.stdout.write(JSON.stringify(decision));
+      const decision = decidePostToolUse(input as PostToolUseInput, ccr, (n) => meter.onSaved(n));
+      const out = adaptOutput(platform, "posttooluse", decision);
+      if (out) process.stdout.write(JSON.stringify(out));
       return;
     }
     if (mode === "userpromptsubmit") {
@@ -60,8 +78,7 @@ async function main(): Promise<void> {
       // chronicle). Cheap, append-only, never blocks; synthesis pages stay
       // LLM-driven via knitbrain_wiki_ingest.
       try {
-        const input = JSON.parse(await readStdin()) as { prompt?: string };
-        const prompt = typeof input.prompt === "string" ? input.prompt.replace(/\s+/g, " ").trim() : "";
+        const prompt = typeof input["prompt"] === "string" ? (input["prompt"] as string).replace(/\s+/g, " ").trim() : "";
         if (prompt) createWikiStore(wikiRoot()).log("turn", prompt.slice(0, 80));
       } catch {
         /* never break the host on a malformed prompt payload */
@@ -79,7 +96,16 @@ async function main(): Promise<void> {
       // live window is than its unoptimized counterfactual.
       if (r.optimizationPct > 0) out += ` · optimized ${r.optimizationPct}% of the live window (saved ${r.savedTokens.toLocaleString()} tok)`;
       if (r.status !== "ok") out += `\n[context ${r.usedPct}%] ${r.advice}`;
-      process.stdout.write(out);
+      // Non-claude/codex hosts that support context injection get the same
+      // text via their native shape; plain stdout still works as a fallback.
+      const adapted = adaptOutput(platform, "userpromptsubmit", { hookSpecificOutput: { additionalContext: out } });
+      if (platform === "claude" || platform === "codex") {
+        process.stdout.write(out);
+      } else if (adapted) {
+        process.stdout.write(JSON.stringify(adapted));
+      } else {
+        process.stdout.write(out);
+      }
       return;
     }
     if (mode === "sessionstart") {
@@ -87,7 +113,13 @@ async function main(): Promise<void> {
       // starts already knowing how to operate AND where it left off — the
       // loop's first step no longer depends on the agent calling load_session.
       const memory = createMemory(memoryRoot());
-      process.stdout.write(sessionStartOutput(memory.loadSession()));
+      const sessionText = sessionStartOutput(memory.loadSession());
+      if (platform === "claude" || platform === "codex") {
+        process.stdout.write(sessionText);
+      } else {
+        const adapted = adaptOutput(platform, "sessionstart", { hookSpecificOutput: { additionalContext: sessionText } });
+        process.stdout.write(adapted ? JSON.stringify(adapted) : sessionText);
+      }
       // Ingestion-gap closer: on subscription hosts assistant prose is
       // uncapturable live but IS in the on-disk transcripts — incrementally
       // mine new/changed ones (state-keyed, capped) into the brain.
@@ -115,7 +147,8 @@ async function main(): Promise<void> {
       // goal is still in progress, then fall through to the normal handoff.
       const stopDecision = decideLoopStop(loopStatePath());
       if (stopDecision) {
-        process.stdout.write(JSON.stringify(stopDecision));
+        const out = adaptOutput(platform, "stop", stopDecision as unknown as Record<string, unknown>);
+        if (out) process.stdout.write(JSON.stringify(out));
         return;
       }
       // Session ending: ensure a resumable handoff EXISTS, but never clobber a

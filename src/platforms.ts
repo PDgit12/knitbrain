@@ -16,7 +16,15 @@ export interface Artifact {
   content: string;
   /** Merge strategy: json-merges for shared config files, write for ours,
    *  write-if-absent for shared files we must not clobber (e.g. AGENTS.md). */
-  mode: "write" | "write-if-absent" | "json-merge-mcp" | "json-merge-hooks";
+  mode: "write" | "write-if-absent" | "json-merge-mcp" | "json-merge-hooks" | "json-merge-cursor-hooks";
+  /** json-merge-hooks only: which hook map to merge in (defaults to
+   *  KNITBRAIN_HOOKS/Claude's shape for back-compat) — lets Codex/Gemini
+   *  reuse the same merge logic with their own event names. */
+  hooksData?: Record<string, ReadonlyArray<{ matcher?: string; hooks: ReadonlyArray<{ type: string; command: string }> }>>;
+  /** json-merge-hooks only: true (default) nests entries under a "hooks" key
+   *  (settings.json-style, shared with other settings); false means the file
+   *  IS the hooks map at the top level (a dedicated hooks.json). */
+  hooksWrapped?: boolean;
 }
 
 /** Hook wiring for Claude Code settings.json (Layer 2 enforcement). The
@@ -64,6 +72,35 @@ export const KNITBRAIN_HOOKS = {
   ],
 } as const;
 
+/** Codex CLI: repo `.codex/hooks.json` uses the SAME event names + hook entry
+ * schema as Claude Code (verified official docs, July 2026) — reuse the map
+ * verbatim rather than duplicating it. */
+export const CODEX_HOOKS = KNITBRAIN_HOOKS;
+
+/** Gemini CLI: repo `.gemini/settings.json`, PascalCase events that map 1:1
+ * onto our four hook points; AfterAgent is Gemini's loop-enforcement point
+ * (mirrors Claude's Stop). Entry schema mirrors Claude's (matcher/hooks/command). */
+export const GEMINI_HOOKS = {
+  SessionStart: KNITBRAIN_HOOKS.SessionStart,
+  BeforeTool: KNITBRAIN_HOOKS.PreToolUse,
+  AfterTool: KNITBRAIN_HOOKS.PostToolUse,
+  PreCompress: KNITBRAIN_HOOKS.PreCompact,
+  AfterAgent: KNITBRAIN_HOOKS.Stop,
+} as const;
+
+/** Cursor: repo `.cursor/hooks.json`, camelCase events, FLAT entry schema
+ * ({command} only — no matcher/type wrapper). beforeReadFile/
+ * beforeShellExecution/beforeMCPExecution all gate to our pretooluse hook
+ * since Cursor splits what Claude covers with one PreToolUse matcher. */
+export const CURSOR_HOOKS: Record<string, ReadonlyArray<{ command: string }>> = {
+  beforeReadFile: [{ command: "knitbrain-hook pretooluse" }],
+  beforeShellExecution: [{ command: "knitbrain-hook pretooluse" }],
+  beforeMCPExecution: [{ command: "knitbrain-hook pretooluse" }],
+  postToolUse: [{ command: "knitbrain-hook posttooluse" }],
+  stop: [{ command: "knitbrain-hook stop" }],
+  sessionStart: [{ command: "knitbrain-hook sessionstart" }],
+} as const;
+
 const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons. A \`⟨recall:HASH⟩\` marker means the exact original is stored locally — call the \`knitbrain_retrieve\` tool with that hash to read it byte-for-byte. Check \`knitbrain_context_meter\` periodically; when it says to, save a handoff with \`knitbrain_save_handoff\` and start a fresh session (\`knitbrain_load_session\` restores everything). When the user states a task, call \`knitbrain_run\` first and follow its directive (skill + agents + commands).
 
 **Reading files:** for any file you expect to be large (>~150 lines) or that you only need to navigate (find a function, check structure), use \`knitbrain_read\` instead of the host's raw read — same information shape at ~70-90% fewer tokens, exact original one \`knitbrain_retrieve\` away. Use the raw read only when you need every line verbatim right now (e.g. just before editing a specific region).`;
@@ -95,6 +132,10 @@ Terse: "New object ref each render → re-render. Wrap in useMemo."`;
  */
 export const GOAL_LOOP_NUDGE =
   "Every actionable request is a GOAL — don't just answer once, DRIVE it: knitbrain_run to classify + get the skill/agents, then close on a checkable gate with knitbrain_run_loop (loop until met OR max_iters OR --for deadline, not a single pass). Pure question/inquiry → answer directly, no loop.";
+
+/** Forward name for GOAL_LOOP_NUDGE (same content) — GOAL_LOOP_NUDGE kept
+ * as the export so existing imports (hooks/index.ts, tests) don't break. */
+export const GOAL_FRAME = GOAL_LOOP_NUDGE;
 
 export type TerseLevel = "lite" | "full" | "ultra";
 
@@ -143,7 +184,7 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
     {
       path: ".claude/commands/goal.md",
       mode: "write",
-      content: `---\ndescription: Run the full knitbrain workflow for a goal — orchestrate skill + agents, then drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the full knitbrain workflow. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. ORCHESTRATE FIRST — call the \`knitbrain_run\` tool with the goal and ADHERE to the verdict:\n   - \`autoPlanMode=true\` → enter your host's plan mode and get approval before any edit;\n   - adopt the returned SKILL; refine it while working, then \`knitbrain_skill_save\`;\n   - if it proposes agents, spawn them via your host's sub-agent mechanism and coordinate on \`knitbrain_team_post\` / \`knitbrain_team_board\`;\n   - run the listed host slash-commands when useful.\n3. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n4. Read an optional \`--for <duration>\` from the args (e.g. \`30m\`, \`1h\`, \`90s\`) and convert it to milliseconds — that's the wall-clock budget.\n5. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters, deadline_ms }\` (max_iters default 6; omit \`deadline_ms\` when no \`--for\` was given).\n6. Each cycle, follow the returned directive: make the smallest real fix (delegating to the spawned agents where apt), then call \`knitbrain_run_loop\` again with the SAME goal so iteration + the time budget carry across calls.\n7. NEVER fake \`met=true\`. Stop only at a real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline (\`stopped:"deadline"\`), then report the honest final state (what passed, what's still open) and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n`,
+      content: `---\ndescription: Run the full knitbrain workflow for a goal — orchestrate skill + agents, then drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the full knitbrain workflow. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. ORCHESTRATE FIRST — call the \`knitbrain_run\` tool with the goal and ADHERE to the verdict:\n   - \`autoPlanMode=true\` → enter your host's plan mode and get approval before any edit;\n   - adopt the returned SKILL; refine it while working, then \`knitbrain_skill_save\`;\n   - if it proposes agents, spawn them via your host's sub-agent mechanism and coordinate on \`knitbrain_team_post\` / \`knitbrain_team_board\`;\n   - run the listed host slash-commands when useful.\n3. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n4. Read an optional \`--for <duration>\` from the args (e.g. \`30m\`, \`1h\`, \`90s\`) and convert it to milliseconds — that's the wall-clock budget.\n5. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters, deadline_ms }\` (max_iters default 6; omit \`deadline_ms\` when no \`--for\` was given).\n6. Each cycle, follow the returned directive: make the smallest real fix (delegating to the spawned agents where apt), then call \`knitbrain_run_loop\` again with the SAME goal so iteration + the time budget carry across calls.\n7. NEVER fake \`met=true\`. Stop only at a real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline (\`stopped:"deadline"\`), then report the honest final state (what passed, what's still open) and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n\nSibling: \`/loop\` runs this same cycle under an explicit \`--for\`/\`--iters\` budget for autonomous multi-iteration runs (goal = loop until met; loop = goal + time/iteration budget).\n`,
     },
     {
       path: ".claude/rules/knitbrain.md",
@@ -153,15 +194,49 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
   ];
 }
 
-/** Cursor: .cursor/mcp.json + an always-on rules file. */
+/** Claude Code: /loop command — same engine as /goal, plus an explicit
+ * --for/--iters budget and self-heal from prior-cycle failures (LoopState.failures,
+ * surfaced automatically by knitbrain_run_loop's directive). Kept OUT of
+ * claudeArtifacts() (applied separately in runSetup) so the artifact-count
+ * test on claudeArtifacts() stays stable. */
+export function claudeLoopArtifacts(): Artifact[] {
+  return [
+    {
+      path: ".claude/commands/loop.md",
+      mode: "write",
+      content: `---\ndescription: Run a goal as an autonomous multi-iteration loop with an explicit time/iteration budget\nargument-hint: <goal> --for <duration> --iters N\n---\n\nSibling of \`/goal\` (goal = loop until met; loop = goal + explicit time/iteration budget). Same engine, same rules:\n\n1. Follow \`/goal\`'s steps 1-3 (orchestrate via \`knitbrain_run\`, ADHERE to the verdict, pick the verify command by the same precedence).\n2. Parse \`--for <duration>\` (e.g. \`30m\`, \`1h\`) → \`deadline_ms\`, and \`--iters N\` → \`max_iters\` (default 6) from \`$ARGUMENTS\`.\n3. Call \`knitbrain_run_loop\` each cycle with \`{ goal, verify_cmd, max_iters, deadline_ms }\`. If the response's \`directive\` opens with "previous failures", treat those as ROOT CAUSES to fix — do not repeat the same dead-end fix.\n4. Every iteration is a full goal cycle: make the smallest real fix, then call \`knitbrain_run_loop\` again with the SAME goal so iteration + budget carry across calls.\n5. NEVER fake \`met=true\`. Stop only at real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline, then report the honest final state and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n`,
+    },
+  ];
+}
+
+/** Cursor: .cursor/mcp.json + hooks.json (Layer 2 enforcement) + an
+ * always-on rules file. */
 export function cursorArtifacts(): Artifact[] {
   return [
     { path: ".cursor/mcp.json", content: "", mode: "json-merge-mcp" },
+    { path: ".cursor/hooks.json", content: "", mode: "json-merge-cursor-hooks" },
     {
       path: ".cursor/rules/knitbrain.mdc",
       mode: "write",
       content: `---\ndescription: Knit Brain memory + token optimization\nalwaysApply: true\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
+  ];
+}
+
+/** Codex CLI: repo `.codex/hooks.json` (Layer 2 enforcement — same event
+ * names + schema as Claude Code, see CODEX_HOOKS). MCP config stays a
+ * snippet (codexSnippet) since it's global, not project-local. */
+export function codexArtifacts(): Artifact[] {
+  return [
+    { path: ".codex/hooks.json", content: "", mode: "json-merge-hooks", hooksData: CODEX_HOOKS, hooksWrapped: false },
+  ];
+}
+
+/** Gemini CLI: repo `.gemini/settings.json` — hooks merged non-destructively
+ * alongside any user settings (json-merge-hooks, wrapped under "hooks"). */
+export function geminiArtifacts(): Artifact[] {
+  return [
+    { path: ".gemini/settings.json", content: "", mode: "json-merge-hooks", hooksData: GEMINI_HOOKS, hooksWrapped: true },
   ];
 }
 
@@ -238,6 +313,7 @@ export function slashCommands(platform: string): Array<{ cmd: string; when: stri
       { cmd: "/handoff", when: "save session handoff before clearing" },
       { cmd: "/clear", when: "after handoff saved — start fresh window" },
       { cmd: "/compact", when: "mid-task when window warn but can't clear yet" },
+      { cmd: "/loop", when: "goal needs an explicit --for/--iters budget across multiple autonomous cycles" },
     ];
   }
   if (platform === "cursor") {
@@ -260,7 +336,7 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
     if (a.mode === "write-if-absent" && existsSync(full)) continue;
     mkdirSync(dirname(full), { recursive: true });
     let content = a.content;
-    if (a.mode === "json-merge-mcp" || a.mode === "json-merge-hooks") {
+    if (a.mode === "json-merge-mcp" || a.mode === "json-merge-hooks" || a.mode === "json-merge-cursor-hooks") {
       let parsed: Record<string, unknown> = {};
       if (existsSync(full)) {
         try {
@@ -273,18 +349,38 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
         const key = mcpKeyFor(a.path);
         const servers = { ...((parsed[key] as Record<string, unknown>) ?? {}), ...cfg.mcpServers };
         content = JSON.stringify({ ...parsed, [key]: servers }, null, 2) + "\n";
-      } else {
+      } else if (a.mode === "json-merge-hooks") {
         // Merge our hook entries into existing hooks, deduped by command —
-        // never clobber the user's own hooks.
-        const hooks = { ...((parsed["hooks"] as Record<string, unknown[]>) ?? {}) };
-        for (const [event, entries] of Object.entries(KNITBRAIN_HOOKS)) {
-          const existing = (hooks[event] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
+        // never clobber the user's own hooks. hooksData defaults to
+        // KNITBRAIN_HOOKS/wrapped=true (Claude's settings.json shape) so
+        // existing callers are unaffected; Codex/Gemini pass their own map.
+        const hookMap = a.hooksData ?? KNITBRAIN_HOOKS;
+        const wrapped = a.hooksWrapped ?? true;
+        const base: Record<string, unknown[]> = wrapped
+          ? { ...((parsed["hooks"] as Record<string, unknown[]>) ?? {}) }
+          : { ...(parsed as unknown as Record<string, unknown[]>) };
+        for (const [event, entries] of Object.entries(hookMap)) {
+          const existing = (base[event] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
           const ours = entries.filter(
-            (e) => !existing.some((x) => x.hooks?.some((h) => h.command === e.hooks[0].command)),
+            (e) => !existing.some((x) => x.hooks?.some((h) => h.command === e.hooks[0]?.command)),
           );
+          base[event] = [...existing, ...ours];
+        }
+        content = wrapped
+          ? JSON.stringify({ ...parsed, hooks: base }, null, 2) + "\n"
+          : JSON.stringify({ ...parsed, ...base }, null, 2) + "\n";
+      } else {
+        // Cursor's hooks.json: flat {command} entries (no matcher/type
+        // wrapper), dedupe by command string, preserve user's version + entries.
+        const hooks: Record<string, Array<{ command: string }>> = {
+          ...((parsed["hooks"] as Record<string, Array<{ command: string }>>) ?? {}),
+        };
+        for (const [event, entries] of Object.entries(CURSOR_HOOKS)) {
+          const existing = hooks[event] ?? [];
+          const ours = entries.filter((e) => !existing.some((x) => x.command === e.command));
           hooks[event] = [...existing, ...ours];
         }
-        content = JSON.stringify({ ...parsed, hooks }, null, 2) + "\n";
+        content = JSON.stringify({ version: (parsed["version"] as number | undefined) ?? 1, ...parsed, hooks }, null, 2) + "\n";
       }
     }
     // M8: knitbrain-owned "write" files (goal.md, rules, …) must stay current
