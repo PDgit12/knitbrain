@@ -80,7 +80,7 @@ usage: knitbrain <command>
   onboard      import this project's past sessions + scan the repo into the brain (run once after setup)
   learn        mine past sessions for failure→success corrections (--apply writes CLAUDE.md)
   compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
-  loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --interactive)
+  loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --reviewer, --for, --interactive)
   fan <goal>   PARALLEL loop: N workers drain a checkbox queue concurrently, isolated in git worktrees (--workers, --verify, --max)
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
