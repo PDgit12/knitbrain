@@ -27,7 +27,7 @@ Adherence gate: close-the-loop writes (`knitbrain_record_learning`, `knitbrain_s
 **High-fanout (change carefully):** `src/ccr/store.ts`, `src/tokenizer.ts`, `src/engine/feedback.ts`, `src/engine/memory.ts`, `src/engine/knowledge.ts` — check `knitbrain_query_dependents` before touching.
 **Largest:** `src/mcp/tools.ts`, `scripts/production-audit.mjs`, `src/learn.ts`
 
-Binding product map (gaps, kill-list, UX law, build order, platform ledger): `docs/LOOP-ENGINEERING.md` (internal, gitignored).
+System design (processes, state, flows, failure domains): `docs/ARCHITECTURE.md` · Binding product map (gaps, kill-list, UX law, build order, platform ledger): `docs/LOOP-ENGINEERING.md` (both internal, gitignored).
 
 ---
 
