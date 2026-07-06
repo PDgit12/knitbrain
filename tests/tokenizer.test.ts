@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { countTokens, activeTokenizerName } from "../src/tokenizer.js";
-import { measure, summarize } from "../src/measure.js";
+import { measure, summarize } from "../scripts/measure.js";
 
 describe("tokenizer (rung 1)", () => {
   it("counts empty string as 0 tokens", () => {

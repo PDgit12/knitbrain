@@ -9,7 +9,7 @@ import { VERSION } from "./version.js";
 const KNOWN_COMMANDS = new Set([
   "version", "-v", "--version", "help", "-h", "--help",
   "setup", "hub", "join", "profile", "wrap", "prompt", "statusline",
-  "terse", "evals", "compress", "loop", "fan", "orchestrate", "learn",
+  "terse", "evals", "compress", "loop", "fan", "learn",
   "onboard", "dashboard",
 ]);
 
@@ -141,10 +141,6 @@ usage: knitbrain <command>
   if (process.argv[2] === "fan") {
     const { runFan } = await import("./fan.js");
     process.exit(await runFan(process.argv.slice(3)));
-  }
-  if (process.argv[2] === "orchestrate") {
-    const { runOrchestrate } = await import("./orchestrate.js");
-    process.exit(runOrchestrate(process.argv.slice(3)));
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");

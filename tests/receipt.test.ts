@@ -168,3 +168,26 @@ describe("recordRead / recordRedirect", () => {
     expect(readSessionMark(root)).toBeNull();
   });
 });
+
+describe("G3 cold-restart waste line", () => {
+  const meter = (over: Record<string, unknown> = {}) => ({
+    usedTokens: 100_000, windowTokens: 1_000_000, usedPct: 10, savedTokens: 5_000,
+    optimizationPct: 5, estimated: false, cacheCold: false, status: "ok" as const,
+    advice: "", billingMode: "plan" as const, ...over,
+  });
+  const mark = { startTs: new Date(0).toISOString(), savedAtStart: 0, usedAtStart: 0, retrievalsAtStart: 0, reads: {}, redirects: {} };
+  const ev = (tsMs: number) => ({ ts: new Date(tsMs).toISOString(), agent: "x", tool: "t", summary: "s", saved: 100, rawTokens: 200, storedTokens: 100 });
+
+  it("names cold gaps >5min between session events, labeled estimate", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter(), mark, events: [ev(0), ev(6 * 60_000), ev(7 * 60_000), ev(20 * 60_000)], eventsTrimmed: false, retrievalsTotal: 0 });
+    expect(r).toContain("2 idle gap(s) >5min");
+    expect(r).toContain("estimate");
+  });
+
+  it("stays silent when no gap exceeds the cache TTL", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter(), mark, events: [ev(0), ev(60_000), ev(120_000)], eventsTrimmed: false, retrievalsTotal: 0 });
+    expect(r).not.toContain("idle gap");
+  });
+});

@@ -1,3 +1,7 @@
+// KEEP ruling (kill-list note): the "own worktree manager" kill targets a
+// worktree SERVICE. fan does not manage worktrees as a product surface — it
+// uses git's own `git worktree` per parallel task, exactly the coordination
+// the loop-engineering doc endorses. fan is the parallelism leg of the loop.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

@@ -1,4 +1,4 @@
-import { countTokens } from "./tokenizer.js";
+import { countTokens } from "../src/tokenizer.js";
 
 /** Result of measuring a single original→optimized payload pair. */
 export interface Measurement {
