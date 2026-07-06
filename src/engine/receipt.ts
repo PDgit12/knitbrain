@@ -257,6 +257,22 @@ export function buildReceipt(i: ReceiptInput): string {
     }
   }
 
+  // G3 cold-restart waste: the sink optimization can't touch. The provider's
+  // prompt cache expires after ~5min idle — every gap >5min in the session's
+  // event stream means the NEXT turn re-read the whole context uncached.
+  // Estimated from event timestamps (labeled estimate; skipped when unknowable).
+  if (mark && events.length >= 2) {
+    const CACHE_TTL_MS = 5 * 60_000;
+    const ts = events.map((e) => Date.parse(e.ts)).filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
+    let coldGaps = 0;
+    for (let j = 1; j < ts.length; j += 1) if (ts[j]! - ts[j - 1]! > CACHE_TTL_MS) coldGaps += 1;
+    if (coldGaps > 0 && meter.usedTokens > 0) {
+      lines.push(
+        `${coldGaps} idle gap(s) >5min — each next turn re-read ~${fmtTokens(meter.usedTokens)} tok uncached (estimate); a handoff + fresh session is cheaper than a cold return`,
+      );
+    }
+  }
+
   lines.push(`lifetime: ${fmtTokens(meter.savedTokens)} tok saved · ${retrievalsTotal} exact recalls`);
 
   if (eventsTrimmed) {
