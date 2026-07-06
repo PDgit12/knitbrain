@@ -96,21 +96,40 @@ honestly, not gaps we hide.
 
 ## Loops
 
-One engine, three ways in:
+One engine, three ways in — the headless loop is the front door:
 
+- **Headless (the front door)**: `knitbrain loop goal.md` drives a checkbox goal file outside any
+  editor — survives laptop-close, ticks a box only when the verify command exits 0, and never
+  commits/pushes/deploys. Point any scheduler at it (see Triggers below). Add an independent
+  reviewer with `--reviewer "<cmd>"` or a `REVIEWER:` line in the goal file — **writer≠judge**:
+  both verify AND reviewer must exit 0 before a box ticks, and reviewer rejections feed the next
+  attempt's prompt. `knitbrain fan` runs N workers in parallel, each in its own git worktree,
+  draining the same queue.
 - **Ambient** (after onboarding): say what you're working on; the injected frame classifies it —
   actionable requests become goals driven through `knitbrain_run_loop` until the verify gate
   passes; questions get answered directly.
 - **`/goal <done-means>`** — loop until met. **`/loop <same> --for 2h --iters N`** — same engine
   plus a wall-clock and iteration budget. Every iteration runs as a full goal cycle.
-- **Headless**: `knitbrain loop goal.md` drives a checkbox goal file outside any editor — survives
-  laptop-close, ticks boxes only on green verify. `knitbrain fan` runs N workers in parallel, each
-  in its own git worktree, draining the same queue.
 
 **Self-healing:** each failed cycle's verify output is persisted (`failures[]`, last 3) and
 injected into the next directive — "previous failures — iter 1: …. Address the ROOT CAUSE" — so
 loops converge in fewer iterations without shortcuts. An adherence gate blocks memory writes until
 a task was classified: unverified "done" cannot enter the brain.
+
+### Triggers
+
+knitbrain is the *target* of triggers, never the scheduler — your host (cron, launchd, CI,
+Claude Code `/schedule`, Codex schedules) owns when; the loop owns honest-until-done. Exit codes
+are scheduler-friendly: **0** = goal done or clean stop, **1** = gate still red or infra failure —
+alert on 1.
+
+```cron
+# weekdays 9am: drive the goal for up to 2h, lint as the independent reviewer
+0 9 * * 1-5  cd /path/to/repo && knitbrain loop goal.md --for 2h --reviewer "npm run lint" >> ~/.knitbrain/loop.log 2>&1
+```
+
+Same one-liner works as a launchd `ProgramArguments`, a CI cron job step, or the command behind
+your agent's scheduler.
 
 ## The receipt
 
@@ -191,7 +210,7 @@ rewrite output), knitbrain degrades to the nearest honest mechanism instead of c
 | `knitbrain onboard` | Scan the repo + import past sessions into the brain; start the charter interview. |
 | `knitbrain profile` | Measure compression on your real transcripts. |
 | `knitbrain evals` | Answer-preservation gates on your transcripts (exit 1 on failure). |
-| `knitbrain loop <goal>` | Headless verify-gated loop over a checkbox goal file. |
+| `knitbrain loop <goal>` | Headless verify-gated loop over a checkbox goal file; `--reviewer` adds an independent second gate. |
 | `knitbrain fan <goal>` | Parallel loop — N workers in isolated git worktrees. |
 | `knitbrain dashboard` | Live local dashboard (`127.0.0.1:8790`): meter, graph, wiki, activity, plan usage. |
 | `knitbrain wrap <agent>` | Launch an agent through the optimizer proxy (API-key setups). |

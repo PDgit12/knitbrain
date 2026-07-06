@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runLoop, goalVerify } from "../src/loop.js";
+import { runLoop, goalVerify, goalReviewer } from "../src/loop.js";
 
 // Cross-platform mock commands (CI runs a Windows matrix — avoid sh builtins).
 const OK = `node -e ""`;
@@ -93,5 +93,62 @@ describe("runLoop — autonomous outer loop", () => {
     const code = await runLoop([goal, "--agent", OK, "--verify", FAIL, "--max", "3"]);
     expect(code).toBe(1);
     expect(readFileSync(goal, "utf8")).toContain("- [ ] impossible"); // never ticked
+  });
+});
+
+describe("reviewer gate (Build 3) — writer≠judge", () => {
+  let dir: string;
+  let goal: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kb-loop-rev-"));
+    goal = join(dir, "goal.md");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("reviewer red + verify green → box NOT ticked, exit 1 at --max (no false green)", async () => {
+    writeFileSync(goal, "# g\n- [ ] risky\n");
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--reviewer", FAIL, "--max", "2"]);
+    expect(code).toBe(1);
+    expect(readFileSync(goal, "utf8")).toContain("- [ ] risky");
+  });
+
+  it("reviewer green + verify green → ticked, exit 0", async () => {
+    writeFileSync(goal, "# g\n- [ ] safe\n");
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--reviewer", OK, "--max", "2"]);
+    expect(code).toBe(0);
+    expect(readFileSync(goal, "utf8")).toContain("- [x] safe");
+  });
+
+  it("goalReviewer reads the REVIEWER: line, ignoring (unspecified) and absence", () => {
+    writeFileSync(goal, "# g\nREVIEWER: npm run lint\n\n- [ ] a\n");
+    expect(goalReviewer(goal)).toBe("npm run lint");
+    writeFileSync(goal, "# g\nREVIEWER: (unspecified)\n- [ ] a\n");
+    expect(goalReviewer(goal)).toBe("");
+    writeFileSync(goal, "# g\n- [ ] a\n");
+    expect(goalReviewer(goal)).toBe(""); // unconfigured → no reviewer gate at all
+  });
+
+  it("uses the goal.md REVIEWER: gate when --reviewer is omitted", async () => {
+    writeFileSync(goal, `# g\nREVIEWER: ${FAIL}\n\n- [ ] risky\n`);
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--max", "2"]);
+    expect(code).toBe(1);
+    expect(readFileSync(goal, "utf8")).toContain("- [ ] risky");
+  });
+
+  it("--reviewer overrides the goal.md REVIEWER: line", async () => {
+    writeFileSync(goal, `# g\nREVIEWER: ${FAIL}\n\n- [ ] ok\n`);
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--reviewer", OK, "--max", "1"]);
+    expect(code).toBe(0);
+    expect(readFileSync(goal, "utf8")).toContain("- [x] ok");
+  });
+
+  it("reviewer that rejects once then approves → ticked on a later cycle (self-heal retry)", async () => {
+    const counter = join(dir, "rev-count");
+    writeFileSync(goal, "# g\n- [ ] flaky-review\n");
+    // reviewer fails on first invocation, passes afterwards (counter file)
+    const reviewer = `node -e "const f='${counter.replace(/\\/g, "/")}';const fs=require('fs');if(!fs.existsSync(f)){fs.writeFileSync(f,'1');process.exit(1)}"`;
+    const code = await runLoop([goal, "--agent", OK, "--verify", OK, "--reviewer", reviewer, "--max", "3"]);
+    expect(code).toBe(0);
+    expect(readFileSync(goal, "utf8")).toContain("- [x] flaky-review");
   });
 });

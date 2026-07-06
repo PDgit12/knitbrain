@@ -23,6 +23,8 @@ interface LoopOpts {
   max: number;
   agent: string;
   verify: string | null;
+  /** Build 3: optional independent review gate (writer≠judge). Opt-in only. */
+  reviewer: string | null;
   interactive: boolean;
   /** M9: optional wall-clock budget in ms (from --for 30m|1h|90s). */
   forMs?: number;
@@ -39,12 +41,13 @@ export function parseDuration(s: string): number | null {
 }
 
 function parseArgs(args: string[]): LoopOpts {
-  const o: LoopOpts = { max: 10, agent: "claude -p", verify: null, interactive: false };
+  const o: LoopOpts = { max: 10, agent: "claude -p", verify: null, reviewer: null, interactive: false };
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
     if (a === "--max") o.max = Math.max(1, Number(args[(i += 1)]) || 10);
     else if (a === "--agent") o.agent = args[(i += 1)] ?? o.agent;
     else if (a === "--verify") o.verify = args[(i += 1)] ?? null;
+    else if (a === "--reviewer") o.reviewer = args[(i += 1)] ?? null;
     else if (a === "--for") {
       const d = parseDuration(args[(i += 1)] ?? "");
       if (d !== null) o.forMs = d;
@@ -63,6 +66,22 @@ function parseArgs(args: string[]): LoopOpts {
 export function goalVerify(goalFile: string): string {
   try {
     const m = /^VERIFY:\s*(.+)$/im.exec(readFileSync(goalFile, "utf8"));
+    const v = m ? m[1]!.trim() : "";
+    return v && v !== "(unspecified)" ? v : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Optional independent review gate from the goal file's `REVIEWER:` line
+ * (writer≠judge: a second command that must ALSO exit 0 before a box ticks).
+ * OPT-IN only — no fallback default, so an unconfigured loop is unchanged.
+ * Precedence: explicit --reviewer  >  goal.md REVIEWER:  >  none.
+ */
+export function goalReviewer(goalFile: string): string {
+  try {
+    const m = /^REVIEWER:\s*(.+)$/im.exec(readFileSync(goalFile, "utf8"));
     const v = m ? m[1]!.trim() : "";
     return v && v !== "(unspecified)" ? v : "";
   } catch {
@@ -100,12 +119,16 @@ function run(cmd: string, input?: string): boolean {
 export async function runLoop(args: string[]): Promise<number> {
   const o = parseArgs(args);
   if (!o.goalFile || !existsSync(o.goalFile)) {
-    console.error("usage: knitbrain loop <goalfile.md> [--max N=10] [--agent \"cmd\"] [--verify \"cmd\"] [--interactive]");
+    console.error("usage: knitbrain loop <goalfile.md> [--max N=10] [--agent \"cmd\"] [--verify \"cmd\"] [--reviewer \"cmd\"] [--for 2h] [--interactive]");
     console.error("  goalfile: markdown with `- [ ] task` checkboxes; the loop ticks them as it goes.");
     console.error("  verify gate: --verify wins; else the goalfile's `VERIFY: <cmd>` line; else `npm test` if package.json exists.");
+    console.error("  reviewer gate (writer≠judge): --reviewer wins; else the goalfile's `REVIEWER: <cmd>` line; else none.");
+    console.error("    verify = does it work; reviewer = independent second gate. BOTH must exit 0 before a box ticks.");
+    console.error("  triggers: point cron/launchd/CI/your agent's scheduler at this command — exit 0 = done or clean stop, 1 = gate red/infra.");
     return 1;
   }
   const verify = o.verify ?? (goalVerify(o.goalFile) || (existsSync("package.json") ? "npm test" : ""));
+  const reviewer = o.reviewer ?? (goalReviewer(o.goalFile) || "");
   const progressFile = `${o.goalFile}.progress`;
   const rl = o.interactive ? createInterface({ input: process.stdin, output: process.stdout }) : null;
   let done = 0;
@@ -152,6 +175,14 @@ export async function runLoop(args: string[]): Promise<number> {
         // until the gate passes or --max is hit.
         lastFail = `verify gate failed: \`${verify}\``;
         console.error(`[loop] "${task}" not green yet — retrying next cycle (${iter}/${o.max})`);
+        continue;
+      }
+      // Reviewer gate (writer≠judge): verify said it WORKS; an independent
+      // second command must also approve before the box ticks. Rejections feed
+      // the next cycle's prompt exactly like verify failures — self-heal free.
+      if (reviewer && !run(reviewer)) {
+        lastFail = `reviewer rejected \`${reviewer}\` — verify was green but the independent review gate failed`;
+        console.error(`[loop] "${task}" reviewer rejected (writer≠judge: box NOT ticked) — retrying next cycle (${iter}/${o.max})`);
         continue;
       }
       lastFail = "";
