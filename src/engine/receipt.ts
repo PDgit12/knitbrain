@@ -162,6 +162,18 @@ export function recordRedirect(root: string, path: string): void {
   }
 }
 
+/** G5: input-token $ per MTok — static, DATED; update alongside provider
+ * price changes. Used ONLY for api-billing sessions (plan cost is quota, not $). */
+const RATES_AS_OF = "2026-07";
+const RATE_PER_MTOK: Array<{ match: RegExp; usd: number }> = [
+  { match: /fable|opus/i, usd: 15 },
+  { match: /sonnet/i, usd: 3 },
+  { match: /haiku/i, usd: 1 },
+  { match: /gpt-5/i, usd: 10 },
+  { match: /gpt-4o|gpt-4\.1/i, usd: 5 },
+  { match: /gemini/i, usd: 2.5 },
+];
+
 export interface ReceiptInput {
   meter: MeterReading;
   mark: SessionMark | null;
@@ -239,6 +251,16 @@ export function buildReceipt(i: ReceiptInput): string {
   // G6 forecast: only when it's a plan-billed session, we have a marker, the
   // session has run long enough to trust a burn rate, and there's something
   // to project (avoided > 0) — otherwise it's noise or a divide-by-garbage.
+  // G5 dollars: api-billing only — plan users' cost is quota, never shown $.
+  if (meter.billingMode === "api" && avoided > 0 && meter.model) {
+    const rate = RATE_PER_MTOK.find((r) => r.match.test(meter.model!));
+    if (rate) {
+      lines.push(
+        `≈ $${((avoided / 1_000_000) * rate.usd).toFixed(2)} avoided at ${meter.model} input rates (as of ${RATES_AS_OF}, estimate)`,
+      );
+    }
+  }
+
   if (meter.billingMode === "plan" && mark && avoided > 0) {
     const sessionMs = now() - Date.parse(mark.startTs);
     const hours = sessionMs / 3_600_000;

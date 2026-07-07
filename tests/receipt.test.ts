@@ -191,3 +191,32 @@ describe("G3 cold-restart waste line", () => {
     expect(r).not.toContain("idle gap");
   });
 });
+
+describe("G5 dollar conversion (api-billing only)", () => {
+  const meter = (over: Record<string, unknown> = {}) => ({
+    usedTokens: 100_000, windowTokens: 1_000_000, usedPct: 10, savedTokens: 2_000_000,
+    optimizationPct: 5, estimated: false, cacheCold: false, status: "ok" as const,
+    advice: "", billingMode: "api" as const, model: "claude-sonnet-5", ...over,
+  });
+  const mark = { startTs: new Date(0).toISOString(), savedAtStart: 0, usedAtStart: 0, retrievalsAtStart: 0, reads: {}, redirects: {} };
+  const base = { mark, events: [], eventsTrimmed: false, retrievalsTotal: 0 };
+
+  it("api + known model → exact $ arithmetic, labeled estimate (2M tok @ $3/MTok = $6.00)", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter(), ...base });
+    expect(r).toContain("$6.00");
+    expect(r).toContain("estimate");
+  });
+
+  it("plan billing → NO dollars ever", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter({ billingMode: "plan" }), ...base });
+    expect(r).not.toContain("$");
+  });
+
+  it("api + unknown model → no $ line", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter({ model: "mystery-llm-9000" }), ...base });
+    expect(r).not.toContain("$");
+  });
+});
