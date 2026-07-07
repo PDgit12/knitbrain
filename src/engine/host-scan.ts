@@ -82,6 +82,78 @@ export interface HostHook {
   source: HostSource;
 }
 
+/** An MCP connector declared in a project's or the user's global MCP config —
+ * name + how it's launched, SECURITY-scrubbed to command/origin only (no env,
+ * headers, url query/fragment, or auth tokens ever leave readMcpServers). */
+export interface HostConnector {
+  name: string;
+  command: string;
+  source: "project" | "global";
+}
+
+interface McpServerEntry {
+  command?: string;
+  args?: string[];
+  url?: string;
+}
+
+/** Read one MCP config file's `mcpServers` object, guarded — missing/corrupt/
+ * non-object files return {} rather than throwing (scan must never crash on a
+ * hand-edited config). */
+function readMcpServers(path: string): Record<string, McpServerEntry> {
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { mcpServers?: unknown };
+    const servers = parsed?.mcpServers;
+    return servers && typeof servers === "object" ? (servers as Record<string, McpServerEntry>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Derive the connector's launch command, SECURITY-scrubbed: a `url` server
+ * yields only its origin (new URL().origin — no query/fragment/token), never
+ * headers/env. Returns null if the entry has neither command nor url. */
+function connectorCommand(entry: McpServerEntry): string | null {
+  if (entry.url) {
+    try {
+      return new URL(entry.url).origin;
+    } catch {
+      return null;
+    }
+  }
+  if (entry.command) {
+    return `${entry.command} ${(entry.args ?? []).join(" ")}`.trim();
+  }
+  return null;
+}
+
+/** Scan project + global MCP configs for declared connectors (name + launch
+ * command only — never env/headers/tokens). Project configs win over global on
+ * name collision; any server whose name or command mentions "knitbrain" is
+ * excluded (this tool doesn't list itself in its own inventory). */
+export function scanHostConnectors(cwd: string, home: string = homedir()): HostConnector[] {
+  const projectFiles = [join(cwd, ".mcp.json"), join(cwd, ".cursor", "mcp.json"), join(cwd, ".vscode", "mcp.json")];
+  const globalFiles = [join(home, ".claude.json"), join(home, ".cursor", "mcp.json")];
+
+  const byName = new Map<string, HostConnector>();
+  const addFrom = (files: string[], source: "project" | "global") => {
+    for (const file of files) {
+      const servers = readMcpServers(file);
+      for (const [name, entry] of Object.entries(servers)) {
+        const command = connectorCommand(entry);
+        if (!command) continue;
+        if (name.toLowerCase().includes("knitbrain") || command.toLowerCase().includes("knitbrain")) continue;
+        if (byName.has(name)) continue; // first writer wins — project pass runs before global
+        byName.set(name, { name, command, source });
+      }
+    }
+  };
+  addFrom(projectFiles, "project");
+  addFrom(globalFiles, "global");
+  return Array.from(byName.values());
+}
+
 /** A frontmatter value is a scalar or a list (`key: [a, b]` / `key: a, b`). */
 type FmValue = string | string[];
 
@@ -513,7 +585,7 @@ export function scanHostAll(
   projectClaudeDir: string,
   home: string = homedir(),
   io: HostIO = realIO,
-): { skills: HostSkill[]; agents: HostAgent[]; commands: HostCommand[]; hooks: HostHook[]; style: StyleProfile } {
+): { skills: HostSkill[]; agents: HostAgent[]; commands: HostCommand[]; hooks: HostHook[]; connectors: HostConnector[]; style: StyleProfile } {
   const skills: HostSkill[] = [];
   const agents: HostAgent[] = [];
   const commands: HostCommand[] = [];
@@ -551,7 +623,10 @@ export function scanHostAll(
       hooks.push(h);
     }
   }
-  return { skills, agents, commands, hooks, style: inferStyle(skills, agents) };
+  // projectClaudeDir is always `<projectRoot>/.claude` (see call sites) — the
+  // connector configs (.mcp.json etc.) live at the project root, one level up.
+  const connectors = scanHostConnectors(dirname(projectClaudeDir), home);
+  return { skills, agents, commands, hooks, connectors, style: inferStyle(skills, agents) };
 }
 
 /**
@@ -564,15 +639,23 @@ export interface HostIndex {
   agents: Array<{ name: string; description: string; source: HostSource; tools: string[]; model: string }>;
   commands: Array<{ name: string; description: string; source: HostSource }>;
   hooks: Array<{ event: string; matcher: string; command: string; source: HostSource }>;
+  connectors: HostConnector[];
   updatedAt: string;
 }
 
-export function buildHostIndex(scan: { skills: HostSkill[]; agents: HostAgent[]; commands?: HostCommand[]; hooks?: HostHook[] }): HostIndex {
+export function buildHostIndex(scan: {
+  skills: HostSkill[];
+  agents: HostAgent[];
+  commands?: HostCommand[];
+  hooks?: HostHook[];
+  connectors?: HostConnector[];
+}): HostIndex {
   return {
     skills: scan.skills.map((s) => ({ name: s.name, description: s.description, source: s.source, triggers: s.triggers })),
     agents: scan.agents.map((a) => ({ name: a.name, description: a.description, source: a.source, tools: a.tools, model: a.model })),
     commands: (scan.commands ?? []).map((c) => ({ name: c.name, description: c.description, source: c.source })),
     hooks: (scan.hooks ?? []).map((h) => ({ event: h.event, matcher: h.matcher, command: h.command, source: h.source })),
+    connectors: scan.connectors ?? [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -599,6 +682,7 @@ export function loadHostIndex(path: string): HostIndex | null {
       agents: idx.agents ?? [],
       commands: idx.commands ?? [],
       hooks: idx.hooks ?? [],
+      connectors: idx.connectors ?? [],
       updatedAt: idx.updatedAt ?? "",
     };
   } catch {

@@ -34,6 +34,28 @@ const empty = (): PlatformUsage => ({
   messages: 0,
 });
 
+/** Accumulate one transcript file's `usage` lines into `u` in place — the
+ * shared inner loop for both readUsageFromDir (many files) and
+ * readTranscriptUsage (one file), so the field accumulation lives once. */
+function accumulateFile(content: string, u: PlatformUsage): void {
+  for (const line of content.split("\n")) {
+    if (!line.includes('"usage"')) continue;
+    let msg: { message?: { usage?: Record<string, number> } };
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const us = msg.message?.usage;
+    if (!us) continue;
+    u.inputTokens += us["input_tokens"] ?? 0;
+    u.outputTokens += us["output_tokens"] ?? 0;
+    u.cacheReadTokens += us["cache_read_input_tokens"] ?? 0;
+    u.cacheCreationTokens += us["cache_creation_input_tokens"] ?? 0;
+    u.messages += 1;
+  }
+}
+
 /** Sum real usage across a transcript directory's .jsonl files. */
 export function readUsageFromDir(dir: string): PlatformUsage | null {
   if (!existsSync(dir)) return null;
@@ -46,23 +68,27 @@ export function readUsageFromDir(dir: string): PlatformUsage | null {
     } catch {
       continue;
     }
-    for (const line of content.split("\n")) {
-      if (!line.includes('"usage"')) continue;
-      let msg: { message?: { usage?: Record<string, number> } };
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const us = msg.message?.usage;
-      if (!us) continue;
-      u.inputTokens += us["input_tokens"] ?? 0;
-      u.outputTokens += us["output_tokens"] ?? 0;
-      u.cacheReadTokens += us["cache_read_input_tokens"] ?? 0;
-      u.cacheCreationTokens += us["cache_creation_input_tokens"] ?? 0;
-      u.messages += 1;
-    }
+    accumulateFile(content, u);
   }
+  if (u.messages === 0) return null;
+  u.totalTokens = u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens;
+  return u;
+}
+
+/** Real usage from ONE transcript file (same field accumulation as
+ * readUsageFromDir, scoped to a single .jsonl) — null if missing/unreadable/
+ * has no usage lines. Lets callers meter a single session's transcript
+ * without needing its whole project directory. */
+export function readTranscriptUsage(file: string): PlatformUsage | null {
+  if (!existsSync(file)) return null;
+  let content: string;
+  try {
+    content = readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  const u = empty();
+  accumulateFile(content, u);
   if (u.messages === 0) return null;
   u.totalTokens = u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens;
   return u;

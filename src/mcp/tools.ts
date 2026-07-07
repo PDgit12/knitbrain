@@ -81,6 +81,9 @@ interface LoopState {
   goal: string;
   iter: number;
   startedAt?: number;
+  /** Persisted so external readers (statusline, dashboard) can render "iter N/M"
+   * without re-deriving max_iters from args they don't have. */
+  maxIters?: number;
   /** Sticky: the Stop hook nudged once. Carried across run_loop cycles so the
    * "stop again to end" escape hatch stays reliable (M4). */
   stopNudged?: boolean;
@@ -1044,6 +1047,7 @@ export const TOOLS: readonly ToolDef[] = [
             agentCount: host.agents.length,
             agentNames: host.agents.map((a) => a.name),
             skillNames: host.skills.map((k) => k.name),
+            connectorNames: (host.connectors ?? []).map((c) => c.name),
           },
           // Per-part routing: map every detected domain to its owning agent +
           // matching skill (or leave it marked uncovered) so the loop follows
@@ -1252,6 +1256,7 @@ export const TOOLS: readonly ToolDef[] = [
         goal: goalKey,
         iter: iters,
         startedAt,
+        maxIters,
         failures,
         ...(prev?.stopNudged ? { stopNudged: true } : {}),
       });

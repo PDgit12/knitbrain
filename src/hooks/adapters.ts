@@ -23,6 +23,14 @@
  *                  tool_input arrives camelCase and tool names differ
  *                  (create_file/read_file/run_in_terminal) — normalizeInput maps
  *                  both back to the internal snake_case Read/Bash/Write shape.
+ *   windsurf     : pre-hooks ONLY (pre_read_code/pre_run_command/pre_mcp_tool_use)
+ *                  can block, and ONLY via a raw exit code 2 + stderr message —
+ *                  no JSON deny contract, no stop-block, no context injection.
+ *                  post_* events have no block affordance at all, so they are
+ *                  intentionally left unmapped (null) rather than wired to a
+ *                  no-op. adaptOutput returns a sentinel `{__exit,stderr}` for a
+ *                  deny decision; index.ts is the only place that turns the
+ *                  sentinel into an actual process.exit(2).
  *
  *   G1 receipt (Stop with `systemMessage`, no block — a non-blocking summary,
  *   not a decision): claude/codex/vscode pass `{systemMessage}` through as-is
@@ -40,7 +48,7 @@
  * codebase.
  */
 
-export type HookPlatform = "claude" | "codex" | "cursor" | "gemini" | "vscode";
+export type HookPlatform = "claude" | "codex" | "cursor" | "gemini" | "vscode" | "windsurf";
 
 /** VS Code Copilot agent tool names → the internal name decide* matches on. */
 const VSCODE_TOOL_NAME_MAP: Record<string, string> = {
@@ -49,7 +57,15 @@ const VSCODE_TOOL_NAME_MAP: Record<string, string> = {
   run_in_terminal: "Bash",
   replace_string_in_file: "Write",
 };
-export type HookMode = "pretooluse" | "posttooluse" | "stop" | "userpromptsubmit" | "sessionstart" | "precompact";
+export type HookMode =
+  | "pretooluse"
+  | "posttooluse"
+  | "stop"
+  | "userpromptsubmit"
+  | "sessionstart"
+  | "precompact"
+  | "subagentstart"
+  | "subagentstop";
 
 /**
  * Detect which host produced this payload. Payload shape is the primary
@@ -57,6 +73,10 @@ export type HookMode = "pretooluse" | "posttooluse" | "stop" | "userpromptsubmit
  * for ambiguous/empty payloads.
  */
 export function detectHookPlatform(payload: Record<string, unknown>, env: Record<string, string | undefined> = process.env): HookPlatform {
+  // windsurf-unique fields — checked BEFORE codex's turn_id since neither
+  // collides with codex/cursor discriminators, but detection order matters
+  // for future field additions; keep this first as documentation of intent.
+  if (typeof payload["trajectory_id"] !== "undefined" || typeof payload["agent_action_name"] !== "undefined") return "windsurf";
   if (typeof payload["turn_id"] !== "undefined") return "codex";
   if (typeof payload["conversation_id"] !== "undefined" || typeof payload["workspace_roots"] !== "undefined") return "cursor";
 
@@ -90,8 +110,6 @@ export function detectHookPlatform(payload: Record<string, unknown>, env: Record
 /** Map a platform-native raw event name → the internal HookMode. Null if unmapped. */
 export function normalizeEventName(platform: HookPlatform, rawEvent: string): HookMode | null {
   if (platform === "claude" || platform === "codex" || platform === "vscode") {
-    // vscode adds SubagentStart/SubagentStop — no internal HookMode equivalent
-    // yet, so they fall through to the default `null` (unmapped, ignored).
     switch (rawEvent) {
       case "PreToolUse":
         return "pretooluse";
@@ -105,6 +123,10 @@ export function normalizeEventName(platform: HookPlatform, rawEvent: string): Ho
         return "sessionstart";
       case "PreCompact":
         return "precompact";
+      case "SubagentStart":
+        return "subagentstart";
+      case "SubagentStop":
+        return "subagentstop";
       default:
         return null;
     }
@@ -145,6 +167,18 @@ export function normalizeEventName(platform: HookPlatform, rawEvent: string): Ho
         return null;
     }
   }
+  if (platform === "windsurf") {
+    // post_* events have no block affordance on windsurf — left unmapped
+    // (null) rather than wired to a decide* call that can never take effect.
+    switch (rawEvent) {
+      case "pre_read_code":
+      case "pre_run_command":
+      case "pre_mcp_tool_use":
+        return "pretooluse";
+      default:
+        return null;
+    }
+  }
   return null;
 }
 
@@ -167,6 +201,18 @@ export function normalizeInput(platform: HookPlatform, mode: HookMode, payload: 
   if (platform === "gemini") {
     // Gemini fields already snake_case-ish and pass straight through for the
     // fields decide* reads (tool_name/tool_input/prompt/cwd).
+    return payload;
+  }
+
+  if (platform === "windsurf") {
+    if (mode !== "pretooluse") return payload; // subagent modes etc.: pass-through
+    const toolInfo = (payload["tool_info"] as Record<string, unknown> | undefined) ?? {};
+    if (typeof toolInfo["file_path"] === "string") {
+      return { tool_name: "Read", tool_input: { file_path: toolInfo["file_path"] }, cwd: payload["cwd"] };
+    }
+    if (typeof toolInfo["command_line"] === "string") {
+      return { tool_name: "Bash", tool_input: { command: toolInfo["command_line"] }, cwd: payload["cwd"] };
+    }
     return payload;
   }
 
@@ -211,6 +257,20 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
     return decision; // everything else (deny, additionalContext) is identity with claude
   }
 
+  if (platform === "windsurf") {
+    // Windsurf pre-hooks can ONLY block via exit code 2 + stderr — no JSON
+    // deny contract exists. Emit a sentinel index.ts turns into a real exit;
+    // everything else (including subagent modes, which windsurf has no
+    // start/stop equivalent for) is a no-op null.
+    const hsoW = decision["hookSpecificOutput"] as Record<string, unknown> | undefined;
+    const permissionDecisionW = hsoW?.["permissionDecision"];
+    if (mode === "pretooluse" && permissionDecisionW === "deny") {
+      const reasonW = (hsoW?.["permissionDecisionReason"] as string | undefined) ?? (decision["reason"] as string | undefined) ?? "";
+      return { __exit: 2, stderr: reasonW };
+    }
+    return null;
+  }
+
   const hso = decision["hookSpecificOutput"] as Record<string, unknown> | undefined;
   const permissionDecision = hso?.["permissionDecision"];
   const reason = (hso?.["permissionDecisionReason"] as string | undefined) ?? (decision["reason"] as string | undefined);
@@ -218,6 +278,7 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
   const updatedToolOutput = hso?.["updatedToolOutput"] as string | undefined;
 
   if (platform === "cursor") {
+    if (mode === "subagentstart" || mode === "subagentstop") return null; // no cursor equivalent
     if (mode === "pretooluse" && permissionDecision === "deny") {
       return { permission: "deny", user_message: reason, agent_message: reason };
     }
@@ -247,6 +308,7 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
   }
 
   if (platform === "gemini") {
+    if (mode === "subagentstart" || mode === "subagentstop") return null; // no gemini equivalent
     if (mode === "pretooluse" && permissionDecision === "deny") {
       return { decision: "deny", reason };
     }

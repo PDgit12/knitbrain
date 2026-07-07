@@ -67,7 +67,7 @@ describe("normalizeEventName — per-platform raw event → HookMode", () => {
   });
 
   it("unmapped event names → null", () => {
-    expect(normalizeEventName("claude", "SubagentStart")).toBeNull();
+    expect(normalizeEventName("claude", "TotallyUnknownEvent")).toBeNull();
     expect(normalizeEventName("cursor", "beforeSomethingUnknown")).toBeNull();
     expect(normalizeEventName("gemini", "Unknown")).toBeNull();
   });
@@ -182,5 +182,87 @@ describe("adaptOutput — claude-internal decision → platform-native dialect",
     // (unknown keys are ignored by whichever host reads this; see adapters.ts comment).
     expect(out["decision"]).toBe("block");
     expect(out["reason"]).toBe("goal unmet");
+  });
+});
+
+describe("windsurf platform — detection, normalization, adaptOutput", () => {
+  it("detects windsurf via trajectory_id or agent_action_name, even without turn_id", () => {
+    expect(
+      detectHookPlatform({ trajectory_id: "t", agent_action_name: "read_code", tool_info: { file_path: "/p/a.ts" } }, noEnv),
+    ).toBe("windsurf");
+    expect(detectHookPlatform({ agent_action_name: "run_command" }, noEnv)).toBe("windsurf");
+  });
+
+  it("windsurf wins over codex when both trajectory_id and turn_id are present", () => {
+    expect(detectHookPlatform({ trajectory_id: "t", turn_id: "c1" }, noEnv)).toBe("windsurf");
+  });
+
+  it("normalizeEventName: pre_* windsurf events map to pretooluse; post_* are unmapped", () => {
+    expect(normalizeEventName("windsurf", "pre_read_code")).toBe("pretooluse");
+    expect(normalizeEventName("windsurf", "pre_run_command")).toBe("pretooluse");
+    expect(normalizeEventName("windsurf", "pre_mcp_tool_use")).toBe("pretooluse");
+    expect(normalizeEventName("windsurf", "post_read_code")).toBeNull();
+  });
+
+  it("normalizeInput: tool_info.file_path → Read tool_input", () => {
+    const out = normalizeInput("windsurf", "pretooluse", {
+      hook_event_name: "pre_read_code",
+      tool_info: { file_path: "/p/a.ts" },
+      cwd: "/p",
+    });
+    expect(out["tool_name"]).toBe("Read");
+    expect((out["tool_input"] as Record<string, unknown>)["file_path"]).toBe("/p/a.ts");
+  });
+
+  it("normalizeInput: tool_info.command_line → Bash tool_input", () => {
+    const out = normalizeInput("windsurf", "pretooluse", {
+      hook_event_name: "pre_run_command",
+      tool_info: { command_line: "npm test" },
+      cwd: "/p",
+    });
+    expect(out["tool_name"]).toBe("Bash");
+    expect((out["tool_input"] as Record<string, unknown>)["command"]).toBe("npm test");
+  });
+
+  it("adaptOutput: claude-shaped deny decision → windsurf sentinel {__exit:2, stderr}", () => {
+    const decision = {
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "blocked reason" },
+    };
+    const out = adaptOutput("windsurf", "pretooluse", decision)!;
+    expect(out["__exit"]).toBe(2);
+    expect(out["stderr"]).toBe("blocked reason");
+  });
+
+  it("adaptOutput: null decision → null on windsurf", () => {
+    expect(adaptOutput("windsurf", "pretooluse", null)).toBeNull();
+  });
+
+  it("adaptOutput: windsurf subagent modes always null (no start/stop equivalent)", () => {
+    const decision = { hookSpecificOutput: { additionalContext: "ctx" } };
+    expect(adaptOutput("windsurf", "subagentstart", decision)).toBeNull();
+    expect(adaptOutput("windsurf", "subagentstop", decision)).toBeNull();
+  });
+});
+
+describe("SubagentStart/SubagentStop event mapping per platform", () => {
+  it("claude/codex/vscode map SubagentStart/SubagentStop to internal modes", () => {
+    for (const platform of ["claude", "codex", "vscode"] as const) {
+      expect(normalizeEventName(platform, "SubagentStart")).toBe("subagentstart");
+      expect(normalizeEventName(platform, "SubagentStop")).toBe("subagentstop");
+    }
+  });
+
+  it("cursor and gemini have no SubagentStart/SubagentStop equivalent → null", () => {
+    expect(normalizeEventName("cursor", "SubagentStart")).toBeNull();
+    expect(normalizeEventName("cursor", "SubagentStop")).toBeNull();
+    expect(normalizeEventName("gemini", "SubagentStart")).toBeNull();
+    expect(normalizeEventName("gemini", "SubagentStop")).toBeNull();
+  });
+
+  it("adaptOutput is identity for claude/codex/vscode on a context decision at subagent modes", () => {
+    const decision = { hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: "ctx" } };
+    expect(adaptOutput("claude", "subagentstart", decision)).toBe(decision);
+    expect(adaptOutput("codex", "subagentstart", decision)).toBe(decision);
+    expect(adaptOutput("vscode", "subagentstart", decision)).toBe(decision);
   });
 });

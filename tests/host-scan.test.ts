@@ -26,6 +26,7 @@ import {
   loadHostIndex,
   countBySource,
   HOST_IMPORT_MARK,
+  scanHostConnectors,
 } from "../src/engine/host-scan.js";
 
 // Real-shaped fixtures (mirror actual ~/.claude/skills/*/SKILL.md and
@@ -298,5 +299,60 @@ describe("host-scan: scanHostAll — whole-user surface (project + global + plug
     expect(scanHostCommands(join(empty, ".claude"))).toEqual([]);
     expect(scanHostHooks(join(empty, ".claude"))).toEqual([]);
     rmSync(empty, { recursive: true, force: true });
+  });
+});
+
+describe("scanHostConnectors — MCP connector inventory (secrets never leak)", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kb-connectors-"));
+    writeFileSync(
+      join(cwd, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          grafana: { command: "npx", args: ["grafana-mcp"], env: { API_KEY: "sk-secret-123" } },
+          sentry: { url: "https://api.example.com/mcp?token=abc" },
+          knitbrain: { command: "knitbrain" },
+        },
+      }),
+    );
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  it("excludes the knitbrain server and returns the other 2 connectors", () => {
+    const connectors = scanHostConnectors(cwd, join(cwd, "no-home"));
+    expect(connectors).toHaveLength(2);
+    expect(connectors.some((c) => c.name === "knitbrain")).toBe(false);
+    expect(connectors.map((c) => c.name).sort()).toEqual(["grafana", "sentry"]);
+  });
+
+  it("never leaks env secrets or URL query/token params in the derived command", () => {
+    const connectors = scanHostConnectors(cwd, join(cwd, "no-home"));
+    const flat = JSON.stringify(connectors);
+    expect(flat).not.toContain("sk-secret-123");
+    expect(flat).not.toContain("token=abc");
+    // url-based connector command is scrubbed to the origin only.
+    const sentry = connectors.find((c) => c.name === "sentry")!;
+    expect(sentry.command).toBe("https://api.example.com");
+    expect(sentry.source).toBe("project");
+    const grafana = connectors.find((c) => c.name === "grafana")!;
+    expect(grafana.command).toBe("npx grafana-mcp");
+  });
+
+  it("project connector wins over a same-named global connector (dedupe)", () => {
+    const home = mkdtempSync(join(tmpdir(), "kb-connectors-home-"));
+    try {
+      writeFileSync(
+        join(home, ".claude.json"),
+        JSON.stringify({ mcpServers: { grafana: { command: "global-grafana" }, extra: { command: "only-global" } } }),
+      );
+      const connectors = scanHostConnectors(cwd, home);
+      const byName = new Map(connectors.map((c) => [c.name, c]));
+      expect(byName.get("grafana")!.command).toBe("npx grafana-mcp"); // project wins, not "global-grafana"
+      expect(byName.get("grafana")!.source).toBe("project");
+      expect(byName.get("extra")!.source).toBe("global"); // global-only connector still surfaces
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

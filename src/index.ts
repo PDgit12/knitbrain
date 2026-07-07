@@ -113,7 +113,21 @@ usage: knitbrain <command>
         import("./paths.js"),
       ]);
       const saved = createMeter(paths.meterRoot()).read().savedTokens;
-      if (saved > 0) process.stdout.write(`[knitbrain] saved ${fmtTokens(saved)}`);
+      let badge = "";
+      try {
+        const { readFileSync } = await import("node:fs");
+        const raw = readFileSync(paths.loopStatePath(), "utf8");
+        const state = JSON.parse(raw) as { goal?: string; iter?: number; maxIters?: number } | null;
+        if (state?.goal) {
+          const goal = state.goal.slice(0, 32) + (state.goal.length > 32 ? "…" : "");
+          badge = `◎ ${goal} iter ${state.iter ?? 1}${state.maxIters ? `/${state.maxIters}` : ""}`;
+        }
+      } catch {
+        /* no loop state — badge stays empty */
+      }
+      const savedPart = saved > 0 ? `[knitbrain] saved ${fmtTokens(saved)}` : "";
+      const parts = [badge, savedPart].filter(Boolean);
+      if (parts.length > 0) process.stdout.write(parts.join(" · "));
     } catch {
       /* statusline must never break the prompt */
     }
@@ -181,6 +195,7 @@ usage: knitbrain <command>
         import("./engine/meter.js"),
         import("./paths.js"),
       ]);
+    const { readFileSync } = await import("node:fs");
     const ccr = createFileCCRStore(paths.ccrRoot());
     const { readProjectUsage, currentContextTokens, currentContextModel } = await import("./engine/usage.js");
     const { fetchPlatformQuota } = await import("./engine/quota.js");
@@ -218,6 +233,16 @@ usage: knitbrain <command>
           const retrievalsTotal = feedback.stats().reduce((n, s) => n + s.retrievals, 0);
           const receipt = buildReceipt({ meter: meter.read(), mark, events, eventsTrimmed: trimmed, retrievalsTotal });
           return xrayState(events, receipt, mark?.startTs ?? null, trimmed);
+        } catch {
+          return null;
+        }
+      },
+      // Active run_loop state (goal/iter/maxIters) for the X-ray card badge.
+      loop: () => {
+        try {
+          const raw = readFileSync(paths.loopStatePath(), "utf8");
+          const state = JSON.parse(raw) as { goal?: string; iter?: number; maxIters?: number } | null;
+          return state?.goal ? { goal: state.goal, iter: state.iter ?? 1, maxIters: state.maxIters } : null;
         } catch {
           return null;
         }

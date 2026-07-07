@@ -194,7 +194,8 @@ The optimizer is identical everywhere; what differs is reach:
 | Cursor | ✅ | ✅ deny + follow-up loop (`.cursor/hooks.json`) | hooks + `knitbrain_read` | — |
 | Gemini CLI | ✅ | ✅ deny + AfterAgent loop (`.gemini/settings.json`) | hooks + `knitbrain_read` | — |
 | VS Code Copilot | ✅ | ✅ full (reads `.claude/settings.json` natively) | hooks + `knitbrain_read` | — |
-| Windsurf · Cline · any MCP client | ✅ | — (advisory; hooks planned where APIs allow) | via `knitbrain_read` | — |
+| Windsurf | ✅ | ✅ deny-only (exit-2) (`.windsurf/hooks.json`) | hooks + `knitbrain_read` | — |
+| Cline · any other MCP client | ✅ | — (advisory; hooks planned where APIs allow) | via `knitbrain_read` | — |
 | Any agent, API key | ✅ | — | ✅ proxy (full wire) | — |
 
 One hook binary serves every row: it detects the calling platform from the payload and answers in
@@ -230,7 +231,7 @@ Gated by tests and CI, not promised:
 - **Answers survive** — error lines, result summaries, and top-level declarations are never elided (`knitbrain evals`, 100% on real transcripts).
 - **Machine contracts hold** — JSON tool responses are never skeletonized.
 - **No false green** — the loop marks a task done only after a real verify passes; hooks block premature stops.
-- **Honest receipt** — savings are counted only when a raw output was actually replaced or redirected; estimates are labeled; zero is reported as zero.
+- **Honest receipt** — savings are counted only when a raw output was actually replaced or redirected; estimates are labeled; zero is reported as zero. Subagent burn (Claude Code Task subagents, Codex CLI's alias) is attributed to the activity ledger via `SubagentStart`/`SubagentStop`, so nested-agent token spend isn't invisible to the receipt.
 - **Local-first** — proxy, hub, and dashboard bind `127.0.0.1`; credentials are read locally, sent only to the provider's own endpoint, never logged or stored.
 - **Reproducible** — every number in this README comes from a command you can run on your own data.
 - **Self-audited** — `knitbrain_self_check` runs seven invariants (anti-stale ×2, anti-drift ×2, anti-sycophancy, adherence, context-hygiene) in one pass.

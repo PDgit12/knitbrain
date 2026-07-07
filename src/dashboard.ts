@@ -36,6 +36,8 @@ export interface DashboardDeps {
   wiki?: WikiStore;
   /** Optional: G1 activity-ledger X-ray — SAME math as the stop-hook receipt. */
   xray?: () => XrayState | null;
+  /** Optional: active run_loop state (goal/iter/maxIters) for the X-ray card badge. */
+  loop?: () => { goal: string; iter: number; maxIters?: number } | null;
 }
 
 /** Per-source rollup of the current session's activity events, plus the exact
@@ -179,6 +181,7 @@ export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
     knowledge: deps.knowledge ? knowledgeSummary(deps.knowledge) : null,
     wiki: deps.wiki ? wikiState(deps.wiki) : null,
     xray: deps.xray?.() ?? null,
+    loop: deps.loop?.() ?? null,
     skills: deps.skills
       ? deps.skills.list().map((s) => ({ name: s.name, uses: s.uses, triggers: s.triggers.slice(0, 6), updatedAt: s.updatedAt }))
       : null,
@@ -229,7 +232,7 @@ const PAGE = `<!doctype html>
 <div class="card" style="margin-top:.8rem"><div class="label">Knowledge graph (top blast radius)</div><div class="advice" id="kfiles"></div><table id="kg"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Skills</div><table id="skills"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Recent learnings</div><table id="recent"></table></div>
-<div class="card" style="margin-top:.8rem"><div class="label">X-ray — G1 activity ledger (same math as the stop receipt)</div>
+<div class="card" style="margin-top:.8rem"><div class="label">X-ray — G1 activity ledger (same math as the stop receipt) <span id="loop-badge"></span></div>
   <div class="advice" id="xray-empty">no session data</div>
   <div id="xray-wrap" style="display:none">
     <table id="xray"></table>
@@ -336,6 +339,9 @@ async function tick() {
       (s.recentLearnings.length ? s.recentLearnings.map(l => \`<tr><td>\${esc(l.date)}</td><td>\${esc(l.summary)}</td></tr>\`).join("") : "<tr><td colspan=2>—</td></tr>");
     document.getElementById("board").innerHTML = "<tr><th>who</th><th>when</th><th>finding</th></tr>" +
       (s.board.length ? s.board.map(b => \`<tr><td>\${esc(b.author)}</td><td>\${esc(b.ts.slice(11,19))}</td><td>\${esc(b.summary)}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
+    document.getElementById("loop-badge").textContent = s.loop
+      ? \`◎ \${s.loop.goal} iter \${s.loop.iter}\${s.loop.maxIters ? \`/\${s.loop.maxIters}\` : ""}\`
+      : "";
     if (s.xray) {
       document.getElementById("xray-empty").style.display = "none";
       document.getElementById("xray-wrap").style.display = "";

@@ -25,6 +25,11 @@ export interface Artifact {
    *  (settings.json-style, shared with other settings); false means the file
    *  IS the hooks map at the top level (a dedicated hooks.json). */
   hooksWrapped?: boolean;
+  /** json-merge-cursor-hooks only: which flat {command}-schema hook map to
+   *  merge in (defaults to CURSOR_HOOKS) — lets Windsurf reuse the same
+   *  flat-entry merge logic (dedupe by command, hooks:{event:[...]} wrapper)
+   *  with its own event names. */
+  flatHooksData?: Record<string, ReadonlyArray<{ command: string }>>;
 }
 
 /** Hook wiring for Claude Code settings.json (Layer 2 enforcement). The
@@ -70,6 +75,18 @@ export const KNITBRAIN_HOOKS = {
       hooks: [{ type: "command", command: "knitbrain-hook stop" }],
     },
   ],
+  SubagentStart: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook subagentstart" }],
+    },
+  ],
+  SubagentStop: [
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: "knitbrain-hook subagentstop" }],
+    },
+  ],
 } as const;
 
 /** Codex CLI: repo `.codex/hooks.json` uses the SAME event names + hook entry
@@ -99,6 +116,16 @@ export const CURSOR_HOOKS: Record<string, ReadonlyArray<{ command: string }>> = 
   postToolUse: [{ command: "knitbrain-hook posttooluse" }],
   stop: [{ command: "knitbrain-hook stop" }],
   sessionStart: [{ command: "knitbrain-hook sessionstart" }],
+} as const;
+
+/** Windsurf: repo `.windsurf/hooks.json`, flat {command} schema (same shape
+ *  as Cursor's, hooks:{event:[...]} wrapper) — deny-only surface (exit-2),
+ *  no matcher/type wrapper. pre_run_command/pre_read_code/pre_mcp_tool_use
+ *  all gate to our pretooluse hook. */
+export const WINDSURF_HOOKS: Record<string, ReadonlyArray<{ command: string }>> = {
+  pre_run_command: [{ command: "knitbrain-hook pretooluse" }],
+  pre_read_code: [{ command: "knitbrain-hook pretooluse" }],
+  pre_mcp_tool_use: [{ command: "knitbrain-hook pretooluse" }],
 } as const;
 
 const NOTATION_GUIDE = `Knit Brain compresses large tool outputs into skeletons. A \`⟨recall:HASH⟩\` marker means the exact original is stored locally — call the \`knitbrain_retrieve\` tool with that hash to read it byte-for-byte. Check \`knitbrain_context_meter\` periodically; when it says to, save a handoff with \`knitbrain_save_handoff\` and start a fresh session (\`knitbrain_load_session\` restores everything). When the user states a task, call \`knitbrain_run\` first and follow its directive (skill + agents + commands).
@@ -270,6 +297,9 @@ export function windsurfArtifacts(): Artifact[] {
       mode: "write",
       content: `---\ntrigger: always_on\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
+    // Layer 2 enforcement: deny-only (exit-2) surface, flat {command} schema
+    // shared with Cursor's merge logic (dedupe by command, hooks:{...} wrapper).
+    { path: ".windsurf/hooks.json", content: "", mode: "json-merge-cursor-hooks", flatHooksData: WINDSURF_HOOKS },
   ];
 }
 
@@ -372,10 +402,11 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
       } else {
         // Cursor's hooks.json: flat {command} entries (no matcher/type
         // wrapper), dedupe by command string, preserve user's version + entries.
+        const flatHookMap = a.flatHooksData ?? CURSOR_HOOKS;
         const hooks: Record<string, Array<{ command: string }>> = {
           ...((parsed["hooks"] as Record<string, Array<{ command: string }>>) ?? {}),
         };
-        for (const [event, entries] of Object.entries(CURSOR_HOOKS)) {
+        for (const [event, entries] of Object.entries(flatHookMap)) {
           const existing = hooks[event] ?? [];
           const ours = entries.filter((e) => !existing.some((x) => x.command === e.command));
           hooks[event] = [...existing, ...ours];
