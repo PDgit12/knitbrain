@@ -1,6 +1,6 @@
 {
   "name": "knitbrain",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Loop engineering substrate for coding agents — state, lossless optimization, and hook enforcement: verify-gated loops that can't lie, run away, or go broke. For Claude Code, Codex, Cursor, Gemini CLI, VS Code Copilot, and any MCP client.",
   "type": "module",
   "main": "dist/lib.js",
