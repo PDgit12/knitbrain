@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { containsSecret } from "../engine/cleanse.js";
+import { writeAtomic } from "../atomic.js";
 
 /**
  * Knit Brain HUB — the shared-sessions server a team points at.
@@ -29,6 +30,15 @@ export interface Hub {
 
 /** Cap request bodies so one authenticated client can't exhaust hub memory. */
 const MAX_BODY_BYTES = 1_000_000;
+
+/** Default fixed-window rate limit: 60 req / 10s per remote address. */
+const DEFAULT_RATE_LIMIT = { max: 60, windowMs: 10_000 };
+
+/** Default board size cap (entries) before the rare rewrite-to-newest-N kicks in. */
+const MAX_BOARD_ENTRIES = 500;
+
+/** Bound the rate-limit address map itself — a botnet of distinct IPs must not grow this unbounded. */
+const MAX_RATE_LIMIT_ENTRIES = 1000;
 
 // Credential detection shared with the brain-write cleanse (single source in
 // engine/cleanse.ts). A board original is stored byte-exact for the team, so we
@@ -57,7 +67,13 @@ function readBody(req: IncomingMessage): Promise<string | typeof TOO_LARGE> {
   });
 }
 
-export function createHub(root: string): Hub {
+export function createHub(
+  root: string,
+  opts?: { now?: () => number; rateLimit?: { max: number; windowMs: number }; maxEntries?: number },
+): Hub {
+  const now = opts?.now ?? Date.now;
+  const rateLimit = opts?.rateLimit ?? DEFAULT_RATE_LIMIT;
+  const maxEntries = opts?.maxEntries ?? MAX_BOARD_ENTRIES;
   mkdirSync(root, { recursive: true });
   const tokenPath = join(root, "token.txt");
   // Append-only log: one JSON entry per line. Posting is O(1) (append a line)
@@ -100,6 +116,34 @@ export function createHub(root: string): Hub {
   const append = (entry: HubEntry): void => {
     writeFileSync(boardPath, JSON.stringify(entry) + "\n", { encoding: "utf8", flag: "a" });
   };
+  // Sole write-amplification point: appends are O(1), but once the log passes
+  // maxEntries we rewrite it down to the newest maxEntries (rare — only at cap).
+  const trimBoard = (): void => {
+    const all = load();
+    if (all.length <= maxEntries) return;
+    const kept = all.slice(all.length - maxEntries);
+    writeAtomic(boardPath, kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  };
+
+  // Fixed-window rate limiter, per remote address. Map insertion order gives
+  // us oldest-inserted-first eviction for free (bounded regardless of window
+  // resets) — a simple Map, not an LRU, since we only ever need "oldest key".
+  const rateBuckets = new Map<string, { windowStart: number; count: number }>();
+  const rateLimited = (addr: string): boolean => {
+    const t = now();
+    let bucket = rateBuckets.get(addr);
+    if (!bucket || t - bucket.windowStart >= rateLimit.windowMs) {
+      bucket = { windowStart: t, count: 0 };
+      rateBuckets.delete(addr); // re-insert at the end (fresh window = fresh recency)
+      rateBuckets.set(addr, bucket);
+    }
+    bucket.count++;
+    if (rateBuckets.size > MAX_RATE_LIMIT_ENTRIES) {
+      const oldestKey = rateBuckets.keys().next().value;
+      if (oldestKey !== undefined) rateBuckets.delete(oldestKey);
+    }
+    return bucket.count > rateLimit.max;
+  };
 
   // SECURITY: constant-time comparison — no timing oracle on the team token.
   const expected = createHash("sha256").update(`Bearer ${token}`).digest();
@@ -117,6 +161,9 @@ export function createHub(root: string): Hub {
     void (async () => {
       if (req.method === "GET" && req.url === "/health") {
         return json(res, 200, { status: "healthy", server: "knitbrain-hub" });
+      }
+      if (rateLimited(req.socket.remoteAddress ?? "?")) {
+        return json(res, 429, { error: "rate-limited" });
       }
       if (!authed(req)) return json(res, 401, { error: "missing or invalid token" });
 
@@ -143,6 +190,7 @@ export function createHub(root: string): Hub {
           ts: new Date().toISOString(),
         };
         append(entry);
+        trimBoard();
         return json(res, 200, { id: entry.id });
       }
       if (req.method === "GET" && req.url === "/board") {

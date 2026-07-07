@@ -16,6 +16,9 @@ export interface SessionMark {
   savedAtStart: number;
   usedAtStart: number;
   retrievalsAtStart: number;
+  /** Output-side: cumulative model output tokens at session start (transcript
+   * probe) — lets the receipt PROVE actual output written this session. */
+  outputAtStart?: number;
   reads: Record<string, { count: number; mtimeMs: number }>;
   redirects: Record<string, number>;
 }
@@ -41,7 +44,7 @@ function loadMark(root: string): SessionMark | null {
  *  zero-point so the receipt can report SESSION deltas, not lifetime totals. */
 export function markSessionStart(
   root: string,
-  snap: { savedTokens: number; usedTokens: number; retrievals: number },
+  snap: { savedTokens: number; usedTokens: number; retrievals: number; outputTokens?: number },
 ): void {
   mkdirSync(root, { recursive: true });
   const mark: SessionMark = {
@@ -49,6 +52,7 @@ export function markSessionStart(
     savedAtStart: snap.savedTokens,
     usedAtStart: snap.usedTokens,
     retrievalsAtStart: snap.retrievals,
+    ...(snap.outputTokens !== undefined ? { outputAtStart: snap.outputTokens } : {}),
     reads: {},
     redirects: {},
   };
@@ -182,6 +186,10 @@ export interface ReceiptInput {
   eventsTrimmed: boolean;
   /** Lifetime TOIN retrieval count (caller sums feedback stats). */
   retrievalsTotal: number;
+  /** Output-side: cumulative model output tokens NOW (transcript probe). */
+  outputTokensNow?: number;
+  /** Whether a terse/caveman output mode is detectably active. */
+  terseActive?: boolean;
   /** Injected clock for tests. */
   now?: () => number;
 }
@@ -251,6 +259,17 @@ export function buildReceipt(i: ReceiptInput): string {
   // G6 forecast: only when it's a plan-billed session, we have a marker, the
   // session has run long enough to trust a burn rate, and there's something
   // to project (avoided > 0) — otherwise it's noise or a divide-by-garbage.
+  // Output side: we can PROVE what was written and that terse was on — but a
+  // verbose counterfactual is unknowable, so nothing here enters 'avoided'.
+  if (mark?.outputAtStart !== undefined && i.outputTokensNow !== undefined) {
+    const written = Math.max(0, i.outputTokensNow - mark.outputAtStart);
+    if (written > 0) {
+      lines.push(
+        `output written: ~${fmtTokens(written)} tok${i.terseActive ? " with terse mode ON (real output-side savings; no provable counterfactual — not counted in avoided)" : ""}`,
+      );
+    }
+  }
+
   // G5 dollars: api-billing only — plan users' cost is quota, never shown $.
   if (meter.billingMode === "api" && avoided > 0 && meter.model) {
     const rate = RATE_PER_MTOK.find((r) => r.match.test(meter.model!));
