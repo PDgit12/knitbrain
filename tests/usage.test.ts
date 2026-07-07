@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readUsageFromDir, projectTranscriptDir } from "../src/engine/usage.js";
+import { readUsageFromDir, readTranscriptUsage, projectTranscriptDir } from "../src/engine/usage.js";
 
 describe("usage — real platform token meter from transcripts", () => {
   let dir: string;
@@ -39,5 +39,31 @@ describe("usage — real platform token meter from transcripts", () => {
   it("strips the Windows drive colon (C: → C-) so the dir name is legal on Windows", () => {
     // a raw colon in a path component is illegal on Windows → mkdir/readdir ENOENT
     expect(projectTranscriptDir("C:\\Users\\x\\proj", "/home")).toBe(join("/home", ".claude", "projects", "C--Users-x-proj"));
+  });
+});
+
+describe("readTranscriptUsage — real platform usage from ONE transcript file", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kb-usage-single-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("sums usage across the 2 lines in a single fixture .jsonl file", () => {
+    const line = (i: number, o: number, cr: number, cc: number): string =>
+      JSON.stringify({ message: { usage: { input_tokens: i, output_tokens: o, cache_read_input_tokens: cr, cache_creation_input_tokens: cc } } });
+    const file = join(dir, "session.jsonl");
+    writeFileSync(file, [line(100, 10, 50, 20), line(200, 20, 0, 0)].join("\n"));
+    const u = readTranscriptUsage(file)!;
+    expect(u.messages).toBe(2);
+    expect(u.inputTokens).toBe(300);
+    expect(u.outputTokens).toBe(30);
+    expect(u.cacheReadTokens).toBe(50);
+    expect(u.cacheCreationTokens).toBe(20);
+    expect(u.totalTokens).toBe(300 + 30 + 50 + 20);
+  });
+
+  it("missing file → null", () => {
+    expect(readTranscriptUsage(join(dir, "nope.jsonl"))).toBeNull();
   });
 });

@@ -128,6 +128,33 @@ import { buildSessionStartContext, sessionStartOutput } from "../src/hooks/sessi
 import { KNITBRAIN_HOOKS } from "../src/platforms.js";
 import { decidePostToolUse, POSTTOOL_MIN_CHARS } from "../src/hooks/posttooluse.js";
 import { createFileCCRStore } from "../src/ccr/store.js";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+
+// src/hooks/index.ts runs `main()` unconditionally at module top-level (it's the
+// knitbrain-hook CLI entrypoint) — importing it directly would trigger a real
+// process.exit() inside the test worker. Exercise subagentStartContext's output
+// via the compiled CLI binary instead (spawn pattern from index-cli.test.ts),
+// never via a direct ESM import of this module.
+describe("subagentStartContext (SubagentStart hook — ambient orchestration frame)", () => {
+  const HOOK_CLI = join(process.cwd(), "dist", "hooks", "index.js");
+
+  it("carries the GOAL/loop frame (knitbrain_run) + team coordination pointer", () => {
+    if (!existsSync(HOOK_CLI)) {
+      // dist not built in this run — hand-traced instead of skipped silently.
+      expect(existsSync(HOOK_CLI)).toBe(false); // NOTE: not run; see index-cli.test.ts for the build guard
+      return;
+    }
+    const r = spawnSync("node", [HOOK_CLI, "subagentstart"], {
+      input: JSON.stringify({ hook_event_name: "SubagentStart" }),
+      timeout: 4000,
+      encoding: "utf8",
+    });
+    const out = JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } };
+    expect(out.hookSpecificOutput.additionalContext).toContain("knitbrain_run");
+    expect(out.hookSpecificOutput.additionalContext).toContain("knitbrain_team_post");
+  });
+});
 
 describe("PostToolUse hook (subscription auto-compression of host tool output)", () => {
   const withStore = <T>(fn: (ccr: ReturnType<typeof createFileCCRStore>) => T): T => {
@@ -215,6 +242,8 @@ describe("SessionStart hook (auto protocol + memory injection)", () => {
       "PreToolUse",
       "SessionStart",
       "Stop",
+      "SubagentStart",
+      "SubagentStop",
       "UserPromptSubmit",
     ]);
     expect(KNITBRAIN_HOOKS.PostToolUse[0]!.hooks[0]!.command).toBe("knitbrain-hook posttooluse");

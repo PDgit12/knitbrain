@@ -111,7 +111,7 @@ export interface WorkflowDoc {
   /** The user's scanned toolkit (skills + agents across project/global/plugin) —
    * baked into the standing workflow so the loop starts every session knowing
    * its arsenal instead of rediscovering it per task. */
-  toolkit?: { skillCount: number; agentCount: number; agentNames: string[]; skillNames: string[] };
+  toolkit?: { skillCount: number; agentCount: number; agentNames: string[]; skillNames: string[]; connectorNames?: string[] };
   /** Per-domain routing: every detected part of the project mapped to its
    * owning agent + matching skill (or marked uncovered) — the closed loop
    * follows this instead of guessing ownership per task. */
@@ -130,9 +130,13 @@ export function composeWorkflow(w: WorkflowDoc): string {
   const style = `${w.style.terse ? "terse" : "standard"}${model}`;
   // Toolkit block: cap the name lists so the workflow stays a driver, not an
   // inventory dump — the full index lives in host-index.json; run() routes per task.
+  const connectorNames = w.toolkit?.connectorNames ?? [];
+  const connectorSuffix = connectorNames.length
+    ? ` · ${connectorNames.length} connector(s): ${connectorNames.slice(0, 6).join(", ")}`
+    : "";
   const toolkit = w.toolkit
     ? [
-        `TOOLKIT: ${w.toolkit.skillCount} skill(s) · ${w.toolkit.agentCount} agent(s) (full index: host-index.json · knitbrain_run routes per task)`,
+        `TOOLKIT: ${w.toolkit.skillCount} skill(s) · ${w.toolkit.agentCount} agent(s) (full index: host-index.json · knitbrain_run routes per task)${connectorSuffix}`,
         w.toolkit.agentNames.length ? `AGENTS: ${w.toolkit.agentNames.slice(0, 8).join(", ")}${w.toolkit.agentNames.length > 8 ? ", …" : ""}` : "",
         w.toolkit.skillNames.length ? `SKILLS: ${w.toolkit.skillNames.slice(0, 10).join(", ")}${w.toolkit.skillNames.length > 10 ? ", …" : ""}` : "",
       ].filter((l) => l !== "")

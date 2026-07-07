@@ -8,6 +8,8 @@
  *   knitbrain-hook sessionstart  inject protocol + handoff + learnings into a new session
  *   knitbrain-hook precompact    auto-save a handoff BEFORE the host compacts
  *   knitbrain-hook stop          auto-save a resumable handoff at session end (non-clobbering)
+ *   knitbrain-hook subagentstart inject goal frame + team-coordination nudge into a spawned subagent
+ *   knitbrain-hook subagentstop  attribution-only: ledger subagent token usage, never blocks
  *
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
@@ -20,14 +22,14 @@ import { createWikiStore } from "../engine/wiki.js";
 import { createActivityLog } from "../engine/activity.js";
 import { createFeedback } from "../engine/feedback.js";
 import { markSessionStart, readSessionMark, recordRead, recordRedirect, buildReceipt } from "../engine/receipt.js";
-import { currentContextTokens, currentContextModel, readProjectUsage } from "../engine/usage.js";
+import { currentContextTokens, currentContextModel, readProjectUsage, readTranscriptUsage } from "../engine/usage.js";
 import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot } from "../paths.js";
 import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, defaultPreToolUseIo, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 import { mineNewTranscripts } from "../learn.js";
-import { GOAL_LOOP_NUDGE } from "../platforms.js";
+import { GOAL_LOOP_NUDGE, GOAL_FRAME } from "../platforms.js";
 import { join } from "node:path";
 import { detectHookPlatform, normalizeEventName, normalizeInput, adaptOutput, type HookMode } from "./adapters.js";
 
@@ -40,7 +42,12 @@ function readStdin(): Promise<string> {
   });
 }
 
-async function main(): Promise<void> {
+/** additionalContext string for the subagentstart hook — exported for unit tests. */
+export function subagentStartContext(): string {
+  return `${GOAL_FRAME} Coordinate findings via knitbrain_team_post; verify before claiming done.`;
+}
+
+async function main(): Promise<number | void> {
   const cliMode = process.argv[2] as HookMode | undefined;
   try {
     const raw = await readStdin();
@@ -133,6 +140,12 @@ async function main(): Promise<void> {
         }
       }
       const out = adaptOutput(platform, "pretooluse", decision);
+      if (out && typeof out["__exit"] === "number") {
+        // Windsurf (and any future exit-code-only host): no JSON deny
+        // contract, so the block IS the process exit code + stderr.
+        process.stderr.write(String(out["stderr"] ?? ""));
+        return out["__exit"] as number;
+      }
       if (out) process.stdout.write(JSON.stringify(out));
       return;
     }
@@ -306,12 +319,40 @@ async function main(): Promise<void> {
       }
       return;
     }
+    if (mode === "subagentstart") {
+      // Steer a freshly-spawned subagent the same way sessionstart steers the
+      // top-level session — goal frame + team coordination reminder.
+      const out = adaptOutput(platform, "subagentstart", {
+        hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: subagentStartContext() },
+      });
+      if (out) process.stdout.write(JSON.stringify(out));
+      return;
+    }
+    if (mode === "subagentstop") {
+      // Attribution only — never blocks. Record what the subagent consumed
+      // (if a transcript is resolvable) to the shared activity ledger.
+      try {
+        const u = readTranscriptUsage(String(payload["transcript_path"] ?? ""));
+        createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null }).record({
+          agent: "hook",
+          tool: "Subagent",
+          summary: `subagent ${payload["agent_type"] ?? "unknown"} finished`,
+          saved: 0,
+          source: "hook",
+          file: String(payload["agent_type"] ?? "unknown"),
+          ...(u ? { rawTokens: u.totalTokens, storedTokens: u.outputTokens } : {}),
+        });
+      } catch {
+        /* ledger is observability — never break the host on subagentstop */
+      }
+      return;
+    }
   } catch {
     // swallow — a hook failure must never break the host session
   }
 }
 
 main().then(
-  () => process.exit(0),
+  (c) => process.exit(typeof c === "number" ? c : 0),
   () => process.exit(0),
 );

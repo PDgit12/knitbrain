@@ -163,6 +163,28 @@ describe("composeWorkflow toolkit block (loop knows its arsenal)", () => {
     expect(w).not.toMatch(/^TOOLKIT:/m);
     expect(w).toContain("GOAL: ship");
   });
+
+  it("renders the connector count + names in the TOOLKIT line when connectorNames given", () => {
+    const w = composeWorkflow({
+      ...base,
+      toolkit: {
+        skillCount: 3,
+        agentCount: 2,
+        agentNames: ["engine"],
+        skillNames: ["tdd"],
+        connectorNames: ["grafana", "sentry"],
+      },
+    });
+    expect(w).toContain("2 connector(s): grafana, sentry");
+  });
+
+  it("omits the connector suffix when connectorNames is empty/absent", () => {
+    const w = composeWorkflow({
+      ...base,
+      toolkit: { skillCount: 1, agentCount: 1, agentNames: ["engine"], skillNames: ["tdd"] },
+    });
+    expect(w).not.toContain("connector(s)");
+  });
 });
 
 describe("composeWorkflow ROUTING block (per-part ownership)", () => {

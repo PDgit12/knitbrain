@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // The compiled CLI entry (built by `npm run build`; the Stop hook builds too).
@@ -44,5 +46,48 @@ describe("CLI router — unknown-command guard (G3)", () => {
     // as an unknown command.
     expect(r.status).not.toBe(1);
     expect(r.stderr).not.toContain("unknown command");
+  });
+});
+
+describe("CLI statusline — loop badge (◎ goal iter N/M)", () => {
+  let home: string;
+  let projectDir: string;
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+  });
+
+  const seedLoopState = (state: Record<string, unknown> | null) => {
+    home = mkdtempSync(join(tmpdir(), "kb-statusline-home-"));
+    projectDir = mkdtempSync(join(tmpdir(), "kb-statusline-proj-"));
+    const id = createHash("sha256").update(projectDir).digest("hex").slice(0, 16);
+    if (state) {
+      const projRoot = join(home, "projects", id);
+      mkdirSync(projRoot, { recursive: true });
+      writeFileSync(join(projRoot, "loop-state.json"), JSON.stringify(state));
+    }
+  };
+
+  const runStatusline = () =>
+    spawnSync("node", [CLI, "statusline"], {
+      input: "",
+      timeout: 4000,
+      encoding: "utf8",
+      env: { ...process.env, KNITBRAIN_HOME: home, KNITBRAIN_PROJECT_DIR: projectDir },
+    });
+
+  it("with seeded loop-state → badge shows ◎ and iter N/M", () => {
+    if (!existsSync(CLI)) return; // dist not built in this run — see index-cli.test.ts build guard above
+    seedLoopState({ goal: "ship the parser", iter: 3, maxIters: 6 });
+    const r = runStatusline();
+    expect(r.stdout).toContain("◎");
+    expect(r.stdout).toContain("iter 3/6");
+    expect(r.stdout).toContain("ship the parser");
+  });
+
+  it("without loop-state → no ◎ badge", () => {
+    if (!existsSync(CLI)) return;
+    seedLoopState(null);
+    const r = runStatusline();
+    expect(r.stdout).not.toContain("◎");
   });
 });

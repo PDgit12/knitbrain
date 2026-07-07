@@ -11,10 +11,12 @@ import {
   codexArtifacts,
   geminiArtifacts,
   vscodeArtifacts,
+  windsurfArtifacts,
   codexSnippet,
   universalArtifacts,
   slashCommands,
   GOAL_LOOP_NUDGE,
+  KNITBRAIN_HOOKS,
 } from "../src/platforms.js";
 
 const cfg = generateConfig();
@@ -186,5 +188,26 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
   it("slashCommands('claude-code') includes /loop", () => {
     const cmds = slashCommands("claude-code").map((c) => c.cmd);
     expect(cmds).toContain("/loop");
+  });
+
+  it("KNITBRAIN_HOOKS wires SubagentStart + SubagentStop (ambient orchestration + attribution)", () => {
+    expect(KNITBRAIN_HOOKS.SubagentStart[0]!.hooks[0]!.command).toBe("knitbrain-hook subagentstart");
+    expect(KNITBRAIN_HOOKS.SubagentStop[0]!.hooks[0]!.command).toBe("knitbrain-hook subagentstop");
+  });
+
+  it("windsurfArtifacts writes .windsurf/hooks.json (exit-2 deny surface) and dedupes on re-apply", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-windsurf-"));
+    try {
+      applyArtifacts(root, windsurfArtifacts(), cfg);
+      let parsed = JSON.parse(readFileSync(join(root, ".windsurf/hooks.json"), "utf8"));
+      expect(parsed.hooks.pre_run_command).toHaveLength(1);
+      expect(parsed.hooks.pre_run_command[0].command).toBe("knitbrain-hook pretooluse");
+      // re-apply must not double the entry
+      applyArtifacts(root, windsurfArtifacts(), cfg);
+      parsed = JSON.parse(readFileSync(join(root, ".windsurf/hooks.json"), "utf8"));
+      expect(parsed.hooks.pre_run_command).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
