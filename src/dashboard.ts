@@ -34,6 +34,34 @@ export interface DashboardDeps {
   agents?: () => AgentRollup[];
   /** Optional: the compounding wiki-brain (leg 5). */
   wiki?: WikiStore;
+  /** Optional: G1 activity-ledger X-ray — SAME math as the stop-hook receipt. */
+  xray?: () => XrayState | null;
+}
+
+/** Per-source rollup of the current session's activity events, plus the exact
+ *  receipt text (buildReceipt) — the dashboard shows the SAME honest numbers
+ *  the stop-hook prints, never a parallel aggregation. */
+export interface XrayState {
+  bySource: Record<string, { events: number; raw: number; stored: number; saved: number }>;
+  receipt: string;
+  sessionStart: string | null;
+  trimmed: boolean;
+}
+
+/** Pure reduce over session events — one bucket per source; absent `source`
+ *  is a legacy (pre-G1) event and counts as "mcp". */
+export function xrayState(events: ActivityEvent[], receipt: string, sessionStart: string | null, trimmed: boolean): XrayState {
+  const bySource: XrayState["bySource"] = {};
+  for (const e of events) {
+    const key = e.source ?? "mcp";
+    const b = bySource[key] ?? { events: 0, raw: 0, stored: 0, saved: 0 };
+    b.events += 1;
+    b.raw += e.rawTokens ?? 0;
+    b.stored += e.storedTokens ?? 0;
+    b.saved += e.saved ?? 0;
+    bySource[key] = b;
+  }
+  return { bySource, receipt, sessionStart, trimmed };
 }
 
 /** Knowledge-graph summary: file count + the highest-fanout files (blast radius). */
@@ -150,6 +178,7 @@ export function dashboardState(deps: DashboardDeps): Record<string, unknown> {
     recentLearnings: learnings.slice(-5).reverse().map((l) => ({ date: l.date, summary: l.summary.slice(0, 160) })),
     knowledge: deps.knowledge ? knowledgeSummary(deps.knowledge) : null,
     wiki: deps.wiki ? wikiState(deps.wiki) : null,
+    xray: deps.xray?.() ?? null,
     skills: deps.skills
       ? deps.skills.list().map((s) => ({ name: s.name, uses: s.uses, triggers: s.triggers.slice(0, 6), updatedAt: s.updatedAt }))
       : null,
@@ -200,6 +229,13 @@ const PAGE = `<!doctype html>
 <div class="card" style="margin-top:.8rem"><div class="label">Knowledge graph (top blast radius)</div><div class="advice" id="kfiles"></div><table id="kg"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Skills</div><table id="skills"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Recent learnings</div><table id="recent"></table></div>
+<div class="card" style="margin-top:.8rem"><div class="label">X-ray — G1 activity ledger (same math as the stop receipt)</div>
+  <div class="advice" id="xray-empty">no session data</div>
+  <div id="xray-wrap" style="display:none">
+    <table id="xray"></table>
+    <pre id="xray-receipt" style="white-space:pre-wrap; margin-top:.5rem; background:#161b22; padding:.5rem; border-radius:6px"></pre>
+  </div>
+</div>
 <div class="card" style="margin-top:.8rem"><div class="label">Team board</div><table id="board"></table></div>
 <div class="card" style="margin-top:.8rem"><div class="label">Wiki-brain (browsable · click a page or a [[link]])</div>
   <div id="wiki-empty" class="advice">no wiki yet — ingest with knitbrain_wiki_ingest</div>
@@ -300,6 +336,17 @@ async function tick() {
       (s.recentLearnings.length ? s.recentLearnings.map(l => \`<tr><td>\${esc(l.date)}</td><td>\${esc(l.summary)}</td></tr>\`).join("") : "<tr><td colspan=2>—</td></tr>");
     document.getElementById("board").innerHTML = "<tr><th>who</th><th>when</th><th>finding</th></tr>" +
       (s.board.length ? s.board.map(b => \`<tr><td>\${esc(b.author)}</td><td>\${esc(b.ts.slice(11,19))}</td><td>\${esc(b.summary)}</td></tr>\`).join("") : "<tr><td colspan=3>—</td></tr>");
+    if (s.xray) {
+      document.getElementById("xray-empty").style.display = "none";
+      document.getElementById("xray-wrap").style.display = "";
+      const rows = Object.entries(s.xray.bySource);
+      document.getElementById("xray").innerHTML = "<tr><th>source</th><th>events</th><th>raw→stored</th><th>saved</th></tr>" +
+        (rows.length ? rows.map(([src, b]) => \`<tr><td>\${esc(src)}</td><td>\${b.events}</td><td>\${b.raw.toLocaleString()} → \${b.stored.toLocaleString()}</td><td>\${b.saved.toLocaleString()}</td></tr>\`).join("") : "<tr><td colspan=4>—</td></tr>");
+      document.getElementById("xray-receipt").textContent = s.xray.receipt;
+    } else {
+      document.getElementById("xray-empty").style.display = "";
+      document.getElementById("xray-wrap").style.display = "none";
+    }
     if (s.wiki) {
       wikiPages = s.wiki.pages || [];
       wikiEdges = s.wiki.edges || [];

@@ -12,7 +12,8 @@ import { createSkillsStore } from "../src/engine/skills.js";
 import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
 import { createWikiStore } from "../src/engine/wiki.js";
-import { createDashboardServer, dashboardState, renderMarkdown, type DashboardDeps } from "../src/dashboard.js";
+import { createDashboardServer, dashboardState, renderMarkdown, xrayState, type DashboardDeps, type XrayState } from "../src/dashboard.js";
+import type { ActivityEvent } from "../src/engine/activity.js";
 
 describe("dashboard (rung 17)", () => {
   let root: string;
@@ -117,6 +118,61 @@ describe("dashboard (rung 17)", () => {
     expect(api.wiki.pages.find((p) => p.slug === "beta")!.backlinks).toContain("alpha");
     expect(api.wiki.edges).toContainEqual({ from: "alpha", to: "beta" });
     expect(api.wiki.recent.length).toBeGreaterThan(0); // log present
+  });
+
+  // G1 X-ray: pure aggregation function, no server involved.
+  it("xrayState sums per-source rollups exactly, bucketing source-less legacy events under mcp", () => {
+    const events: ActivityEvent[] = [
+      { ts: "t1", agent: "a", tool: "read", summary: "s1", saved: 10, source: "mcp", rawTokens: 100, storedTokens: 20 },
+      { ts: "t2", agent: "a", tool: "read", summary: "s2", saved: 5, source: "mcp", rawTokens: 50, storedTokens: 10 },
+      { ts: "t3", agent: "a", tool: "hook", summary: "s3", saved: 7, source: "hook", rawTokens: 30, storedTokens: 3 },
+      { ts: "t4", agent: "a", tool: "proxy", summary: "s4", saved: 2, source: "proxy", rawTokens: 40, storedTokens: 8 },
+      // legacy event, no source field at all — must bucket under "mcp", not a separate "undefined" key.
+      { ts: "t5", agent: "a", tool: "read", summary: "s5", saved: 1 },
+    ];
+    const x = xrayState(events, "RECEIPT TEXT", "2026-01-01T00:00:00Z", true);
+    expect(x.receipt).toBe("RECEIPT TEXT");
+    expect(x.sessionStart).toBe("2026-01-01T00:00:00Z");
+    expect(x.trimmed).toBe(true);
+    expect(Object.keys(x.bySource).sort()).toEqual(["hook", "mcp", "proxy"]);
+    // mcp = the two explicit "mcp" events + the one source-less legacy event
+    expect(x.bySource["mcp"]).toEqual({ events: 3, raw: 150, stored: 30, saved: 16 });
+    expect(x.bySource["hook"]).toEqual({ events: 1, raw: 30, stored: 3, saved: 7 });
+    expect(x.bySource["proxy"]).toEqual({ events: 1, raw: 40, stored: 8, saved: 2 });
+  });
+
+  it("xrayState defaults raw/stored to 0 when absent from an event", () => {
+    const events: ActivityEvent[] = [{ ts: "t1", agent: "a", tool: "x", summary: "no numbers", saved: 0, source: "hook" }];
+    const x = xrayState(events, "r", null, false);
+    expect(x.bySource["hook"]).toEqual({ events: 1, raw: 0, stored: 0, saved: 0 });
+    expect(x.sessionStart).toBeNull();
+    expect(x.trimmed).toBe(false);
+  });
+
+  it("dashboardState/api exposes deps.xray via a getter; absent xray → null (back-compat)", async () => {
+    const fixture: XrayState = {
+      bySource: { mcp: { events: 3, raw: 150, stored: 30, saved: 16 }, hook: { events: 1, raw: 30, stored: 3, saved: 7 } },
+      receipt: "session receipt fixture",
+      sessionStart: "2026-01-01T00:00:00Z",
+      trimmed: false,
+    };
+    const s = dashboardState({ ...deps, xray: () => fixture });
+    expect(s["xray"]).toEqual(fixture);
+
+    // back-compat: deps with no xray getter at all → null, not a throw.
+    const s2 = dashboardState(deps);
+    expect(s2["xray"]).toBeNull();
+
+    srv = createDashboardServer({ ...deps, xray: () => fixture });
+    const port: number = await new Promise((r) =>
+      srv!.listen(0, "127.0.0.1", () => r((srv!.address() as { port: number }).port)),
+    );
+    const api = (await (await fetch(`http://127.0.0.1:${port}/api/state`)).json()) as {
+      xray: { receipt: string; bySource: XrayState["bySource"] } | null;
+    };
+    expect(typeof api.xray?.receipt).toBe("string");
+    expect(api.xray?.receipt).toBe("session receipt fixture");
+    expect(api.xray?.bySource).toEqual(fixture.bySource);
   });
 
   it("serves the page and the JSON API over HTTP", async () => {

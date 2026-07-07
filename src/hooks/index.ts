@@ -20,7 +20,7 @@ import { createWikiStore } from "../engine/wiki.js";
 import { createActivityLog } from "../engine/activity.js";
 import { createFeedback } from "../engine/feedback.js";
 import { markSessionStart, readSessionMark, recordRead, recordRedirect, buildReceipt } from "../engine/receipt.js";
-import { currentContextTokens, currentContextModel } from "../engine/usage.js";
+import { currentContextTokens, currentContextModel, readProjectUsage } from "../engine/usage.js";
 import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot } from "../paths.js";
 import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
@@ -232,7 +232,13 @@ async function main(): Promise<void> {
         const retrievals = createFeedback(feedbackRoot())
           .stats()
           .reduce((sum, s) => sum + s.retrievals, 0);
-        markSessionStart(meterRoot(), { savedTokens: r.savedTokens, usedTokens: r.usedTokens, retrievals });
+        const outputTokens = readProjectUsage(process.cwd())?.outputTokens;
+        markSessionStart(meterRoot(), {
+          savedTokens: r.savedTokens,
+          usedTokens: r.usedTokens,
+          retrievals,
+          ...(outputTokens !== undefined ? { outputTokens } : {}),
+        });
       } catch {
         /* never break session start */
       }
@@ -278,7 +284,21 @@ async function main(): Promise<void> {
         const retrievalsTotal = createFeedback(feedbackRoot())
           .stats()
           .reduce((sum, s) => sum + s.retrievals, 0);
-        const receipt = buildReceipt({ meter: meterReading, mark, events, eventsTrimmed: trimmed, retrievalsTotal });
+        // Output-side proof: actual tokens written + terse-active detection
+        // (env or the project's terse rules file) — shown, never counted.
+        const outputTokensNow = readProjectUsage(process.cwd())?.outputTokens;
+        const terseActive =
+          (process.env["KNITBRAIN_TERSE"] ?? "") !== "" ||
+          existsSync(".claude/rules/knitbrain.md");
+        const receipt = buildReceipt({
+          meter: meterReading,
+          mark,
+          events,
+          eventsTrimmed: trimmed,
+          retrievalsTotal,
+          ...(outputTokensNow !== undefined ? { outputTokensNow } : {}),
+          terseActive,
+        });
         const out = adaptOutput(platform, "stop", { systemMessage: receipt });
         if (out) process.stdout.write(JSON.stringify(out));
       } catch {

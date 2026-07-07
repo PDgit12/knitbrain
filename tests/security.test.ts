@@ -77,5 +77,18 @@ describe("security regressions", () => {
         await new Promise<void>((r) => server.close(() => r()));
       }
     });
+
+    it("rate-limits rapid-fire requests from one address (denial-of-service floor)", async () => {
+      const { server, token } = createHub(join(root, "hub-rl-sec"), { rateLimit: { max: 2, windowMs: 10_000 } });
+      try {
+        const url = `http://127.0.0.1:${await listen(server)}`;
+        const auth = { authorization: `Bearer ${token}` };
+        expect((await fetch(`${url}/board`, { headers: auth })).status).toBe(200);
+        expect((await fetch(`${url}/board`, { headers: auth })).status).toBe(200);
+        expect((await fetch(`${url}/board`, { headers: auth })).status).toBe(429); // 3rd request denied
+      } finally {
+        await new Promise<void>((r) => server.close(() => r()));
+      }
+    });
   });
 });

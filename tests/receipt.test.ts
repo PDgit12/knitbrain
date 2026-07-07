@@ -220,3 +220,28 @@ describe("G5 dollar conversion (api-billing only)", () => {
     expect(r).not.toContain("$");
   });
 });
+
+describe("output-side proof line (terse impact, honestly bounded)", () => {
+  const meter = () => ({
+    usedTokens: 10_000, windowTokens: 1_000_000, usedPct: 1, savedTokens: 5_000,
+    optimizationPct: 5, estimated: false, cacheCold: false, status: "ok" as const,
+    advice: "", billingMode: "plan" as const,
+  });
+  const mark = { startTs: new Date(0).toISOString(), savedAtStart: 0, usedAtStart: 0, retrievalsAtStart: 0, outputAtStart: 40_000, reads: {}, redirects: {} };
+
+  it("prints actual output written + terse-ON note, and never counts it as avoided", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const r = buildReceipt({ meter: meter(), mark, events: [], eventsTrimmed: false, retrievalsTotal: 0, outputTokensNow: 52_500, terseActive: true });
+    expect(r).toContain("output written: ~12.5k tok");
+    expect(r).toContain("terse mode ON");
+    expect(r).toContain("not counted in avoided");
+  });
+
+  it("silent when no output snapshot exists (old marks — back-compat)", async () => {
+    const { buildReceipt } = await import("../src/engine/receipt.js");
+    const oldMark = { ...mark } as Record<string, unknown>;
+    delete oldMark["outputAtStart"];
+    const r = buildReceipt({ meter: meter(), mark: oldMark as never, events: [], eventsTrimmed: false, retrievalsTotal: 0, outputTokensNow: 52_500, terseActive: true });
+    expect(r).not.toContain("output written");
+  });
+});

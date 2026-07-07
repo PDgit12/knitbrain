@@ -186,13 +186,17 @@ usage: knitbrain <command>
     const { fetchPlatformQuota } = await import("./engine/quota.js");
     const { createActivityLog } = await import("./engine/activity.js");
     const { createWikiStore } = await import("./engine/wiki.js");
+    const { readSessionMark, buildReceipt } = await import("./engine/receipt.js");
+    const { xrayState } = await import("./dashboard.js");
     const activityLog = createActivityLog(paths.activityRoot());
+    const meter = createMeter(paths.meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
+    const feedback = createFeedback(paths.feedbackRoot());
     const srv = createDashboardServer({
       ccr,
       memory: createMemory(paths.memoryRoot()),
-      feedback: createFeedback(paths.feedbackRoot()),
+      feedback,
       team: createTeamBoard(paths.teamRoot(), ccr),
-      meter: createMeter(paths.meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() }),
+      meter,
       // Project scope: the directory the dashboard was started in.
       knowledge: createKnowledge(process.cwd(), paths.knowledgeRoot()),
       skills: createSkillsStore(paths.skillsRoot()),
@@ -206,6 +210,18 @@ usage: knitbrain <command>
       agents: () => activityLog.rollup(),
       // The compounding wiki-brain (leg 5).
       wiki: createWikiStore(paths.wikiRoot()),
+      // G1 X-ray: SAME honest math as the stop-hook receipt — no parallel aggregation.
+      xray: () => {
+        try {
+          const mark = readSessionMark(paths.meterRoot());
+          const { events, trimmed } = mark ? activityLog.since(mark.startTs) : { events: [], trimmed: false };
+          const retrievalsTotal = feedback.stats().reduce((n, s) => n + s.retrievals, 0);
+          const receipt = buildReceipt({ meter: meter.read(), mark, events, eventsTrimmed: trimmed, retrievalsTotal });
+          return xrayState(events, receipt, mark?.startTs ?? null, trimmed);
+        } catch {
+          return null;
+        }
+      },
     });
     const port = Number(process.env["KNITBRAIN_DASHBOARD_PORT"] ?? 8790);
     srv.listen(port, "127.0.0.1", () => {
