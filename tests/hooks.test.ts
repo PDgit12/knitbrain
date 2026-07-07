@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decidePreToolUse, READ_REDIRECT_BYTES } from "../src/hooks/pretooluse.js";
+import { decidePreToolUse, decideRepeatReadRecall, READ_REDIRECT_BYTES } from "../src/hooks/pretooluse.js";
 import { decideLoopStop } from "../src/hooks/stop.js";
 import { applyArtifacts, claudeArtifacts } from "../src/platforms.js";
 import { generateConfig } from "../src/setup.js";
@@ -300,5 +300,60 @@ describe("decidePostToolUse — onSaved info callback", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("G4 repeat-read recall (writer never re-reads unchanged content)", () => {
+  const H = "a".repeat(64);
+  const read = (fp: string) => ({ tool_name: "Read", tool_input: { file_path: fp } });
+  const io = (over: Record<string, unknown> = {}) => ({
+    exists: () => true,
+    sizeOf: () => 100,
+    readEntry: () => ({ count: 2, mtimeMs: 111 }),
+    mtimeOf: () => 111,
+    recallHandleFor: () => H,
+    ...over,
+  });
+
+  it("count>=2 + same mtime + handle in CCR → deny with the exact resolvable handle", () => {
+    const d = decideRepeatReadRecall(read("/p/a.ts"), io());
+    const reason = (d?.["hookSpecificOutput"] as Record<string, unknown>)?.["permissionDecisionReason"] as string;
+    expect(reason).toContain(`⟨recall:${H}⟩`);
+    expect(reason.startsWith("unchanged since last read")).toBe(true);
+  });
+
+  it("first read (count 1) → allow", () => {
+    expect(decideRepeatReadRecall(read("/p/a.ts"), io({ readEntry: () => ({ count: 1, mtimeMs: 111 }) }))).toBeNull();
+  });
+
+  it("mtime changed since the reads-map entry → allow (fresh content never blocked)", () => {
+    expect(decideRepeatReadRecall(read("/p/a.ts"), io({ mtimeOf: () => 222 }))).toBeNull();
+  });
+
+  it("content not in CCR → allow", () => {
+    expect(decideRepeatReadRecall(read("/p/a.ts"), io({ recallHandleFor: () => null }))).toBeNull();
+  });
+
+  it("legacy io without the G4 fns → allow (fail-open, old callers unchanged)", () => {
+    expect(decideRepeatReadRecall(read("/p/a.ts"), { exists: () => true, sizeOf: () => 100 })).toBeNull();
+  });
+
+  it("throwing io → allow (fail-open)", () => {
+    expect(decideRepeatReadRecall(read("/p/a.ts"), io({ readEntry: () => { throw new Error("x"); } }))).toBeNull();
+  });
+
+  it("repeat-read recall WINS over the large-file redirect via decidePreToolUse", () => {
+    const d = decidePreToolUse(read("/p/big.ts"), io({ sizeOf: () => READ_REDIRECT_BYTES + 1 }));
+    const reason = (d?.["hookSpecificOutput"] as Record<string, unknown>)?.["permissionDecisionReason"] as string;
+    expect(reason.startsWith("unchanged since last read")).toBe(true); // not "Large file"
+  });
+
+  it("constraint denial still WINS over repeat-read (Bash isn't a Read anyway; Write path check)", () => {
+    const d = decidePreToolUse(
+      { tool_name: "Bash", tool_input: { command: "npm publish" } },
+      io({ readWorkflow: () => "CONSTRAINTS: never publish without OK" }),
+    );
+    const reason = (d?.["hookSpecificOutput"] as Record<string, unknown>)?.["permissionDecisionReason"] as string;
+    expect(reason.startsWith("Blocked by project CONSTRAINTS")).toBe(true);
   });
 });

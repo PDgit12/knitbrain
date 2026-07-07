@@ -281,3 +281,22 @@ describe("meter estimate + cache-cold (MCP-only honesty)", () => {
     expect(m.read().cacheCold).toBe(false);
   });
 });
+
+describe("G5: model name persistence", () => {
+  it("onModel persists the NAME; a fresh instance reads it back; reset keeps it", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createMeter } = await import("../src/engine/meter.js");
+    const root = mkdtempSync(join(tmpdir(), "kb-meter-model-"));
+    try {
+      createMeter(root).onModel("claude-sonnet-5");
+      const m2 = createMeter(root);
+      expect(m2.read().model).toBe("claude-sonnet-5");
+      m2.reset();
+      expect(createMeter(root).read().model).toBe("claude-sonnet-5"); // survives reset like savings
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

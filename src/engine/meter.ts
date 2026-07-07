@@ -38,6 +38,8 @@ export interface MeterReading {
   /** Billing surface (Gap 8): api = pay-per-token (optimize OUTPUT tokens hard),
    * plan = subscription (context window is the constraint), unknown = can't tell. */
   billingMode: "api" | "plan" | "unknown";
+  /** G5: last seen model name (when known) — the receipt keys $ rates off it. */
+  model?: string;
 }
 
 /**
@@ -112,6 +114,8 @@ interface State {
   savedTokens: number;
   /** Window adopted from the request's model id (proxy path). */
   modelWindowTokens?: number;
+  /** G5: last seen model NAME (proxy onModel / host probe) — receipt rates key off it. */
+  lastModel?: string;
   /** Last time any traffic hit the meter — cache-staleness signal. */
   lastActivityTs?: number;
 }
@@ -200,12 +204,17 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
     },
     onModel(model) {
       const w = modelWindow(model);
-      if (w === null) return;
       reload();
-      if (state.modelWindowTokens !== w) {
-        state.modelWindowTokens = w;
-        save();
+      let dirty = false;
+      if (state.lastModel !== model) {
+        state.lastModel = model;
+        dirty = true;
       }
+      if (w !== null && state.modelWindowTokens !== w) {
+        state.modelWindowTokens = w;
+        dirty = true;
+      }
+      if (dirty) save();
     },
     read() {
       reload();
@@ -262,10 +271,10 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       if (status !== "ok") advice += billingHint(billingMode);
       // Report the EFFECTIVE window so the dashboard/meter show the honest
       // denominator (e.g. "420k / 1M"), not the stale configured 200k.
-      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice, billingMode };
+      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice, billingMode, ...(state.lastModel ? { model: state.lastModel } : {}) };
     },
     reset() {
-      state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens };
+      state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens, ...(state.lastModel ? { lastModel: state.lastModel } : {}) };
       save();
     },
   };

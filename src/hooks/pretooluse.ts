@@ -54,9 +54,15 @@ export interface PreToolUseIo {
   exists: (p: string) => boolean;
   sizeOf: (p: string) => number;
   readWorkflow?: () => string | null;
+  /** G4 (all optional, fail-open): session reads-map entry for a path. */
+  readEntry?: (path: string) => { count: number; mtimeMs: number } | null;
+  /** Current mtime — belt+braces against a change racing the reads map. */
+  mtimeOf?: (path: string) => number;
+  /** sha256 of the file's exact bytes IF that content is already in CCR. */
+  recallHandleFor?: (path: string) => string | null;
 }
 
-const defaultIo: PreToolUseIo = {
+export const defaultPreToolUseIo: PreToolUseIo = {
   exists: existsSync,
   sizeOf: (p) => statSync(p).size,
   readWorkflow: () => {
@@ -107,9 +113,45 @@ function decideConstraintDenial(input: PreToolUseInput, io: PreToolUseIo): Recor
   };
 }
 
-export function decidePreToolUse(input: PreToolUseInput, io: PreToolUseIo = defaultIo): Record<string, unknown> | null {
+/**
+ * G4: repeat-read of an UNCHANGED file whose exact content already lives in
+ * CCR → deny with the real, resolvable recall handle. Never blocks fresh
+ * content: any missing io, changed mtime, absent CCR entry, or error → null.
+ * Honest math: the deny itself claims saved:0 — savings count only when the
+ * recall is actually retrieved.
+ */
+export function decideRepeatReadRecall(input: PreToolUseInput, io: PreToolUseIo): Record<string, unknown> | null {
+  if (input.tool_name !== "Read") return null;
+  const path = input.tool_input?.file_path;
+  if (typeof path !== "string" || path.length === 0) return null;
+  if (!io.readEntry || !io.mtimeOf || !io.recallHandleFor) return null;
+  try {
+    const entry = io.readEntry(path);
+    // recordRead has already run for THIS attempt, so count>=2 = genuine
+    // repeat; mtime equality guards a change racing the reads map.
+    if (!entry || entry.count < 2 || entry.mtimeMs !== io.mtimeOf(path)) return null;
+    const handle = io.recallHandleFor(path);
+    if (!handle) return null;
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: `unchanged since last read — the exact content is already in recall. Retrieve ⟨recall:${handle}⟩ (knitbrain_retrieve) instead of re-reading; byte-exact.`,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function decidePreToolUse(input: PreToolUseInput, io: PreToolUseIo = defaultPreToolUseIo): Record<string, unknown> | null {
   const constraintDenial = decideConstraintDenial(input, io);
   if (constraintDenial) return constraintDenial;
+
+  // G4 repeat-read recall beats the large-file redirect: if the content is
+  // already stored, serving the handle is strictly better than a redirect.
+  const recallDenial = decideRepeatReadRecall(input, io);
+  if (recallDenial) return recallDenial;
 
   if (input.tool_name !== "Read") return null;
   const path = input.tool_input?.file_path;

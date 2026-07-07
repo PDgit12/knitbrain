@@ -11,7 +11,8 @@
  *
  * Hooks must NEVER break the host: any internal error exits 0 silently.
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createFileCCRStore } from "../ccr/store.js";
 import { createMemory } from "../engine/memory.js";
 import { createMeter } from "../engine/meter.js";
@@ -23,7 +24,7 @@ import { currentContextTokens, currentContextModel } from "../engine/usage.js";
 import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot } from "../paths.js";
 import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
-import { decidePreToolUse, type PreToolUseInput } from "./pretooluse.js";
+import { decidePreToolUse, defaultPreToolUseIo, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
 import { mineNewTranscripts } from "../learn.js";
 import { GOAL_LOOP_NUDGE } from "../platforms.js";
@@ -71,13 +72,48 @@ async function main(): Promise<void> {
           /* receipt bookkeeping — never break the host */
         }
       }
-      const decision = decidePreToolUse(preInput);
+      // G4 io: session reads-map entry + current mtime + CCR content-hash
+      // probe. All fail-open — any error means the decide sees null and allows.
+      const decision = decidePreToolUse(preInput, {
+        ...defaultPreToolUseIo, // keeps readWorkflow → constraint denial intact
+        readEntry: (fp) => {
+          try {
+            return readSessionMark(meterRoot())?.reads[fp] ?? null;
+          } catch {
+            return null;
+          }
+        },
+        mtimeOf: (fp) => statSync(fp).mtimeMs,
+        recallHandleFor: (fp) => {
+          try {
+            const h = createHash("sha256").update(readFileSync(fp, "utf8"), "utf8").digest("hex");
+            return createFileCCRStore(ccrRoot()).has(h) ? h : null;
+          } catch {
+            return null;
+          }
+        },
+      });
       // Distinguish the LARGE-READ redirect deny from a CONSTRAINTS deny by
       // reason text — decidePreToolUse's redirect reason always starts with
       // "Large file"; the constraints reason starts with "Blocked by project".
       if (decision) {
         const hso = decision["hookSpecificOutput"] as Record<string, unknown> | undefined;
         const reason = hso?.["permissionDecisionReason"] as string | undefined;
+        if (typeof reason === "string" && reason.startsWith("unchanged since last read") && typeof preInput.tool_input?.file_path === "string") {
+          try {
+            createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null }).record({
+              agent: "hook",
+              tool: "Read",
+              summary: "served from recall (repeat read)",
+              saved: 0, // honest math: counted only when the recall is retrieved
+              source: "hook",
+              kind: "redirect",
+              file: preInput.tool_input.file_path,
+            });
+          } catch {
+            /* receipt bookkeeping — never break the host */
+          }
+        }
         if (typeof reason === "string" && reason.startsWith("Large file") && typeof preInput.tool_input?.file_path === "string") {
           try {
             const p = preInput.tool_input.file_path;
