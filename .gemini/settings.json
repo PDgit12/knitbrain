@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "knitbrain-hook sessionstart"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "knitbrain-hook pretooluse"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "Bash|Grep|Glob|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "knitbrain-hook posttooluse"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "knitbrain-hook precompact"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "knitbrain-hook stop"
+          }
+        ]
+      }
+    ]
+  }
+}

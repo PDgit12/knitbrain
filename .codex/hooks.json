@@ -1,0 +1,90 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook sessionstart"
+        }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook userpromptsubmit"
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Read",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook pretooluse"
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Bash|Grep|Glob|WebFetch|WebSearch",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook posttooluse"
+        }
+      ]
+    }
+  ],
+  "PreCompact": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook precompact"
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook stop"
+        }
+      ]
+    }
+  ],
+  "SubagentStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook subagentstart"
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "knitbrain-hook subagentstop"
+        }
+      ]
+    }
+  ]
+}

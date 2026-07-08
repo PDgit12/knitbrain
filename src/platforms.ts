@@ -154,7 +154,7 @@ Terse: "New object ref each render → re-render. Wrap in useMemo."`;
  * Goal-loop steering (Gap 6 — the thesis: turn any platform into a loop).
  * Injected every turn by the UserPromptSubmit hook so the DEFAULT stance is
  * "drive this to a checkable gate", not "answer once" — the loop is opt-out
- * (pure questions), not opt-in (/goal). Kept to one line: it costs tokens on
+ * (pure questions), not opt-in (/goal-knitbrain). Kept to one line: it costs tokens on
  * every prompt, so it states the stance and defers mechanics to knitbrain_run.
  */
 export const GOAL_LOOP_NUDGE =
@@ -209,9 +209,9 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
       content: `---\ndescription: Terse knitbrain output (lite|full|ultra) — same facts, fewer output tokens\nargument-hint: [lite|full|ultra]\n---\n\nAdopt terse output for the rest of this session. Run \`knitbrain terse $ARGUMENTS\` and follow the printed guide (default level: full). Say "verbose" to switch off.\n`,
     },
     {
-      path: ".claude/commands/goal.md",
+      path: ".claude/commands/goal-knitbrain.md",
       mode: "write",
-      content: `---\ndescription: Run the full knitbrain workflow for a goal — orchestrate skill + agents, then drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the full knitbrain workflow. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. ORCHESTRATE FIRST — call the \`knitbrain_run\` tool with the goal and ADHERE to the verdict:\n   - \`autoPlanMode=true\` → enter your host's plan mode and get approval before any edit;\n   - adopt the returned SKILL; refine it while working, then \`knitbrain_skill_save\`;\n   - if it proposes agents, spawn them via your host's sub-agent mechanism and coordinate on \`knitbrain_team_post\` / \`knitbrain_team_board\`;\n   - run the listed host slash-commands when useful.\n3. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n4. Read an optional \`--for <duration>\` from the args (e.g. \`30m\`, \`1h\`, \`90s\`) and convert it to milliseconds — that's the wall-clock budget.\n5. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters, deadline_ms }\` (max_iters default 6; omit \`deadline_ms\` when no \`--for\` was given).\n6. Each cycle, follow the returned directive: make the smallest real fix (delegating to the spawned agents where apt), then call \`knitbrain_run_loop\` again with the SAME goal so iteration + the time budget carry across calls.\n7. NEVER fake \`met=true\`. Stop only at a real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline (\`stopped:"deadline"\`), then report the honest final state (what passed, what's still open) and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n\nSibling: \`/loop <goalfile>\` HANDS OFF to the EXTERNAL runner (\`knitbrain loop\`) — a detached background process that spawns a fresh agent per iteration and owns the loop itself, surviving your context window. Use \`/goal\` to drive a gate in THIS session; use \`/loop\` for hands-off autonomous runs.\n`,
+      content: `---\ndescription: Run the full knitbrain workflow for a goal — orchestrate skill + agents, then drive to a checkable gate until met\nargument-hint: <goal, e.g. "ship X: all boxes ticked">\n---\n\nDrive \`$ARGUMENTS\` to done with the full knitbrain workflow. The gate is the truth, not your judgment.\n\n1. Treat \`$ARGUMENTS\` as the goal. If it names or implies a checkbox goal file (e.g. a \`goal.md\`), use that file; otherwise state the goal inline.\n2. ORCHESTRATE FIRST — call the \`knitbrain_run\` tool with the goal and ADHERE to the verdict:\n   - \`autoPlanMode=true\` → enter your host's plan mode and get approval before any edit;\n   - adopt the returned SKILL; refine it while working, then \`knitbrain_skill_save\`;\n   - if it proposes agents, spawn them via your host's sub-agent mechanism and coordinate on \`knitbrain_team_post\` / \`knitbrain_team_board\`;\n   - run the listed host slash-commands when useful.\n3. Pick the verify command by precedence: an explicit \`--verify\` in the args, else the goal file's \`VERIFY:\` line, else \`npm test\` when a package.json exists. If none is derivable, ASK the user for the gate — do NOT invent a command that passes.\n4. Read an optional \`--for <duration>\` from the args (e.g. \`30m\`, \`1h\`, \`90s\`) and convert it to milliseconds — that's the wall-clock budget.\n5. Call the \`knitbrain_run_loop\` tool with \`{ goal, verify_cmd, max_iters, deadline_ms }\` (max_iters default 6; omit \`deadline_ms\` when no \`--for\` was given).\n6. Each cycle, follow the returned directive: make the smallest real fix (delegating to the spawned agents where apt), then call \`knitbrain_run_loop\` again with the SAME goal so iteration + the time budget carry across calls.\n7. NEVER fake \`met=true\`. Stop only at a real \`met=true\`, OR \`max_iters\`, OR the \`--for\` deadline (\`stopped:"deadline"\`), then report the honest final state (what passed, what's still open) and close the loop: \`knitbrain_record_learning\` + \`knitbrain_skill_outcome\`.\n\nSibling: \`/loop-knitbrain <goalfile>\` HANDS OFF to the EXTERNAL runner (\`knitbrain loop\`) — a detached background process that spawns a fresh agent per iteration and owns the loop itself, surviving your context window. Use \`/goal-knitbrain\` to drive a gate in THIS session; use \`/loop-knitbrain\` for hands-off autonomous runs.\n`,
     },
     {
       path: ".claude/rules/knitbrain.md",
@@ -221,7 +221,7 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
   ];
 }
 
-/** Claude Code: /loop command — same engine as /goal, plus an explicit
+/** Claude Code: /loop-knitbrain command — same engine as /goal-knitbrain, plus an explicit
  * --for/--iters budget and self-heal from prior-cycle failures (LoopState.failures,
  * surfaced automatically by knitbrain_run_loop's directive). Kept OUT of
  * claudeArtifacts() (applied separately in runSetup) so the artifact-count
@@ -229,15 +229,15 @@ export function claudeArtifacts(cfg: SetupConfig): Artifact[] {
 export function claudeLoopArtifacts(): Artifact[] {
   return [
     {
-      path: ".claude/commands/loop.md",
+      path: ".claude/commands/loop-knitbrain.md",
       mode: "write",
-      content: `---\ndescription: Launch the autonomous external runner — a detached process that spawns a FRESH agent per iteration until the goal file's boxes are ticked or the time budget elapses\nargument-hint: <goalfile.md> [--for 1h] [--max N] [--agent "cmd"] [--verify "cmd"]\n---\n\n\`/loop\` LAUNCHES knitbrain's external runner (\`knitbrain loop\`) — a background process that OWNS the loop: for each \`- [ ]\` task in the goal file it spawns a FRESH agent (\`claude -p\` by default), runs the verify gate, ticks \`- [x]\` only on green, and repeats until all boxes are done, \`--max\` iterations, or the \`--for\` budget elapses. It survives your context window (fresh agent each iteration) and does NOT depend on any model choosing to continue — the runner re-invokes. A slash command cannot BE an hour-long loop (that would freeze this chat), so it LAUNCHES the runner detached and hands you a watch handle.\n\n1. Resolve the goal file from \`$ARGUMENTS\`: a path to a markdown file with \`- [ ] task\` checkboxes. If none is given, use \`goal.md\` in the cwd; if that is missing, tell the user to run \`knitbrain onboard\` first (it writes a goal.md) and stop — do NOT invent tasks.\n2. LAUNCH DETACHED so this chat is not frozen for the whole budget. Run in the background: \`nohup knitbrain loop <goalfile> <flags> > <goalfile>.loop.log 2>&1 & echo "loop PID $!"\`. Pass \`--for\`, \`--max\`, \`--agent\`, \`--verify\`, \`--reviewer\` straight through from \`$ARGUMENTS\`; the runner picks its gate itself (--verify > the goal file's VERIFY: line > npm test).\n3. Report to the user: the PID, the log path (\`<goalfile>.loop.log\`), and how to watch — \`- [ ]\`→\`- [x]\` boxes tick in the goal file as tasks pass, \`<goalfile>.progress\` appends one line per done task, and \`knitbrain dashboard\` shows the badge. Stop early with \`kill <PID>\`.\n4. Do NOT block waiting on it, and do NOT tick any box yourself — the runner's verify (and optional reviewer) gate is the ONLY thing that marks a task done. No false green.\n\nSibling: \`/goal <task>\` drives a gate WITH YOU in THIS session (single context, interactive, you make the fixes). \`/loop\` HANDS OFF to the external runner (fresh context per iteration, autonomous, background).\n`,
+      content: `---\ndescription: Launch the autonomous external runner — a detached process that spawns a FRESH agent per iteration until the goal file's boxes are ticked or the time budget elapses\nargument-hint: <goalfile.md> [--for 1h] [--max N] [--agent "cmd"] [--verify "cmd"]\n---\n\n\`/loop-knitbrain\` LAUNCHES knitbrain's external runner (\`knitbrain loop\`) — a background process that OWNS the loop: for each \`- [ ]\` task in the goal file it spawns a FRESH agent (\`claude -p\` by default), runs the verify gate, ticks \`- [x]\` only on green, and repeats until all boxes are done, \`--max\` iterations, or the \`--for\` budget elapses. It survives your context window (fresh agent each iteration) and does NOT depend on any model choosing to continue — the runner re-invokes. A slash command cannot BE an hour-long loop (that would freeze this chat), so it LAUNCHES the runner detached and hands you a watch handle.\n\n1. Resolve the goal file from \`$ARGUMENTS\`: a path to a markdown file with \`- [ ] task\` checkboxes. If none is given, use \`goal.md\` in the cwd; if that is missing, tell the user to run \`knitbrain onboard\` first (it writes a goal.md) and stop — do NOT invent tasks.\n2. LAUNCH DETACHED so this chat is not frozen for the whole budget. Run in the background: \`nohup knitbrain loop <goalfile> <flags> > <goalfile>.loop.log 2>&1 & echo "loop PID $!"\`. Pass \`--for\`, \`--max\`, \`--agent\`, \`--verify\`, \`--reviewer\` straight through from \`$ARGUMENTS\`; the runner picks its gate itself (--verify > the goal file's VERIFY: line > npm test).\n3. Report to the user: the PID, the log path (\`<goalfile>.loop.log\`), and how to watch — \`- [ ]\`→\`- [x]\` boxes tick in the goal file as tasks pass, \`<goalfile>.progress\` appends one line per done task, and \`knitbrain dashboard\` shows the badge. Stop early with \`kill <PID>\`.\n4. Do NOT block waiting on it, and do NOT tick any box yourself — the runner's verify (and optional reviewer) gate is the ONLY thing that marks a task done. No false green.\n\nSibling: \`/goal-knitbrain <task>\` drives a gate WITH YOU in THIS session (single context, interactive, you make the fixes). \`/loop-knitbrain\` HANDS OFF to the external runner (fresh context per iteration, autonomous, background).\n`,
     },
   ];
 }
 
 /**
- * Body for a platform \`/loop\` command. None of these platforms can BE the
+ * Body for a platform \`/loop-knitbrain\` command. None of these platforms can BE the
  * loop (a command runs inside one turn), so each LAUNCHES the external runner
  * (\`knitbrain loop\`) detached and reports a watch handle. \`workerAgent\` is the
  * headless CLI the runner spawns per iteration (claude -p / codex exec /
@@ -257,10 +257,10 @@ export function loopLaunchInstructions(workerAgent: string): string {
 }
 
 /**
- * Body for a platform \`/goal\` command: drive a goal to a verify gate WITH YOU
+ * Body for a platform \`/goal-knitbrain\` command: drive a goal to a verify gate WITH YOU
  * in THIS session (single context, in-chat orchestration). Mirror of the Claude
  * goal.md steps, shared so no platform drifts. For a hands-off autonomous run
- * (fresh agent per iteration, background), it points to /loop instead.
+ * (fresh agent per iteration, background), it points to /loop-knitbrain instead.
  */
 export function goalOrchestrationInstructions(): string {
   return [
@@ -272,7 +272,7 @@ export function goalOrchestrationInstructions(): string {
     "5. Drive the knitbrain_run_loop tool each cycle with { goal, verify_cmd, max_iters, deadline_ms }: make the smallest real fix, then call knitbrain_run_loop again with the SAME goal so iteration + the time budget carry across calls.",
     "6. NEVER fake met=true. Stop only at a real met=true, OR max_iters, OR the --for deadline, then report the honest final state (what passed, what is still open) and close the loop: knitbrain_record_learning + knitbrain_skill_outcome.",
     "",
-    "For a HANDS-OFF autonomous run (a FRESH agent per iteration, in the background), use /loop instead — it launches the external runner (knitbrain loop).",
+    "For a HANDS-OFF autonomous run (a FRESH agent per iteration, in the background), use /loop-knitbrain instead — it launches the external runner (knitbrain loop).",
   ].join("\n");
 }
 
@@ -285,7 +285,7 @@ export function cursorArtifacts(): Artifact[] {
     {
       path: ".cursor/rules/knitbrain.mdc",
       mode: "write",
-      content: `---\ndescription: Knit Brain memory + token optimization\nalwaysApply: true\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n\nAutonomous loop (Cursor has no custom slash commands): run the external runner in your terminal — \`knitbrain loop goal.md --for 1h --agent "claude -p"\` (spawns a fresh worker per \`- [ ]\` task, verify-gated, ticks \`- [x]\` only on green).\n\nGoal orchestration (no slash on Cursor): just state the task — call knitbrain_run first, adopt the returned skill, then drive knitbrain_run_loop to a verify gate in THIS session (same as /goal elsewhere).\n`,
+      content: `---\ndescription: Knit Brain memory + token optimization\nalwaysApply: true\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n\nAutonomous loop (Cursor has no custom slash commands): run the external runner in your terminal — \`knitbrain loop goal.md --for 1h --agent "claude -p"\` (spawns a fresh worker per \`- [ ]\` task, verify-gated, ticks \`- [x]\` only on green).\n\nGoal orchestration (no slash on Cursor): just state the task — call knitbrain_run first, adopt the returned skill, then drive knitbrain_run_loop to a verify gate in THIS session (same as /goal-knitbrain elsewhere).\n`,
     },
   ];
 }
@@ -305,14 +305,14 @@ export function geminiArtifacts(): Artifact[] {
   return [
     { path: ".gemini/settings.json", content: "", mode: "json-merge-hooks", hooksData: GEMINI_HOOKS, hooksWrapped: true },
     {
-      path: ".gemini/commands/loop.toml",
+      path: ".gemini/commands/loop-knitbrain.toml",
       mode: "write",
       content:
         'description = "Launch the autonomous external runner (knitbrain loop) in the background"\n' +
         'prompt = """\n' + loopLaunchInstructions("gemini -p") + '\n"""\n',
     },
     {
-      path: ".gemini/commands/goal.toml",
+      path: ".gemini/commands/goal-knitbrain.toml",
       mode: "write",
       content:
         'description = "Drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)"\n' +
@@ -341,14 +341,14 @@ export function vscodeArtifacts(): Artifact[] {
       content: `---\napplyTo: "**"\n---\n\n${NOTATION_GUIDE}\n\n${TERSE_MODE}\n`,
     },
     {
-      path: ".github/prompts/loop.prompt.md",
+      path: ".github/prompts/loop-knitbrain.prompt.md",
       mode: "write",
       content:
         "---\ndescription: Launch the autonomous external runner (knitbrain loop) in the background\n---\n\n" +
         loopLaunchInstructions("claude -p") + "\n",
     },
     {
-      path: ".github/prompts/goal.prompt.md",
+      path: ".github/prompts/goal-knitbrain.prompt.md",
       mode: "write",
       content:
         "---\ndescription: Drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)\n---\n\n" +
@@ -369,17 +369,17 @@ export function windsurfArtifacts(): Artifact[] {
     // shared with Cursor's merge logic (dedupe by command, hooks:{...} wrapper).
     { path: ".windsurf/hooks.json", content: "", mode: "json-merge-cursor-hooks", flatHooksData: WINDSURF_HOOKS },
     {
-      path: ".windsurf/workflows/loop.md",
+      path: ".windsurf/workflows/loop-knitbrain.md",
       mode: "write",
       content:
-        "---\nname: loop\ndescription: Launch the autonomous external runner (knitbrain loop) in the background\n---\n\n## Steps\n" +
+        "---\nname: loop-knitbrain\ndescription: Launch the autonomous external runner (knitbrain loop) in the background\n---\n\n## Steps\n" +
         loopLaunchInstructions("claude -p") + "\n",
     },
     {
-      path: ".windsurf/workflows/goal.md",
+      path: ".windsurf/workflows/goal-knitbrain.md",
       mode: "write",
       content:
-        "---\nname: goal\ndescription: Drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)\n---\n\n## Steps\n" +
+        "---\nname: goal-knitbrain\ndescription: Drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)\n---\n\n## Steps\n" +
         goalOrchestrationInstructions() + "\n",
     },
   ];
@@ -411,12 +411,12 @@ export function codexSnippet(cfg: SetupConfig): string {
     "# Optional proxy (Codex supports base-URL override):",
     `#   export OPENAI_BASE_URL=${cfg.proxyEnv["OPENAI_BASE_URL"]}`,
     "",
-    "# Autonomous loop as a /loop slash command (Codex prompts are GLOBAL):",
-    "#   create ~/.codex/prompts/loop.md with front-matter + this body, then type /loop:",
+    "# Autonomous loop as a /loop-knitbrain slash command (Codex prompts are GLOBAL):",
+    "#   create ~/.codex/prompts/loop-knitbrain.md with front-matter + this body, then type /loop-knitbrain:",
     "#   " + loopLaunchInstructions("codex exec").replace(/\n/g, "\n#   "),
     "",
-    "# In-session goal orchestration as a /goal slash command (also global):",
-    "#   create ~/.codex/prompts/goal.md with front-matter + this body, then type /goal:",
+    "# In-session goal orchestration as a /goal-knitbrain slash command (also global):",
+    "#   create ~/.codex/prompts/goal-knitbrain.md with front-matter + this body, then type /goal-knitbrain:",
     "#   " + goalOrchestrationInstructions().replace(/\n/g, "\n#   "),
   ].join("\n");
 }
@@ -433,8 +433,8 @@ export function slashCommands(platform: string): Array<{ cmd: string; when: stri
       { cmd: "/handoff", when: "save session handoff before clearing" },
       { cmd: "/clear", when: "after handoff saved — start fresh window" },
       { cmd: "/compact", when: "mid-task when window warn but can't clear yet" },
-      { cmd: "/goal", when: "drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)" },
-      { cmd: "/loop", when: "launch the autonomous external runner (knitbrain loop) in the background" },
+      { cmd: "/goal-knitbrain", when: "drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)" },
+      { cmd: "/loop-knitbrain", when: "launch the autonomous external runner (knitbrain loop) in the background" },
     ];
   }
   if (platform === "cursor") {
@@ -442,8 +442,8 @@ export function slashCommands(platform: string): Array<{ cmd: string; when: stri
   }
   if (platform === "gemini" || platform === "vscode" || platform === "windsurf" || platform === "codex") {
     return [
-      { cmd: "/goal", when: "drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)" },
-      { cmd: "/loop", when: "launch the autonomous external runner (knitbrain loop) in the background" },
+      { cmd: "/goal-knitbrain", when: "drive a goal to a verify gate WITH YOU in this session (in-chat orchestration)" },
+      { cmd: "/loop-knitbrain", when: "launch the autonomous external runner (knitbrain loop) in the background" },
     ];
   }
   return [];

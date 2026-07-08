@@ -67,11 +67,11 @@ describe("audit fixes — 0.16.0", () => {
 
   it("M8: setup backs up a differing user-edited 'write' file to <path>.bak before overwriting", () => {
     const cfg = generateConfig();
-    const goalArt = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal.md")!;
+    const goalArt = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal-knitbrain.md")!;
     // seed a user-edited version
     const arts: Artifact[] = [goalArt];
     applyArtifacts(root, arts, cfg); // first write
-    const goalPath = join(root, ".claude/commands/goal.md");
+    const goalPath = join(root, ".claude/commands/goal-knitbrain.md");
     writeFileSync(goalPath, "# my custom goal command\n", "utf8");
     applyArtifacts(root, arts, cfg); // re-run setup
     expect(existsSync(`${goalPath}.bak`)).toBe(true);

@@ -29,12 +29,12 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(paths).toContain(".mcp.json");
     expect(paths).toContain(".claude/commands/meter.md");
     expect(paths).toContain(".claude/commands/handoff.md");
-    expect(paths).toContain(".claude/commands/goal.md");
+    expect(paths).toContain(".claude/commands/goal-knitbrain.md");
     expect(paths).toContain(".claude/rules/knitbrain.md");
   });
 
-  it("/goal orchestrates the full workflow (run -> agents -> loop), not just the thin loop", () => {
-    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal.md")!;
+  it("/goal-knitbrain orchestrates the full workflow (run -> agents -> loop), not just the thin loop", () => {
+    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal-knitbrain.md")!;
     expect(goal.content).toContain("knitbrain_run"); // orchestrate first (classify + skill + agents)
     expect(goal.content).toContain("knitbrain_run_loop"); // still gated by the verify loop
     expect(goal.content).toContain("proposes agents"); // agent fan-out wording
@@ -108,7 +108,7 @@ describe("platform adapter matrix (rung 16)", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-plat-"));
     try {
       const written = applyArtifacts(root, claudeArtifacts(cfg), cfg);
-      expect(written.length).toBe(7); // .mcp.json + settings.json(hooks) + 4 commands (meter/handoff/terse/goal) + rules
+      expect(written.length).toBe(7); // .mcp.json + settings.json(hooks) + 4 commands (meter/handoff/terse/goal-knitbrain) + rules
       for (const p of written) expect(existsSync(join(root, p))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -176,23 +176,23 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
     }
   });
 
-  it("claudeLoopArtifacts writes .claude/commands/loop.md, cross-referencing /goal", () => {
-    const loop = claudeLoopArtifacts().find((a) => a.path === ".claude/commands/loop.md")!;
+  it("claudeLoopArtifacts writes .claude/commands/loop-knitbrain.md, cross-referencing /goal-knitbrain", () => {
+    const loop = claudeLoopArtifacts().find((a) => a.path === ".claude/commands/loop-knitbrain.md")!;
     expect(loop).toBeDefined();
-    expect(loop.content).toContain("/goal");
+    expect(loop.content).toContain("/goal-knitbrain");
   });
 
-  it("goal.md content references /loop (explicit --for/--iters budget escape hatch)", () => {
-    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal.md")!;
-    expect(goal.content).toContain("/loop");
+  it("goal.md content references /loop-knitbrain (explicit --for/--iters budget escape hatch)", () => {
+    const goal = claudeArtifacts(cfg).find((a) => a.path === ".claude/commands/goal-knitbrain.md")!;
+    expect(goal.content).toContain("/loop-knitbrain");
   });
 
-  it("slashCommands('claude-code') includes /loop", () => {
+  it("slashCommands('claude-code') includes /loop-knitbrain", () => {
     const cmds = slashCommands("claude-code").map((c) => c.cmd);
-    expect(cmds).toContain("/loop");
+    expect(cmds).toContain("/loop-knitbrain");
   });
 
-  // Cross-platform /loop: every platform's command LAUNCHES the external runner
+  // Cross-platform /loop-knitbrain: every platform's command LAUNCHES the external runner
   // (knitbrain loop) detached — none runs the loop inline. Verified formats:
   // Gemini .toml, VS Code .prompt.md, Windsurf .windsurf/workflows/*.md.
   it("loopLaunchInstructions LAUNCHES the runner in the background, never ticks boxes itself", () => {
@@ -203,8 +203,8 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
     expect(body).toContain("Do NOT tick any box yourself"); // no false green
   });
 
-  it("Gemini emits .gemini/commands/loop.toml (TOML: description + prompt, gemini -p worker)", () => {
-    const t = geminiArtifacts().find((a) => a.path === ".gemini/commands/loop.toml")!;
+  it("Gemini emits .gemini/commands/loop-knitbrain.toml (TOML: description + prompt, gemini -p worker)", () => {
+    const t = geminiArtifacts().find((a) => a.path === ".gemini/commands/loop-knitbrain.toml")!;
     expect(t).toBeDefined();
     expect(t.content).toContain("description =");
     expect(t.content).toContain('prompt = """');
@@ -212,17 +212,17 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
     expect(t.content).toContain('--agent "gemini -p"');
   });
 
-  it("VS Code emits .github/prompts/loop.prompt.md (YAML frontmatter + body)", () => {
-    const p = vscodeArtifacts().find((a) => a.path === ".github/prompts/loop.prompt.md")!;
+  it("VS Code emits .github/prompts/loop-knitbrain.prompt.md (YAML frontmatter + body)", () => {
+    const p = vscodeArtifacts().find((a) => a.path === ".github/prompts/loop-knitbrain.prompt.md")!;
     expect(p).toBeDefined();
     expect(p.content.startsWith("---\ndescription:")).toBe(true);
     expect(p.content).toContain("nohup knitbrain loop");
   });
 
-  it("Windsurf emits .windsurf/workflows/loop.md (name/description frontmatter + ## Steps)", () => {
-    const w = windsurfArtifacts().find((a) => a.path === ".windsurf/workflows/loop.md")!;
+  it("Windsurf emits .windsurf/workflows/loop-knitbrain.md (name/description frontmatter + ## Steps)", () => {
+    const w = windsurfArtifacts().find((a) => a.path === ".windsurf/workflows/loop-knitbrain.md")!;
     expect(w).toBeDefined();
-    expect(w.content).toContain("name: loop");
+    expect(w.content).toContain("name: loop-knitbrain");
     expect(w.content).toContain("## Steps");
     expect(w.content).toContain("knitbrain loop");
   });
@@ -232,42 +232,42 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
     expect(rules.content).toContain("knitbrain loop goal.md");
   });
 
-  it("Codex snippet documents the global /loop prompt (codex exec worker)", () => {
+  it("Codex snippet documents the global /loop-knitbrain prompt (codex exec worker)", () => {
     const snip = codexSnippet(cfg);
-    expect(snip).toContain("~/.codex/prompts/loop.md");
+    expect(snip).toContain("~/.codex/prompts/loop-knitbrain.md");
     expect(snip).toContain("codex exec");
   });
 
-  it("slashCommands includes /loop on gemini, vscode, windsurf, codex", () => {
+  it("slashCommands includes /loop-knitbrain on gemini, vscode, windsurf, codex", () => {
     for (const p of ["gemini", "vscode", "windsurf", "codex"]) {
-      expect(slashCommands(p).map((c) => c.cmd)).toContain("/loop");
+      expect(slashCommands(p).map((c) => c.cmd)).toContain("/loop-knitbrain");
     }
   });
 
-  // /goal parity: in-session orchestration front door, on every platform /loop
-  // reaches (no gaps). Distinct from /loop (external runner) — drives the gate
+  // /goal-knitbrain parity: in-session orchestration front door, on every platform /loop-knitbrain
+  // reaches (no gaps). Distinct from /loop-knitbrain (external runner) — drives the gate
   // WITH YOU in-session via knitbrain_run + knitbrain_run_loop.
-  it("goalOrchestrationInstructions orchestrates in-session and points to /loop for hands-off", () => {
+  it("goalOrchestrationInstructions orchestrates in-session and points to /loop-knitbrain for hands-off", () => {
     const body = goalOrchestrationInstructions();
     expect(body).toContain("knitbrain_run");
     expect(body).toContain("knitbrain_run_loop");
     expect(body).toContain("deadline_ms");
     expect(body).toContain("NEVER fake met=true");
-    expect(body).toContain("/loop"); // cross-reference to the external runner
+    expect(body).toContain("/loop-knitbrain"); // cross-reference to the external runner
   });
 
-  it("every /loop platform also emits a /goal command (no gap)", () => {
-    expect(geminiArtifacts().some((a) => a.path === ".gemini/commands/goal.toml")).toBe(true);
-    expect(vscodeArtifacts().some((a) => a.path === ".github/prompts/goal.prompt.md")).toBe(true);
-    expect(windsurfArtifacts().some((a) => a.path === ".windsurf/workflows/goal.md")).toBe(true);
-    expect(codexSnippet(cfg)).toContain("~/.codex/prompts/goal.md");
+  it("every /loop-knitbrain platform also emits a /goal-knitbrain command (no gap)", () => {
+    expect(geminiArtifacts().some((a) => a.path === ".gemini/commands/goal-knitbrain.toml")).toBe(true);
+    expect(vscodeArtifacts().some((a) => a.path === ".github/prompts/goal-knitbrain.prompt.md")).toBe(true);
+    expect(windsurfArtifacts().some((a) => a.path === ".windsurf/workflows/goal-knitbrain.md")).toBe(true);
+    expect(codexSnippet(cfg)).toContain("~/.codex/prompts/goal-knitbrain.md");
   });
 
-  it("slashCommands lists /goal AND /loop on claude-code + gemini + vscode + windsurf + codex", () => {
+  it("slashCommands lists /goal-knitbrain AND /loop-knitbrain on claude-code + gemini + vscode + windsurf + codex", () => {
     for (const p of ["claude-code", "gemini", "vscode", "windsurf", "codex"]) {
       const cmds = slashCommands(p).map((c) => c.cmd);
-      expect(cmds).toContain("/goal");
-      expect(cmds).toContain("/loop");
+      expect(cmds).toContain("/goal-knitbrain");
+      expect(cmds).toContain("/loop-knitbrain");
     }
   });
 
