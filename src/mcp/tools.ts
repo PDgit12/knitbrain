@@ -1089,12 +1089,12 @@ export const TOOLS: readonly ToolDef[] = [
               "",
               ...tasks,
               "",
-              "Drive: knitbrain_run_loop(goal, verify_cmd) per cycle, or `knitbrain loop goal.md`.",
+              "Drive hands-off: `/loop goal.md --for 1h` (autonomous external runner) or `/goal` in this session. CLI: `knitbrain loop goal.md`.",
             ].join("\n"),
             "utf8",
           );
           const checkboxCount = tasks.filter((t) => t.startsWith("- [ ]")).length;
-          goalNote = ` goal.md written (${checkboxCount} checkbox${checkboxCount === 1 ? "" : "es"}, VERIFY honored by the loop) — start with \`knitbrain loop goal.md\` or knitbrain_run_loop.`;
+          goalNote = ` goal.md written (${checkboxCount} checkbox${checkboxCount === 1 ? "" : "es"}, VERIFY honored by the loop) — start with \`/loop goal.md --for 1h\` (autonomous runner) or \`/goal\` in-session.`;
         }
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written (ROUTING covers: ${domains.join(", ") || "none"}). knitbrain_load_session now surfaces your intent + workflow every session.${gapHint}${goalNote}`;
       }
