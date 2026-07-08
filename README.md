@@ -110,10 +110,10 @@ One engine, three ways in — the headless loop is the front door:
   passes; questions get answered directly.
 - **Two slash front doors, on every host that has a slash surface** (Claude Code, Codex, Gemini,
   VS Code Copilot, Windsurf — Cursor via terminal):
-  - **`/goal <done-means>`** drives the gate **with you, in this session** — `knitbrain_run`
+  - **`/goal-knitbrain <done-means>`** drives the gate **with you, in this session** — `knitbrain_run`
     orchestrates a skill + agents, then `knitbrain_run_loop` runs your verify command each cycle
     until it exits 0. Single context, interactive.
-  - **`/loop goal.md --for 2h`** hands off to the **external runner** (`knitbrain loop`): it
+  - **`/loop-knitbrain goal.md --for 2h`** hands off to the **external runner** (`knitbrain loop`): it
     *launches detached*, spawns a fresh agent per checkbox, and owns the loop itself — surviving
     your context window, not depending on any model choosing to continue. A slash command can't
     *be* an hour-long loop, so it launches the runner and hands back a watch handle.
@@ -132,7 +132,7 @@ alert on 1.
 
 ```cron
 # weekdays 9am: drive the goal for up to 2h, lint as the independent reviewer
-0 9 * * 1-5  cd /path/to/repo && knitbrain loop goal.md --for 2h --reviewer "npm run lint" >> ~/.knitbrain/loop.log 2>&1
+0 9 * * 1-5  cd /path/to/repo && knitbrain loop goal.md --for 2h --reviewer "npm run lint" >> ~/.knitbrain/loop-knitbrain.log 2>&1
 ```
 
 Same one-liner works as a launchd `ProgramArguments`, a CI cron job step, or the command behind
@@ -196,19 +196,19 @@ The optimizer is identical everywhere; what differs is reach:
 
 | Platform | MCP tools | Hook enforcement | Auto-compression | Slash commands |
 |---|---|---|---|---|
-| Claude Code | ✅ | ✅ full (deny · stop-block · inject · rewrite) | ✅ hooks | `/goal` `/loop` `/meter` `/handoff` `/terse` (`.claude/commands`) |
-| Codex CLI | ✅ | ✅ full (`.codex/hooks.json`) | hooks + `knitbrain_read` | `/goal` `/loop` (`~/.codex/prompts`) |
+| Claude Code | ✅ | ✅ full (deny · stop-block · inject · rewrite) | ✅ hooks | `/goal-knitbrain` `/loop-knitbrain` `/meter` `/handoff` `/terse` (`.claude/commands`) |
+| Codex CLI | ✅ | ✅ full (`.codex/hooks.json`) | hooks + `knitbrain_read` | `/goal-knitbrain` `/loop-knitbrain` (`~/.codex/prompts`) |
 | Cursor | ✅ | ✅ deny + follow-up loop (`.cursor/hooks.json`) | hooks + `knitbrain_read` | — (no slash API; documented in rules) |
-| Gemini CLI | ✅ | ✅ deny + AfterAgent loop (`.gemini/settings.json`) | hooks + `knitbrain_read` | `/goal` `/loop` (`.gemini/commands/*.toml`) |
-| VS Code Copilot | ✅ | ✅ full (reads `.claude/settings.json` natively) | hooks + `knitbrain_read` | `/goal` `/loop` (`.github/prompts/*.prompt.md`) |
-| Windsurf | ✅ | ✅ deny-only (exit-2) (`.windsurf/hooks.json`) | hooks + `knitbrain_read` | `/goal` `/loop` (`.windsurf/workflows`) |
+| Gemini CLI | ✅ | ✅ deny + AfterAgent loop (`.gemini/settings.json`) | hooks + `knitbrain_read` | `/goal-knitbrain` `/loop-knitbrain` (`.gemini/commands/*.toml`) |
+| VS Code Copilot | ✅ | ✅ full (reads `.claude/settings.json` natively) | hooks + `knitbrain_read` | `/goal-knitbrain` `/loop-knitbrain` (`.github/prompts/*.prompt.md`) |
+| Windsurf | ✅ | ✅ deny-only (exit-2) (`.windsurf/hooks.json`) | hooks + `knitbrain_read` | `/goal-knitbrain` `/loop-knitbrain` (`.windsurf/workflows`) |
 | Cline · any other MCP client | ✅ | — (advisory; hooks planned where APIs allow) | via `knitbrain_read` | — (runner works from any terminal) |
 | Any agent, API key | ✅ | — | ✅ proxy (full wire) | — |
 
 One hook binary serves every row: it detects the calling platform from the payload and answers in
 that host's schema. Where a host's API can't do something (Cursor can't block stop; Gemini can't
 rewrite output), knitbrain degrades to the nearest honest mechanism instead of claiming otherwise.
-`/goal` and `/loop` ship for every host with a slash-command surface — each in that host's native
+`/goal-knitbrain` and `/loop-knitbrain` ship for every host with a slash-command surface — each in that host's native
 format — so both front doors are the same everywhere. Cursor has no such surface; there the runner
 is a terminal command (`knitbrain loop`), documented in its always-on rules.
 
