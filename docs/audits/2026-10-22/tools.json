@@ -1,0 +1,628 @@
+{
+  "schemaVersion": 1,
+  "registeredCount": 37,
+  "nativeToolMetadataTokens": 3595,
+  "tokenizer": "o200k_base",
+  "note": "Native registration metadata only; excludes server instructions and host-added enrichment. Inventory coverage is not behavioral acceptance.",
+  "tools": [
+    {
+      "name": "knitbrain_ping",
+      "area": "observability",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-006",
+        "KB-007",
+        "KB-030"
+      ],
+      "acceptance": "Parseable outputs under pressure, session/lifetime separation, honest source/probe labels and useful health errors."
+    },
+    {
+      "name": "knitbrain_optimize",
+      "area": "optimization",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "text"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-002",
+        "KB-008",
+        "KB-012",
+        "KB-028"
+      ],
+      "acceptance": "Final emitted response never expands, correct argument errors, byte-exact recall, pressure and retention behavior."
+    },
+    {
+      "name": "knitbrain_retrieve",
+      "area": "optimization",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "handle"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-002",
+        "KB-008",
+        "KB-012",
+        "KB-028"
+      ],
+      "acceptance": "Final emitted response never expands, correct argument errors, byte-exact recall, pressure and retention behavior."
+    },
+    {
+      "name": "knitbrain_read",
+      "area": "optimization",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-002",
+        "KB-008",
+        "KB-012",
+        "KB-028"
+      ],
+      "acceptance": "Final emitted response never expands, correct argument errors, byte-exact recall, pressure and retention behavior."
+    },
+    {
+      "name": "knitbrain_record_learning",
+      "area": "memory/wiki",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "summary",
+        "lesson"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_search_learnings",
+      "area": "memory/wiki",
+      "outputKind": "data",
+      "requiredArguments": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_get_learning",
+      "area": "memory/wiki",
+      "outputKind": "data",
+      "requiredArguments": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_learning_outcome",
+      "area": "memory/wiki",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "id",
+        "helpful"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_save_handoff",
+      "area": "memory/wiki",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "state"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_load_session",
+      "area": "memory/wiki",
+      "outputKind": "data",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_context_meter",
+      "area": "observability",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-006",
+        "KB-007",
+        "KB-030"
+      ],
+      "acceptance": "Parseable outputs under pressure, session/lifetime separation, honest source/probe labels and useful health errors."
+    },
+    {
+      "name": "knitbrain_search_code",
+      "area": "index/retrieval",
+      "outputKind": "data",
+      "requiredArguments": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_scan",
+      "area": "index/retrieval",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_query_imports",
+      "area": "index/retrieval",
+      "outputKind": "data",
+      "requiredArguments": [
+        "file"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_query_exports",
+      "area": "index/retrieval",
+      "outputKind": "data",
+      "requiredArguments": [
+        "file"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_query_dependents",
+      "area": "index/retrieval",
+      "outputKind": "data",
+      "requiredArguments": [
+        "file"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_classify_task",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "description"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_record_false_positive",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "claimed_tier",
+        "actual_tier"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_metrics",
+      "area": "observability",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-006",
+        "KB-007",
+        "KB-030"
+      ],
+      "acceptance": "Parseable outputs under pressure, session/lifetime separation, honest source/probe labels and useful health errors."
+    },
+    {
+      "name": "knitbrain_propose_agents",
+      "area": "workflow/skills",
+      "outputKind": "data",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_create_agent",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_run",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "task"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_compose_skill",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "task"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_skill_save",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "name",
+        "body"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_skill_outcome",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "name",
+        "worked"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_team_post",
+      "area": "team",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "author",
+        "content"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-012",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Exact team_get, authorized clear/post, idempotent retry semantics, parallel updates and safe optional hub egress."
+    },
+    {
+      "name": "knitbrain_team_board",
+      "area": "team",
+      "outputKind": "data",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-012",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Exact team_get, authorized clear/post, idempotent retry semantics, parallel updates and safe optional hub egress."
+    },
+    {
+      "name": "knitbrain_team_get",
+      "area": "team",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-012",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Exact team_get, authorized clear/post, idempotent retry semantics, parallel updates and safe optional hub egress."
+    },
+    {
+      "name": "knitbrain_team_clear",
+      "area": "team",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-012",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Exact team_get, authorized clear/post, idempotent retry semantics, parallel updates and safe optional hub egress."
+    },
+    {
+      "name": "knitbrain_wiki_ingest",
+      "area": "memory/wiki",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "title",
+        "kind",
+        "content"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_wiki_query",
+      "area": "memory/wiki",
+      "outputKind": "data",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_wiki_lint",
+      "area": "memory/wiki",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_verify_claim",
+      "area": "index/retrieval",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "claim"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "KB-011",
+        "KB-013",
+        "KB-025"
+      ],
+      "acceptance": "Fresh correct symbols/files, bounded scope, protected paths, precise false/unparseable outcomes and latency."
+    },
+    {
+      "name": "knitbrain_brain_search",
+      "area": "memory/wiki",
+      "outputKind": "data",
+      "requiredArguments": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-013",
+        "KB-014",
+        "KB-028"
+      ],
+      "acceptance": "Default-strictness writes, exact get/handoff semantics, source-tagged recall, concurrent isolation and sensitive-state policy."
+    },
+    {
+      "name": "knitbrain_onboard",
+      "area": "workflow/skills",
+      "outputKind": "verbatim",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-003",
+        "KB-009",
+        "KB-010",
+        "KB-013",
+        "KB-027"
+      ],
+      "acceptance": "Action versus inquiry, domain relevance or abstention, constraints, scoped writes and idempotent setup."
+    },
+    {
+      "name": "knitbrain_run_loop",
+      "area": "completion",
+      "outputKind": "verbatim",
+      "requiredArguments": [
+        "goal",
+        "verify_cmd"
+      ],
+      "additionalProperties": false,
+      "findings": [
+        "KB-001",
+        "KB-003",
+        "KB-016",
+        "KB-017"
+      ],
+      "acceptance": "Blank/nonzero/timeout gates cannot report met; failure evidence survives; actual verification cwd is correct."
+    },
+    {
+      "name": "knitbrain_self_check",
+      "area": "observability",
+      "outputKind": "data",
+      "requiredArguments": [],
+      "additionalProperties": false,
+      "findings": [
+        "KB-002",
+        "KB-003",
+        "KB-006",
+        "KB-007",
+        "KB-030"
+      ],
+      "acceptance": "Parseable outputs under pressure, session/lifetime separation, honest source/probe labels and useful health errors."
+    }
+  ]
+}

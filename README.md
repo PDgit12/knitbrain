@@ -258,12 +258,16 @@ Two integration notes worth knowing up front:
 ```js
 import { createOptimizer } from "knitbrain";
 
-const opt = createOptimizer();               // optional: { ccrDir, params }
-const r = opt.optimize(bigToolOutput);        // { text, saved, handle, contentType }
-const original = opt.retrieve(r.handle);      // exact bytes back
+const bigToolOutput = JSON.stringify({ items: Array.from({ length: 100 }, (_, id) => ({ id, value: "example".repeat(20) })) });
+const opt = createOptimizer();               // optional: { root: "/path/to/recall-store" }
+const r = opt.compress(bigToolOutput);        // { skeleton, handle, compressed, originalTokens, skeletonTokens, ... }
+const original = r.compressed ? opt.retrieve(r.handle) : r.skeleton; // exact bytes back
 ```
 
 ## Development
+
+See [Contributing](CONTRIBUTING.md) and the [end-to-end audit and repair map](docs/audits/2026-10-22/README.md)
+for prioritized correctness, optimization and delivery work, with evidence and acceptance gates.
 
 ```bash
 git clone https://github.com/PDgit12/knitbrain && cd knitbrain

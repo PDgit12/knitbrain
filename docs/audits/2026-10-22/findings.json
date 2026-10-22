@@ -1,0 +1,516 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-10-22",
+  "baseCommit": "957e5b1e88cf74856cb85e8ef61a4b6244308eee",
+  "scope": "First-stage end-to-end repair map. Open findings are not fixed by a passing existing suite. Owner values are proposed responsibility areas, not assigned people.",
+  "findings": [
+    {
+      "id": "KB-001",
+      "priority": "P0",
+      "domain": "completion",
+      "owner": "MCP/runner",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Fail closed on missing verification gates",
+      "source": "src/engine/closed-loop.ts",
+      "evidence": "probes.json#KB-001",
+      "fix": "Reject empty and whitespace-only verify commands at MCP and CLI boundaries; never mark a task done without a configured gate. Separate clean-stop from goal-met status.",
+      "acceptance": "Blank/missing/whitespace gates return not-met without spawning; nonzero/timeout remain not-met; exit-zero commands alone can pass a valid gate. Cover CLI and MCP.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-002",
+      "priority": "P0",
+      "domain": "output-contract",
+      "owner": "MCP",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Keep JSON parseable under meter pressure and protocol warnings",
+      "source": "src/mcp/tools.ts",
+      "evidence": "probes.json#KB-002",
+      "fix": "Keep machine data in a structured envelope; deliver advisories separately. Apply protection to every JSON-producing tool, not only the compression path.",
+      "acceptance": "For all JSON tools, JSON.parse remains valid under ok/warn/handoff and strictness warn/block; exact retrieval remains byte-identical.",
+      "dependsOn": [
+        "KB-003"
+      ]
+    },
+    {
+      "id": "KB-003",
+      "priority": "P1",
+      "domain": "input-contract",
+      "owner": "MCP",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Enforce advertised input schemas at runtime",
+      "source": "src/server.ts",
+      "evidence": "probes.json#KB-003",
+      "fix": "Validate required keys, types, enums, bounds and additionalProperties before handler execution; return consistent protocol/tool errors with no side effects.",
+      "acceptance": "SDK stdio calls with omitted required text, wrong types, unknown properties, invalid enum, NaN/nonfinite internal inputs and oversized payloads are rejected; valid requests still work.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-004",
+      "priority": "P1",
+      "domain": "retrieval",
+      "owner": "index/retrieval",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Invalidate graph facts after edits, additions and deletions",
+      "source": "src/engine/knowledge.ts",
+      "evidence": "probes.json#KB-004",
+      "fix": "Use bounded incremental invalidation shared by graph queries and search; retain reverse-index consistency and report stale/incomplete state.",
+      "acceptance": "Same-process and reopened-cache tests observe modified exports/imports, new files and deleted nodes without a manual rescan; reindex cost measured on a declared corpus.",
+      "dependsOn": [
+        "KB-011"
+      ]
+    },
+    {
+      "id": "KB-005",
+      "priority": "P0",
+      "domain": "claim-verification",
+      "owner": "MCP/index",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Stop substring matches from verifying false claims",
+      "source": "src/mcp/tools.ts",
+      "evidence": "probes.json#KB-005",
+      "fix": "Match symbol names exactly and compare resolved canonical file identities. Unsupported or ambiguous claims must be unparseable rather than verified.",
+      "acceptance": "A file exporting foobar contradicts exports foo; similarly named files/imports cannot verify each other; aliases, NodeNext paths and ambiguous module tails have explicit tests.",
+      "dependsOn": [
+        "KB-004"
+      ]
+    },
+    {
+      "id": "KB-006",
+      "priority": "P1",
+      "domain": "measurement",
+      "owner": "meter/receipt",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Separate lifetime savings, session savings and live-window occupancy",
+      "source": "src/engine/meter.ts",
+      "evidence": "probes.json#KB-006",
+      "fix": "Keep lifetime totals but calculate session deltas from a session boundary. Do not present accumulated or resent savings as a measured current-context counterfactual.",
+      "acceptance": "A fresh session with no optimization reports zero session savings despite lifetime history; replayed requests and MCP-plus-proxy paths cannot double-count the same replacement.",
+      "dependsOn": [
+        "KB-008"
+      ]
+    },
+    {
+      "id": "KB-007",
+      "priority": "P1",
+      "domain": "measurement",
+      "owner": "meter/host",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Do not invent a larger context window when usage exceeds a configured limit",
+      "source": "src/engine/meter.ts",
+      "evidence": "probes.json#KB-007",
+      "fix": "Respect explicit configuration and known model capacity. Surface overflow or unknown capacity instead of silently promoting a 200k window to 1M.",
+      "acceptance": "210k observed in a configured 200k window stays overflow/handoff, not healthy at 21%; unknown models remain labelled unknown and host-specific capacities are tested.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-008",
+      "priority": "P1",
+      "domain": "optimization",
+      "owner": "optimizer/MCP",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Apply never-expand and savings accounting to the final emitted response",
+      "source": "src/mcp/tools.ts",
+      "evidence": "probes.json#KB-008",
+      "fix": "Include wrapper text, handles and advisories in the final token budget; fall back when the full response expands. Measure emitted rather than internal skeleton tokens.",
+      "acceptance": "The 86-token fixture no longer emits 108 tokens while reporting a saving; sweep boundary-sized payloads, long file paths and warnings for read, optimize, hooks and proxy.",
+      "dependsOn": [
+        "KB-002"
+      ]
+    },
+    {
+      "id": "KB-009",
+      "priority": "P1",
+      "domain": "routing",
+      "owner": "workflow",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Classify polite action requests and inflected write verbs correctly",
+      "source": "src/engine/workflow.ts",
+      "evidence": "probes.json#KB-009",
+      "fix": "Prioritize mutation intent over question punctuation and read words. Recognize create/update/fixes variants; make calibration unable to remove essential intent/risk rules.",
+      "acceptance": "Can you fix the bug? and Create a complete audit report and map needed fixes are actionable; explain the architecture remains inquiry. Report confusion matrix on a versioned task corpus.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-010",
+      "priority": "P1",
+      "domain": "routing",
+      "owner": "skills",
+      "status": "partial_local",
+      "confidence": "reproduced",
+      "title": "Use domain relevance and abstention for skill selection",
+      "source": "src/engine/skills.ts",
+      "evidence": "probes.json#KB-010",
+      "fix": "Preserve the local generic-word improvement, then add coverage/specificity thresholds, negative-domain cases, tie handling and explainable match evidence. Abstain on weak matches.",
+      "acceptance": "Local resume regressions remain green; payments-discovery no longer wins an MCP audit via map/evidence alone; domain-labelled corpus and healthy/unhealthy skill cases pass.",
+      "dependsOn": [
+        "KB-009"
+      ]
+    },
+    {
+      "id": "KB-011",
+      "priority": "P1",
+      "domain": "retrieval",
+      "owner": "index/retrieval",
+      "status": "verified_local_only",
+      "confidence": "regression-tested",
+      "title": "Promote resilient bounded scanning from local checkout to reviewed delivery",
+      "source": "src/engine/knowledge.ts",
+      "evidence": "../../local-audit-2026-10-21.md",
+      "fix": "Review and deliver existing protected-child/symlink fixes; expose skipped-path counts and completeness. Choose a bounded root and limits rather than silently scanning a home tree.",
+      "acceptance": "EPERM/EACCES/disappearing children preserve readable siblings; inaccessible root and EIO still fail; symlink cycles stop; active-host root and coverage diagnostics verified after restart.",
+      "dependsOn": [
+        "KB-013"
+      ]
+    },
+    {
+      "id": "KB-012",
+      "priority": "P1",
+      "domain": "recall",
+      "owner": "CCR",
+      "status": "open",
+      "confidence": "policy-reproduced",
+      "title": "Make recall lifetime and purge policy explicit",
+      "source": "src/ccr/store.ts",
+      "evidence": "probes.json#KB-012",
+      "fix": "Document bounded retention, warn before irreversible eviction and consider pinning active-session handles. Clarify recovery availability rather than promising permanent losslessness.",
+      "acceptance": "Hot/cold round trips and corruption checks pass; eviction cannot silently remove pinned live handles; missing/expired handles return actionable errors; docs match server startup maintenance.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-013",
+      "priority": "P1",
+      "domain": "project-scope",
+      "owner": "server/paths",
+      "status": "open",
+      "confidence": "source-confirmed",
+      "title": "Use one explicit project root for identity, queries and commands",
+      "source": "src/server.ts",
+      "evidence": "src/paths.ts; src/mcp/tools.ts",
+      "fix": "Resolve and canonicalize root once; align KNITBRAIN_PROJECT_DIR, store IDs, knowledge scanning, file reads and verification cwd. Add startup diagnostics for the selected root.",
+      "acceptance": "Server launched outside the overridden project searches and verifies the intended project; nested worktrees and two simultaneous projects cannot share the wrong state.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-014",
+      "priority": "P1",
+      "domain": "persistence",
+      "owner": "storage",
+      "status": "needs_reproduction",
+      "confidence": "source-risk",
+      "title": "Prove concurrent read-modify-write safety and crash recovery",
+      "source": "src/atomic.ts",
+      "evidence": "src/engine/meter.ts; src/engine/feedback.ts; src/ccr/store.ts",
+      "fix": "Evaluate transactions/locking or append-only events for shared counters and manifests. Atomic rename prevents partial files but does not itself prevent lost updates.",
+      "acceptance": "Multiprocess increments preserve exact expected totals; interleaved manifest writes preserve all handles; injected crash and corrupt-state recovery is deterministic and observable.",
+      "dependsOn": [
+        "KB-006",
+        "KB-012"
+      ]
+    },
+    {
+      "id": "KB-015",
+      "priority": "P1",
+      "domain": "workers",
+      "owner": "runner/fan",
+      "status": "open",
+      "confidence": "source-confirmed",
+      "title": "Fail closed when requested worker isolation cannot be created",
+      "source": "src/fan.ts",
+      "evidence": "src/fan.ts: worktreeFor returns process.cwd on failure",
+      "fix": "Refuse worker startup when isolation fails. Track per-task branch/artifact results separately from integration completion; keep integration review explicit.",
+      "acceptance": "Injected worktree creation failure runs zero agent commands in the shared checkout; independent-worker results cannot mark integrated acceptance met before reconciliation.",
+      "dependsOn": [
+        "KB-001"
+      ]
+    },
+    {
+      "id": "KB-016",
+      "priority": "P1",
+      "domain": "completion",
+      "owner": "runner/MCP",
+      "status": "open",
+      "confidence": "source-confirmed",
+      "title": "Enforce deadlines inside subprocesses and surface incomplete exit semantics",
+      "source": "src/loop.ts",
+      "evidence": "src/fan.ts; src/mcp/tools.ts",
+      "fix": "Apply remaining wall-clock budgets to agent, verify and reviewer processes, including child-process cleanup; emit explicit met/stopped/error result distinctions.",
+      "acceptance": "Hanging child cannot outlive the declared deadline beyond bounded teardown; max/time-budget stops with unfinished tasks are machine-distinguishable from goal-met across MCP, CLI and fan.",
+      "dependsOn": [
+        "KB-001"
+      ]
+    },
+    {
+      "id": "KB-017",
+      "priority": "P1",
+      "domain": "completion",
+      "owner": "MCP/runner",
+      "status": "open",
+      "confidence": "source-confirmed",
+      "title": "Return useful verification failure evidence and scope success to the actual command",
+      "source": "src/mcp/tools.ts",
+      "evidence": "src/mcp/tools.ts: execSync stdio ignore; makeReview([])",
+      "fix": "Capture bounded sanitized stderr/stdout, exit/signal/timeout and attempt metadata. Keep rubric strings explicitly advisory unless actually evaluated.",
+      "acceptance": "Distinct compile/test/timeout failures retain differentiating evidence without credentials; a passing trivial command cannot be described as full task/rubric acceptance.",
+      "dependsOn": [
+        "KB-001",
+        "KB-003"
+      ]
+    },
+    {
+      "id": "KB-018",
+      "priority": "P2",
+      "domain": "documentation",
+      "owner": "DX/library",
+      "status": "partial_local",
+      "confidence": "reproduced",
+      "title": "Fix the published library quickstart",
+      "source": "README.md",
+      "evidence": "probes.json#KB-018",
+      "fix": "README now uses the actual API and handles passthrough; local documented-method/exact-recovery smoke passes. Still execute the copied example against the packed package in a fresh consumer.",
+      "acceptance": "A fresh consumer copies the README example and recovers the exact original; no missing method or undocumented option is required.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-019",
+      "priority": "P1",
+      "domain": "release",
+      "owner": "release/maintainer",
+      "status": "open",
+      "confidence": "live-observed",
+      "title": "Track source, installed binary, active MCP and npm as distinct artifacts",
+      "source": "package.json",
+      "evidence": "repository.json",
+      "fix": "Introduce provenance/doctor output: version, commit/build, module path, root and integration mode. Keep release gates explicit; do not bump or publish as part of this audit.",
+      "acceptance": "Document npm 0.20.0 versus main 0.20.1; packed candidate and active-host smoke each attest their own artifact. Rollback/restart instructions tested separately.",
+      "dependsOn": [
+        "KB-020",
+        "KB-023",
+        "KB-027"
+      ]
+    },
+    {
+      "id": "KB-020",
+      "priority": "P1",
+      "domain": "dependencies",
+      "owner": "security/dependencies",
+      "status": "open",
+      "confidence": "registry-confirmed",
+      "title": "Triage and remediate existing upstream runtime advisories",
+      "source": "package-lock.json",
+      "evidence": "runtime-dependencies.json",
+      "fix": "Inventory direct/transitive advisories, establish reachable code paths and update compatible dependencies in a dedicated reviewed change. Do not use blind force upgrades.",
+      "acceptance": "npm audit --omit=dev has zero critical/high, or a reviewed time-bounded exception with reachability evidence; lockfile install, full verify and packed-consumer tests pass. Current report is not an exploit demonstration.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-021",
+      "priority": "P1",
+      "domain": "github",
+      "owner": "repository-admin",
+      "status": "open",
+      "confidence": "live-observed",
+      "title": "Require review and status checks on main",
+      "source": ".github/workflows/ci.yml",
+      "evidence": "repository.json",
+      "fix": "Maintainer activates a ruleset or branch protection with actual CI check names, pull-request review, force-push/deletion controls and an explicit bypass policy.",
+      "acceptance": "GitHub API proves the active rule targets main and requires the intended checks/review; a failing PR cannot merge via the normal path. No organization/admin settings changed by this map.",
+      "dependsOn": [
+        "KB-022",
+        "KB-023"
+      ]
+    },
+    {
+      "id": "KB-022",
+      "priority": "P2",
+      "domain": "github",
+      "owner": "CI",
+      "status": "partial_local",
+      "confidence": "source-confirmed",
+      "title": "Harden CI supply chain and reproducibility",
+      "source": ".github/workflows/ci.yml",
+      "evidence": "actions use mutable v4 tags, latest OS labels and no explicit permissions",
+      "fix": "This branch adds contents:read, run concurrency and job timeouts. Still pin reviewed external action revisions and runner/toolchain policy; add dependency review/update policy.",
+      "acceptance": "Every external action has an attested revision; untrusted PR jobs have no write token/secrets; timed-out builds terminate; required-check names are stable.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-023",
+      "priority": "P1",
+      "domain": "testing",
+      "owner": "test/CI",
+      "status": "open",
+      "confidence": "reproduced",
+      "title": "Extend existing green tests with adversarial end-to-end contracts",
+      "source": "tests/dispatch.test.ts",
+      "evidence": "probes.json; verification.json",
+      "fix": "Convert each reproduced defect to a failing regression before its fix. Run schema/output/pressure/strictness and e2e:tools in CI, and verify the exact packed candidate commit.",
+      "acceptance": "Each P0/P1 fix has a red-before/green-after test; default strictness and error paths are exercised through stdio, not just direct handler calls; skipped live tests stay labelled.",
+      "dependsOn": [
+        "KB-003"
+      ]
+    },
+    {
+      "id": "KB-024",
+      "priority": "P1",
+      "domain": "optimization",
+      "owner": "evals",
+      "status": "needs_evaluation",
+      "confidence": "coverage-gap",
+      "title": "Measure task fidelity and net session benefit, not just round-trip availability",
+      "source": "src/evals.ts",
+      "evidence": "src/evals.ts: identifier/error-line heuristics; scripts/bench.ts",
+      "fix": "Version a shareable held-out corpus with question/answer and decision-critical content checks. Compare no optimization, retrieval only, compression only and combined modes.",
+      "acceptance": "Report raw/emitted/recall/retry/tool-schema tokens, correctness, completion rate, latency and cost on the same tasks; no claimed universal answer preservation or provider-billed savings from token heuristics alone.",
+      "dependsOn": [
+        "KB-005",
+        "KB-008",
+        "KB-006",
+        "KB-012",
+        "KB-025"
+      ]
+    },
+    {
+      "id": "KB-025",
+      "priority": "P2",
+      "domain": "performance",
+      "owner": "optimizer/retrieval",
+      "status": "needs_benchmark",
+      "confidence": "source-risk",
+      "title": "Bound full scans, repeated reads, tokenization and deep-parse work",
+      "source": "src/engine/retrieval.ts",
+      "evidence": "src/optimizer/router.ts: detect before byType size guard",
+      "fix": "Profile cold/warm search and compression by size; cache safe unchanged chunks after freshness is correct; apply input budgets before expensive parsing and synchronous IO.",
+      "acceptance": "Publish dataset sizes, machine/runtime, cold/warm p50/p95, memory and event-loop delay; no tuning accepted if task fidelity regresses. Budgets set from measurements, not invented speedups.",
+      "dependsOn": [
+        "KB-004",
+        "KB-011"
+      ]
+    },
+    {
+      "id": "KB-026",
+      "priority": "P1",
+      "domain": "host-integration",
+      "owner": "platforms",
+      "status": "needs_evaluation",
+      "confidence": "coverage-gap",
+      "title": "Prove enforcement in actual supported hosts",
+      "source": "src/hooks/adapters.ts",
+      "evidence": "tests/hook-adapters.test.ts; README.md platform table",
+      "fix": "Maintain a host/version capability ledger separating payload-fixture tests from connected-host invocation, deny/stop/rewrite and fallback behavior.",
+      "acceptance": "For every claimed platform, record version and real lifecycle evidence or label unverified/advisory; OAuth tool-surface savings remain separate from API-proxy measurements.",
+      "dependsOn": [
+        "KB-003",
+        "KB-027"
+      ]
+    },
+    {
+      "id": "KB-027",
+      "priority": "P1",
+      "domain": "installation",
+      "owner": "setup/DX",
+      "status": "needs_evaluation",
+      "confidence": "live-observed",
+      "title": "Verify setup, upgrades, reconnect and removal without clobbering host config",
+      "source": "src/setup.ts",
+      "evidence": "src/global-config.ts; active host still showed old routing/search behavior",
+      "fix": "Test idempotent config merge, scoped roots, executable resolution, backups and uninstall/rollback. Emit stale-server/build diagnostics instead of implying a rebuild changed the running process.",
+      "acceptance": "Fresh install and upgrade preserve unrelated settings; reconnect reports the expected binary/root and passes read/recall/search probes; no live configuration changed silently.",
+      "dependsOn": [
+        "KB-013"
+      ]
+    },
+    {
+      "id": "KB-028",
+      "priority": "P1",
+      "domain": "privacy",
+      "owner": "storage/security",
+      "status": "needs_evaluation",
+      "confidence": "source-risk",
+      "title": "Review sensitive local retention and optional network boundaries",
+      "source": "src/ccr/store.ts",
+      "evidence": "src/learn.ts; src/engine/cleanse.ts; src/hub/client.ts; src/proxy/server.ts",
+      "fix": "Define which raw outputs/transcripts enter CCR versus scrubbed memory, file modes and project isolation. Document provider/hub egress, deletion/backup policy and opt-in import behavior.",
+      "acceptance": "Synthetic secret canaries prove intended redaction and isolation; raw exact-recall storage is disclosed accurately; permissions and hub/proxy access controls tested. Novel vulnerability details stay private under SECURITY.md.",
+      "dependsOn": [
+        "KB-012",
+        "KB-013",
+        "KB-020"
+      ]
+    },
+    {
+      "id": "KB-029",
+      "priority": "P1",
+      "domain": "governance",
+      "owner": "hooks/security",
+      "status": "needs_evaluation",
+      "confidence": "source-confirmed",
+      "title": "Bound enforcement claims to the actual permission mechanism",
+      "source": "src/hooks/pretooluse.ts",
+      "evidence": "literal constraint rules and documented fail-open behavior; src/hooks/index.ts",
+      "fix": "Document hooks as host-dependent policy assistance rather than a sandbox. Specify behavior when config/hooks fail and distinguish arbitrary user-authorized shell execution from enforced project restrictions.",
+      "acceptance": "A versioned command/host matrix tests direct and equivalent command forms plus missing/broken hooks; unsupported constraints are labelled unenforced rather than advertised as physically guaranteed.",
+      "dependsOn": [
+        "KB-003",
+        "KB-026"
+      ]
+    },
+    {
+      "id": "KB-030",
+      "priority": "P2",
+      "domain": "context-overhead",
+      "owner": "MCP/host",
+      "status": "needs_benchmark",
+      "confidence": "live-observed",
+      "title": "Measure standing protocol/tool-schema overhead and response verbosity",
+      "source": "src/mcp/instructions.ts",
+      "evidence": "src/server.ts: tools/list; repeated protocol text observed in connected tool descriptions",
+      "fix": "Measure native tools/list and host-enriched descriptions separately. Avoid repeating instructions per tool where the host permits shared instructions; deduplicate command inventories.",
+      "acceptance": "Record cold session overhead plus per-task tool/result tokens before/after; retain required operating guidance and do not attribute host-added repetition to source without measurement.",
+      "dependsOn": [
+        "KB-006",
+        "KB-024"
+      ]
+    },
+    {
+      "id": "KB-031",
+      "priority": "P2",
+      "domain": "github",
+      "owner": "maintainer/DX",
+      "status": "mapped_this_change",
+      "confidence": "artifact-verified",
+      "title": "Keep one traceable public repair backlog and review workflow",
+      "source": "docs/audits/2026-10-22/findings.json",
+      "evidence": "scripts/verify-audit-map.mjs; .github/PULL_REQUEST_TEMPLATE.md",
+      "fix": "Add linked audit index, machine-readable findings, reproduction evidence, dependency order, contribution instructions and issue/PR templates. Do not open dozens of speculative issues.",
+      "acceptance": "All IDs, sources, evidence fragments and dependencies validate; tool inventory covers all 37 tools; the public branch/PR identifies implemented versus open work and preserves private security disclosure.",
+      "dependsOn": []
+    },
+    {
+      "id": "KB-032",
+      "priority": "P2",
+      "domain": "compatibility",
+      "owner": "release/CI",
+      "status": "open",
+      "confidence": "source-confirmed",
+      "title": "Align declared Node support and actual CI coverage",
+      "source": "package.json",
+      "evidence": ".github/workflows/ci.yml: Node20/22, no declared-minimum Node18 lane",
+      "fix": "Choose and document a supported runtime policy based on dependency engines; test the minimum and current supported LTS versions on relevant operating systems, including macOS host fixtures.",
+      "acceptance": "Declared minimum can install/run the packed artifact; CI matrix matches policy; compatibility changes get explicit release notes, not an untested engine claim.",
+      "dependsOn": [
+        "KB-020",
+        "KB-022"
+      ]
+    }
+  ]
+}

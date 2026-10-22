@@ -1,0 +1,28 @@
+name: Optimization regression
+description: Report loss of useful information, output expansion or misleading savings.
+title: "optimization: "
+body:
+  - type: markdown
+    attributes:
+      value: "Share synthetic or redacted inputs only. A CCR handle can identify private raw content; do not attach private originals."
+  - type: textarea
+    id: artifact
+    attributes:
+      label: Artifact, integration and reproducible fixture
+      description: Commit/version, Node/OS, MCP/hook/proxy mode, host/version and shareable input.
+    validations:
+      required: true
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Measurements
+      description: Raw tokens, final emitted tokens including wrappers, recalls/retries, tokenizer and timing. Say explicitly if a metric is unknown.
+    validations:
+      required: true
+  - type: textarea
+    id: fidelity
+    attributes:
+      label: Decision or content affected
+      description: Expected decision/answer, lost content, exact-recall result and a failing acceptance check.
+    validations:
+      required: true
