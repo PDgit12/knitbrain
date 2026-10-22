@@ -1,0 +1,16 @@
+{
+  "command": "npm run verify",
+  "cwd": "/Users/piyushdua/knit-brain",
+  "exit_code": 0,
+  "environment": "localhost access enabled",
+  "test_files_passed": 67,
+  "test_files_skipped": 1,
+  "tests_passed": 626,
+  "tests_skipped": 1,
+  "typecheck": "passed",
+  "lint": "passed",
+  "build": "passed",
+  "consistency": "passed",
+  "bench": "passed",
+  "scope": "Local source checkout only; no managed server restart/publish"
+}

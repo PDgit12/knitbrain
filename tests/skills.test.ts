@@ -33,6 +33,18 @@ describe("skills engine (rung 19)", () => {
     expect(skills.list()[0]!.uses).toBe(1);
   });
 
+  it("does not route generic coding tasks to resume tooling", () => {
+    skills.save({ name: "resume-and-pdf-generation", body: "resume", triggers: ["review", "build", "data", "resume", "pdf"] });
+    expect(skills.find("review and build the data ingestion code")).toBeNull();
+    expect(skills.find("prepare a resume PDF" )?.name).toBe("resume-and-pdf-generation");
+  });
+
+  it("prefers a domain-specific match over generic triggers", () => {
+    skills.save({ name: "resume generation", body: "resume", triggers: ["review", "build", "data", "code"] });
+    skills.save({ name: "pipeline ingestion", body: "pipeline", triggers: ["pipeline", "ingestion"] });
+    expect(skills.find("review build data code for pipeline ingestion")?.name).toBe("pipeline ingestion");
+  });
+
   it("saving the same name UPDATES (skills compound)", () => {
     skills.save({ name: "x", body: "v1", triggers: ["alpha"] });
     skills.save({ name: "x", body: "v2", triggers: ["beta"] });

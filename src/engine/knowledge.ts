@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, lstatSync } from "node:fs";
 import { writeAtomic } from "../atomic.js";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -204,13 +204,30 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
 
   const norm = (file: string): string => relative(projectRoot, resolve(projectRoot, file)).split("\\").join("/");
 
+  const skippable = (error: unknown): boolean =>
+    ["EACCES", "EPERM", "ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
+
   function walk(dir: string, out: string[]): void {
-    for (const entry of readdirSync(dir)) {
+    let entries: string[];
+    try { entries = readdirSync(dir); }
+    catch (error) {
+      // An inaccessible root is a bad scan request. An inaccessible child must
+      // not prevent indexing readable siblings (macOS protected folders).
+      if (dir !== projectRoot && skippable(error)) return;
+      throw error;
+    }
+    for (const entry of entries) {
       if (SKIP_DIRS.has(entry) || entry.startsWith(".")) continue;
       const full = join(dir, entry);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full, out);
-      else if (SOURCE_EXT.test(entry)) out.push(full);
+      try {
+        const st = lstatSync(full);
+        // Stay inside the requested tree; links can point out or form cycles.
+        if (st.isSymbolicLink()) continue;
+        if (st.isDirectory()) walk(full, out);
+        else if (st.isFile() && SOURCE_EXT.test(entry)) out.push(full);
+      } catch (error) {
+        if (!skippable(error)) throw error;
+      }
     }
   }
 
@@ -221,8 +238,12 @@ export function createKnowledge(projectRoot: string, cacheDir: string): Knowledg
     for (const full of files) {
       const file = norm(full);
       const lang = langOf(file);
-      const src = stripComments(readFileSync(full, "utf8"), lang);
-      graph.set(file, { file, imports: parseImports(src, lang), exports: parseExports(src, lang) });
+      try {
+        const src = stripComments(readFileSync(full, "utf8"), lang);
+        graph.set(file, { file, imports: parseImports(src, lang), exports: parseExports(src, lang) });
+      } catch (error) {
+        if (!skippable(error)) throw error;
+      }
     }
     buildReverseIndex();
     writeAtomic(cachePath, JSON.stringify([...graph.values()]));
