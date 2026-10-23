@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -21,6 +29,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run verify
+      - run: node scripts/verify-audit-map.mjs
 
   # The live e2e + cold-start production-audit are NOT in `npm run verify`, so
   # marker/format drift (e.g. the optimizer's recall-marker rename) once slipped
@@ -28,6 +37,7 @@ jobs:
   # pack→install→drive cold-start, once (ubuntu/node 22) to keep CI fast.
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,4 +47,5 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run e2e
+      - run: npm run e2e:tools
       - run: node scripts/production-audit.mjs

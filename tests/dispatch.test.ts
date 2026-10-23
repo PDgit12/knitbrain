@@ -10,7 +10,7 @@ import { createTeamBoard } from "../src/engine/teams.js";
 import { createMeter } from "../src/engine/meter.js";
 import { createSkillsStore } from "../src/engine/skills.js";
 import { createCalibration } from "../src/engine/calibration.js";
-import { TOOLS, dispatch, type ToolDef, type ToolContext } from "../src/mcp/tools.js";
+import { TOOLS, dispatch, validateToolArgs, type ToolDef, type ToolContext } from "../src/mcp/tools.js";
 import { countTokens } from "../src/tokenizer.js";
 
 const bigJson = (): string =>
@@ -107,6 +107,27 @@ describe("MCP dispatch chokepoint (rung 6)", () => {
     const ping = TOOLS.find((t) => t.name === "knitbrain_ping")!;
     expect(ping.output).toBe("verbatim");
     expect(ping.run({}, ctx)).toContain("pong");
+  });
+
+  it("validates required, typed, enum, array-item, and unknown arguments before dispatch", () => {
+    const optimize = TOOLS.find((t) => t.name === "knitbrain_optimize")!;
+    expect(validateToolArgs(optimize, {})).toContain("requires argument `text`");
+    expect(validateToolArgs(optimize, { text: 42 })).toContain("must be string");
+    expect(validateToolArgs(optimize, { text: "ok", surprise: true })).toContain("does not accept");
+    const wiki = TOOLS.find((t) => t.name === "knitbrain_wiki_ingest")!;
+    expect(validateToolArgs(wiki, { title: "x", kind: "wrong", content: "x" })).toContain("must be one of");
+    const classify = TOOLS.find((t) => t.name === "knitbrain_classify_task")!;
+    expect(validateToolArgs(classify, { description: "x", files: [1] })).toContain("item 0 must be string");
+    expect(dispatch(optimize, {}, ctx)).toContain("refused");
+  });
+
+  it("keeps valid JSON parseable when the context meter warns", () => {
+    const payload = bigJson();
+    const dataTool: ToolDef = { name: "demo_json", description: "json", inputSchema: { type: "object" }, output: "data", run: () => payload };
+    const read = ctx.meter.read.bind(ctx.meter);
+    ctx.meter.read = () => ({ ...read(), status: "warn", advice: "meter warning" });
+    const out = dispatch(dataTool, {}, ctx);
+    expect(JSON.parse(out)).toEqual(JSON.parse(payload));
   });
 });
 

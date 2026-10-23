@@ -143,7 +143,7 @@ const main = async () => {
     ok(typeof meter.savedTokens === "number" && meter.savedTokens >= savedTok && savedTok > 0, `meter counted MCP-side savings (savedTokens=${meter.savedTokens} ≥ ${savedTok})`);
 
     console.log("[e2e-tools] memory: learnings + handoff + resume");
-    const rec = await call("knitbrain_record_learning", { summary: "validation helpers live in src/util.ts", domains: ["engine"] });
+    const rec = await call("knitbrain_record_learning", { summary: "validation helpers live in src/util.ts", lesson: "Use the shared validation helpers in src/util.ts.", tags: ["engine"] });
     ok(!rec.isError, "record_learning persists");
     const search = await call("knitbrain_search_learnings", { query: "validation helpers" });
     ok(search.text.includes("validation"), "search_learnings finds it (BM25 over real store)");

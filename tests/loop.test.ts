@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chdir } from "node:process";
 import { runLoop, goalVerify, goalReviewer } from "../src/loop.js";
 
 // Cross-platform mock commands (CI runs a Windows matrix — avoid sh builtins).
@@ -39,6 +40,18 @@ describe("runLoop — autonomous outer loop", () => {
     const code = await runLoop([goal, "--agent", OK, "--verify", FAIL, "--max", "3"]);
     expect(code).toBe(1);
     expect(readFileSync(goal, "utf8")).toContain("- [ ] risky"); // untouched
+  });
+
+  it("refuses to run when no verify gate can be derived", async () => {
+    writeFileSync(goal, "- [ ] risky\n");
+    const previous = process.cwd();
+    chdir(dir);
+    try {
+      expect(await runLoop([goal, "--agent", OK])).toBe(1);
+      expect(readFileSync(goal, "utf8")).toContain("- [ ] risky");
+    } finally {
+      chdir(previous);
+    }
   });
 
   it("fails closed when the agent command errors", async () => {
