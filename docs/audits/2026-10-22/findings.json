@@ -9,13 +9,13 @@
       "priority": "P0",
       "domain": "completion",
       "owner": "MCP/runner",
-      "status": "open",
-      "confidence": "reproduced",
+      "status": "partial_local",
+      "confidence": "regression-tested-local",
       "title": "Fail closed on missing verification gates",
       "source": "src/engine/closed-loop.ts",
       "evidence": "probes.json#KB-001",
-      "fix": "Reject empty and whitespace-only verify commands at MCP and CLI boundaries; never mark a task done without a configured gate. Separate clean-stop from goal-met status.",
-      "acceptance": "Blank/missing/whitespace gates return not-met without spawning; nonzero/timeout remain not-met; exit-zero commands alone can pass a valid gate. Cover CLI and MCP.",
+      "fix": "Reject empty and whitespace-only verify commands at MCP and CLI boundaries; never mark a task done without a configured gate. CLI clean-stop status semantics remain for follow-up.",
+      "acceptance": "Blank and whitespace-only gates return not-met; CLI refuses to run tasks when it cannot derive a gate; valid exit-zero commands can pass.",
       "dependsOn": []
     },
     {
@@ -23,13 +23,13 @@
       "priority": "P0",
       "domain": "output-contract",
       "owner": "MCP",
-      "status": "open",
-      "confidence": "reproduced",
+      "status": "partial_local",
+      "confidence": "regression-tested-local",
       "title": "Keep JSON parseable under meter pressure and protocol warnings",
       "source": "src/mcp/tools.ts",
       "evidence": "probes.json#KB-002",
-      "fix": "Keep machine data in a structured envelope; deliver advisories separately. Apply protection to every JSON-producing tool, not only the compression path.",
-      "acceptance": "For all JSON tools, JSON.parse remains valid under ok/warn/handoff and strictness warn/block; exact retrieval remains byte-identical.",
+      "fix": "Keep valid JSON outputs parseable under meter pressure and protocol warnings by omitting appended advisory text from JSON payloads. Structured side-channel advisories remain follow-up.",
+      "acceptance": "JSON.parse remains valid for parseable JSON tool results during meter warn/handoff; exact retrieval remains byte-identical. Non-JSON advisories retain current behavior.",
       "dependsOn": [
         "KB-003"
       ]
@@ -39,13 +39,13 @@
       "priority": "P1",
       "domain": "input-contract",
       "owner": "MCP",
-      "status": "open",
-      "confidence": "reproduced",
+      "status": "partial_local",
+      "confidence": "regression-tested-local",
       "title": "Enforce advertised input schemas at runtime",
       "source": "src/server.ts",
       "evidence": "probes.json#KB-003",
-      "fix": "Validate required keys, types, enums, bounds and additionalProperties before handler execution; return consistent protocol/tool errors with no side effects.",
-      "acceptance": "SDK stdio calls with omitted required text, wrong types, unknown properties, invalid enum, NaN/nonfinite internal inputs and oversized payloads are rejected; valid requests still work.",
+      "fix": "Validate advertised root-level required keys, primitive types, enums, array item types and additionalProperties before handler execution; return MCP tool errors for invalid calls. Full JSON Schema constraints and payload bounds remain follow-up.",
+      "acceptance": "SDK calls with omitted required fields, wrong primitive types, unknown properties, invalid enums and wrong array item types are rejected before handler execution; valid requests still work.",
       "dependsOn": []
     },
     {

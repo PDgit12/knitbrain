@@ -1442,6 +1442,8 @@ export function dispatch(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): string {
+  const invalid = validateToolArgs(tool, args);
+  if (invalid) return `refused: ${invalid}`;
   // PROTECT: hard-gate the brain boundary before the tool runs.
   const gate = protectGate(tool, ctx);
   if (gate.blocked) return gate.message;
@@ -1460,10 +1462,11 @@ export function dispatch(
   // contract is losslessness, and the meter tool itself.
   const reading = ctx.meter.read();
   const EXACT_OUTPUT = tool.name === "knitbrain_retrieve" || tool.name === "knitbrain_team_get";
-  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT) {
+  const jsonOutput = isJsonPayload(raw);
+  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT && !jsonOutput) {
     out += `\n\n[knitbrain context-meter] ${reading.advice}`;
   }
-  if (gate.warn) {
+  if (gate.warn && !jsonOutput) {
     out += `\n\n[knitbrain] protocol nudge: classify_task/run wasn't called this session — run it so writes are classified (KNITBRAIN_STRICTNESS=warn).`;
   }
 
@@ -1497,4 +1500,46 @@ export function dispatch(
     sessionOf(ctx).pendingLedger = [];
   }
   return out;
+}
+
+/** Validate the advertised JSON Schema subset at the server boundary. The SDK
+ * validates the schema for clients, but does not enforce it on incoming calls. */
+export function validateToolArgs(tool: ToolDef, args: unknown): string | null {
+  const schema = tool.inputSchema;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return `${tool.name} arguments must be an object`;
+  const value = args as Record<string, unknown>;
+  const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const required = Array.isArray(schema.required) ? schema.required as string[] : [];
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) return `${tool.name} requires argument \`${key}\``;
+  }
+  if (schema.additionalProperties === false) {
+    const extra = Object.keys(value).find((key) => !Object.hasOwn(properties, key));
+    if (extra) return `${tool.name} does not accept argument \`${extra}\``;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (!Object.hasOwn(properties, key)) continue;
+    const rule = properties[key];
+    if (!rule) continue;
+    const type = rule.type;
+    const valid = type === "string" ? typeof item === "string"
+      : type === "number" ? typeof item === "number" && Number.isFinite(item)
+      : type === "integer" ? typeof item === "number" && Number.isInteger(item)
+      : type === "boolean" ? typeof item === "boolean"
+      : type === "array" ? Array.isArray(item)
+      : type === "object" ? !!item && typeof item === "object" && !Array.isArray(item)
+      : true;
+    if (!valid) return `${tool.name} argument \`${key}\` must be ${String(type)}`;
+    if (Array.isArray(rule.enum) && !(rule.enum as unknown[]).includes(item)) {
+      return `${tool.name} argument \`${key}\` must be one of ${(rule.enum as unknown[]).join(", ")}`;
+    }
+    if (type === "array" && rule.items && Array.isArray(item)) {
+      const itemType = (rule.items as Record<string, unknown>).type;
+      const wrongIndex = item.findIndex((entry) => itemType === "string" ? typeof entry !== "string"
+        : itemType === "number" ? typeof entry !== "number" || !Number.isFinite(entry)
+        : itemType === "boolean" ? typeof entry !== "boolean" : false);
+      if (wrongIndex >= 0) return `${tool.name} argument \`${key}\` item ${wrongIndex} must be ${String(itemType)}`;
+    }
+  }
+  return null;
 }

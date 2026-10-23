@@ -17,7 +17,7 @@ import { createWikiStore, type WikiStore } from "./engine/wiki.js";
 import { currentContextTokens, currentContextModel } from "./engine/usage.js";
 import { agentLabel } from "./mcp/host.js";
 import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot, wikiRoot } from "./paths.js";
-import { TOOLS, dispatch, type ToolContext } from "./mcp/tools.js";
+import { TOOLS, dispatch, validateToolArgs, type ToolContext } from "./mcp/tools.js";
 import { INSTRUCTIONS } from "./mcp/instructions.js";
 import { SERVER_NAME, VERSION } from "./version.js";
 
@@ -88,6 +88,8 @@ export function buildServer(
         isError: true,
       };
     }
+    const invalid = validateToolArgs(tool, req.params.arguments ?? {});
+    if (invalid) return { content: [{ type: "text", text: `Invalid arguments: ${invalid}` }], isError: true };
     try {
       // Zero-setup: label the agent by the connected client + its billing mode.
       ctx.agentId = agentLabel(server.getClientVersion()?.name, process.env);

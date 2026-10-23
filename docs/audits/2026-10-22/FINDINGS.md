@@ -4,9 +4,9 @@ Generated from [findings.json](findings.json). States describe source/local evid
 
 | ID | Priority | Area | State | Evidence confidence |
 |---|---|---|---|---|
-| [KB-001](#kb-001) | P0 | completion | open | reproduced |
-| [KB-002](#kb-002) | P0 | output-contract | open | reproduced |
-| [KB-003](#kb-003) | P1 | input-contract | open | reproduced |
+| [KB-001](#kb-001) | P0 | completion | partial_local | regression-tested-local |
+| [KB-002](#kb-002) | P0 | output-contract | partial_local | regression-tested-local |
+| [KB-003](#kb-003) | P1 | input-contract | partial_local | regression-tested-local |
 | [KB-004](#kb-004) | P1 | retrieval | open | reproduced |
 | [KB-005](#kb-005) | P0 | claim-verification | open | reproduced |
 | [KB-006](#kb-006) | P1 | measurement | open | reproduced |
@@ -41,15 +41,15 @@ Generated from [findings.json](findings.json). States describe source/local evid
 
 ## KB-001 — Fail closed on missing verification gates
 
-**P0 · open · reproduced**
+**P0 · partial_local · regression-tested-local**
 
 Area: completion. Proposed owner: MCP/runner.
 
 Source: [src/engine/closed-loop.ts](../../../src/engine/closed-loop.ts). Evidence: probes.json#KB-001.
 
-Repair: Reject empty and whitespace-only verify commands at MCP and CLI boundaries; never mark a task done without a configured gate. Separate clean-stop from goal-met status.
+Repair: Empty and whitespace-only gates now fail closed in MCP grading; the CLI refuses to run tasks when it cannot derive a gate. CLI clean-stop status semantics remain for follow-up.
 
-Acceptance: Blank/missing/whitespace gates return not-met without spawning; nonzero/timeout remain not-met; exit-zero commands alone can pass a valid gate. Cover CLI and MCP.
+Acceptance: Blank and whitespace-only gates return not-met; the CLI no-gate path returns exit 1 before running tasks; valid exit-zero commands can pass. Focused unit and CLI tests pass locally. Published and connected-host behavior remains unverified.
 
 Dependencies: none.
 
@@ -57,15 +57,15 @@ Dependencies: none.
 
 ## KB-002 — Keep JSON parseable under meter pressure and protocol warnings
 
-**P0 · open · reproduced**
+**P0 · partial_local · regression-tested-local**
 
 Area: output-contract. Proposed owner: MCP.
 
 Source: [src/mcp/tools.ts](../../../src/mcp/tools.ts). Evidence: probes.json#KB-002.
 
-Repair: Keep machine data in a structured envelope; deliver advisories separately. Apply protection to every JSON-producing tool, not only the compression path.
+Repair: Dispatch now omits appended meter and protocol advisories when the tool result is valid JSON. A structured side channel for those advisories remains follow-up.
 
-Acceptance: For all JSON tools, JSON.parse remains valid under ok/warn/handoff and strictness warn/block; exact retrieval remains byte-identical.
+Acceptance: JSON output remains parseable during meter warn/handoff; non-JSON advisories and exact retrieval behavior retain their contracts. Focused dispatch regression passes locally. Published and connected-host behavior remains unverified.
 
 Dependencies: KB-003.
 
@@ -73,15 +73,15 @@ Dependencies: KB-003.
 
 ## KB-003 — Enforce advertised input schemas at runtime
 
-**P1 · open · reproduced**
+**P1 · partial_local · regression-tested-local**
 
 Area: input-contract. Proposed owner: MCP.
 
 Source: [src/server.ts](../../../src/server.ts). Evidence: probes.json#KB-003.
 
-Repair: Validate required keys, types, enums, bounds and additionalProperties before handler execution; return consistent protocol/tool errors with no side effects.
+Repair: The MCP boundary now checks required keys, primitive types, enums, array item types and additionalProperties before handler execution. Full JSON Schema constraints and payload bounds remain follow-up.
 
-Acceptance: SDK stdio calls with omitted required text, wrong types, unknown properties, invalid enum, NaN/nonfinite internal inputs and oversized payloads are rejected; valid requests still work.
+Acceptance: In-memory MCP client call with a missing required field returns isError before handler execution; unit tests cover wrong primitive types, unknown properties, invalid enums and array item types. Full JSON Schema constraints, size limits, published and connected-host behavior remain unverified.
 
 Dependencies: none.
 

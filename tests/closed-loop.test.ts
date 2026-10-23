@@ -74,8 +74,9 @@ describe("closed-loop default steps", () => {
     expect(defaultJudge("", true).clear).toBe(true);
   });
 
-  it("makeGrade: empty verify vacuously passes; run result drives pass", () => {
-    expect(makeGrade("", () => false)().pass).toBe(true);
+  it("makeGrade: empty or whitespace verify fails closed; run result drives pass", () => {
+    expect(makeGrade("", () => true)()).toEqual({ pass: false, detail: "verify command is required" });
+    expect(makeGrade("  \n", () => true)().pass).toBe(false);
     expect(makeGrade("x", () => true)().pass).toBe(true);
     expect(makeGrade("x", () => false)().pass).toBe(false);
   });
