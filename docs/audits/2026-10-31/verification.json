@@ -52,5 +52,12 @@
     "Real-model office goals and task-fidelity optimization evaluation",
     "Development-tool dependency advisories",
     "Remaining 32-item audit backlog; partial_local is not closure"
-  ]
+  ],
+  "ciInitial": {
+    "runId": 41244879382,
+    "commit": "fdecb6125770d6c0141ff4bd02377fdb89e04348",
+    "result": "failure",
+    "reason": "mailbox timestamp ties and Windows path/escaping/POSIX-mode test assumptions",
+    "correctedCandidate": "pending"
+  }
 }

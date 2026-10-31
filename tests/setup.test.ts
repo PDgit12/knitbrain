@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { detectPlatforms, generateConfig, mergeMcpJson, runSetup } from "../src/setup.js";
 
 describe("setup — platform detection (rung 9)", () => {
@@ -56,8 +56,9 @@ describe("setup — config generation (rung 9)", () => {
   });
 
   it("binds generated MCP config to the requested project directory", () => {
-    expect(generateConfig({ projectDir: "/tmp/project" }).mcpServers.knitbrain?.env?.KNITBRAIN_PROJECT_DIR)
-      .toBe("/tmp/project");
+    const projectDir = resolve("tmp", "project");
+    expect(generateConfig({ projectDir }).mcpServers.knitbrain?.env?.KNITBRAIN_PROJECT_DIR)
+      .toBe(projectDir);
   });
 
   it("merges into existing .mcp.json without clobbering other servers", () => {

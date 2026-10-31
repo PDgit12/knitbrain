@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acknowledge, postMessage, readMessageBatch, readMessages } from "../src/orchestration-mailbox.js";
 
+const chronological = <T extends { ts: string; id: string }>(a: T, b: T): number =>
+  Date.parse(a.ts) - Date.parse(b.ts) || a.id.localeCompare(b.id);
+
 const roots: string[] = [];
 function runDir(): string {
   const root = mkdtempSync(join(tmpdir(), "knitbrain-mailbox-"));
@@ -37,13 +40,14 @@ describe("run-scoped orchestration mailbox", () => {
     const posted = ["one", "two", "three", "four"].map((body) => postMessage(root, {
       runId: "run-1", from: "parent", to: "task:task-a", type: "request", body,
     }));
+    const ordered = [...posted].sort(chronological);
     const first = readMessageBatch(root, { runId: "run-1", taskId: "task-a", domainId: "hooks", limit: 2 });
-    expect(first.messages.map((m) => m.id)).toEqual(posted.slice(0, 2).map((m) => m.id));
+    expect(first.messages.map((m) => m.id)).toEqual(ordered.slice(0, 2).map((m) => m.id));
     expect(first).toMatchObject({ unreadCount: 4, hasMore: true });
     expect(() => readMessages(root, { runId: "run-1", taskId: "task-a", domainId: "hooks", limit: 2 })).toThrow(/use readMessageBatch/);
     acknowledge(root, "task-a", first.messages.map((m) => m.id));
     const second = readMessageBatch(root, { runId: "run-1", taskId: "task-a", domainId: "hooks", limit: 2 });
-    expect(second.messages.map((m) => m.id)).toEqual(posted.slice(2).map((m) => m.id));
+    expect(second.messages.map((m) => m.id)).toEqual(ordered.slice(2).map((m) => m.id));
     expect(second).toMatchObject({ unreadCount: 2, hasMore: false });
   });
 
@@ -55,7 +59,7 @@ describe("run-scoped orchestration mailbox", () => {
       artifacts: ["docs/evidence.md"],
     });
     const messages = readMessages(root, { runId: "run-1", taskId: "task-a", domainId: "hooks" });
-    expect(messages.map((x) => x.id)).toEqual([...messages].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts) || a.id.localeCompare(b.id)).map((x) => x.id));
+    expect(messages.map((x) => x.id)).toEqual([...messages].sort(chronological).map((x) => x.id));
     expect(messages.find((x) => x.id === reply.id)).toMatchObject({ replyTo: first.id, type: "result", artifacts: ["docs/evidence.md"] });
     expect(messages.find((x) => x.id === reply.id)).not.toHaveProperty("success");
     expect(messages.find((x) => x.id === reply.id)?.body).toContain("verified=true");
@@ -77,12 +81,14 @@ describe("run-scoped orchestration mailbox", () => {
     const mailboxMode = statSync(join(root, "mailbox")).mode & 0o777;
     const messagesDir = join(root, "mailbox", "messages");
     const messageMode = statSync(join(messagesDir, readdirSync(messagesDir)[0]!)).mode & 0o777;
-    expect(mailboxMode).toBe(0o700);
-    expect(messageMode).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(mailboxMode).toBe(0o700);
+      expect(messageMode).toBe(0o600);
+    }
     acknowledge(root, "task-a", [m.id]);
     acknowledge(root, "task-a", [m.id]);
     const ack = join(root, "mailbox", "acks", "task-a", m.id);
-    expect(statSync(ack).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(ack).mode & 0o777).toBe(0o600);
     expect(readMessages(root, { runId: "run-1", taskId: "task-a", domainId: "hooks" })).toEqual([]);
   });
 

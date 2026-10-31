@@ -101,13 +101,13 @@ describe("applyGlobalConfig (IO, backup)", () => {
     const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: home } } }, proxyEnv: {}, proxyPort: 8788 };
     const result = applyGlobalConfig("codex", home, undefined, { codexHome, config });
     expect(result.path).toBe(join(codexHome, "config.toml"));
-    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = "${home}"`);
+    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = ${JSON.stringify(home)}`);
   });
 
   it("writes project-specific root binding to project Codex config", () => {
     const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: home } } }, proxyEnv: {}, proxyPort: 8788 };
     const result = applyProjectCodexConfig(home, config);
     expect(result.path).toBe(join(home, ".codex", "config.toml"));
-    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = "${home}"`);
+    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = ${JSON.stringify(home)}`);
   });
 });
