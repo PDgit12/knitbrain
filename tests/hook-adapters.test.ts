@@ -52,6 +52,10 @@ describe("normalizeEventName — per-platform raw event → HookMode", () => {
     expect(normalizeEventName("cursor", "beforeReadFile")).toBe("pretooluse");
     expect(normalizeEventName("cursor", "stop")).toBe("stop");
     expect(normalizeEventName("cursor", "sessionStart")).toBe("sessionstart");
+    expect(normalizeEventName("cursor", "postToolUse")).toBe("posttooluse");
+    expect(normalizeEventName("cursor", "subagentStart")).toBe("subagentstart");
+    expect(normalizeEventName("cursor", "subagentStop")).toBe("subagentstop");
+    expect(normalizeEventName("cursor", "preCompact")).toBe("precompact");
   });
 
   it("gemini event names", () => {
@@ -125,6 +129,13 @@ describe("normalizeInput — translate platform payload → claude-internal shap
     const payload = { decision: "block" };
     expect(normalizeInput("vscode", "stop", payload)).toBe(payload);
     expect(normalizeInput("cursor", "stop", payload)).toBe(payload);
+  });
+});
+
+describe("adaptOutput — output rewrites only where the host can apply them", () => {
+  it("does not emit a Cursor replacement without proof this is an MCP result", () => {
+    const decision = { hookSpecificOutput: { updatedToolOutput: { stdout: "compressed" } } };
+    expect(adaptOutput("cursor", "posttooluse", decision)).toBeNull();
   });
 });
 

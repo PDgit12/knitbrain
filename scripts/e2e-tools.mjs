@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { countTokens } from "../dist/tokenizer.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -125,12 +126,16 @@ const main = async () => {
     ok(typeof run.directive === "string" && run.skill && run.classification, "run orchestrator returns classification + skill + directive");
 
     console.log("[e2e-tools] optimize / retrieve (the lossless loop)");
+    const beforeOptimize = JSON.parse((await call("knitbrain_context_meter")).text);
     const big = JSON.stringify({ rows: Array.from({ length: 120 }, (_, i) => ({ id: i, name: `row-${i}`, ok: i % 2 === 0 })) }, null, 2);
     const optText = (await call("knitbrain_optimize", { text: big })).text;
     const handle = /⟨recall:([0-9a-f]{64})⟩/.exec(optText)?.[1] ?? "";
-    const savings = /optimized: (\d+)→(\d+) tokens, saved ([\d.]+)%/.exec(optText);
-    const savedTok = savings ? Number(savings[1]) - Number(savings[2]) : 0;
-    ok(handle.length === 64 && savings && Number(savings[3]) > 30, `optimize compresses real JSON (saved ${savings?.[3]}%)`);
+    const originalTokens = countTokens(big);
+    const savedTok = originalTokens - countTokens(optText);
+    const savedPct = 100 * savedTok / originalTokens;
+    ok(handle.length === 64 && savedPct > 30, `optimize compresses real JSON including emitted wrappers (saved ${savedPct.toFixed(1)}%)`);
+    const afterOptimize = JSON.parse((await call("knitbrain_context_meter")).text);
+    ok(afterOptimize.sessionSavedTokens - beforeOptimize.sessionSavedTokens === savedTok, "meter savings equal measured complete emitted savings");
     const back = await call("knitbrain_retrieve", { handle });
     ok(back.text === big, "retrieve returns the EXACT original, byte-for-byte");
     const missing = await call("knitbrain_retrieve", { handle: "0".repeat(64) });
@@ -140,7 +145,7 @@ const main = async () => {
     const rd = await call("knitbrain_read", { path: "src/main.ts" });
     ok(!rd.isError && rd.text.includes("run"), "knitbrain_read serves a real project file");
     const meter = JSON.parse((await call("knitbrain_context_meter")).text);
-    ok(typeof meter.savedTokens === "number" && meter.savedTokens >= savedTok && savedTok > 0, `meter counted MCP-side savings (savedTokens=${meter.savedTokens} ≥ ${savedTok})`);
+    ok(typeof meter.sessionSavedTokens === "number" && meter.sessionSavedTokens >= savedTok && savedTok > 0, `meter counted session MCP savings (${meter.sessionSavedTokens} ≥ ${savedTok})`);
 
     console.log("[e2e-tools] memory: learnings + handoff + resume");
     const rec = await call("knitbrain_record_learning", { summary: "validation helpers live in src/util.ts", lesson: "Use the shared validation helpers in src/util.ts.", tags: ["engine"] });

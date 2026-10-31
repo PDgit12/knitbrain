@@ -116,6 +116,9 @@ export const CURSOR_HOOKS: Record<string, ReadonlyArray<{ command: string }>> = 
   postToolUse: [{ command: "knitbrain-hook posttooluse" }],
   stop: [{ command: "knitbrain-hook stop" }],
   sessionStart: [{ command: "knitbrain-hook sessionstart" }],
+  subagentStart: [{ command: "knitbrain-hook subagentstart" }],
+  subagentStop: [{ command: "knitbrain-hook subagentstop" }],
+  preCompact: [{ command: "knitbrain-hook precompact" }],
 } as const;
 
 /** Windsurf: repo `.windsurf/hooks.json`, flat {command} schema (same shape
@@ -295,7 +298,7 @@ export function cursorArtifacts(): Artifact[] {
  * snippet (codexSnippet) since it's global, not project-local. */
 export function codexArtifacts(): Artifact[] {
   return [
-    { path: ".codex/hooks.json", content: "", mode: "json-merge-hooks", hooksData: CODEX_HOOKS, hooksWrapped: false },
+    { path: ".codex/hooks.json", content: "", mode: "json-merge-hooks", hooksData: CODEX_HOOKS, hooksWrapped: true },
   ];
 }
 
@@ -403,10 +406,13 @@ export function zedSnippet(): string {
 
 /** Codex CLI: global config — print a snippet rather than touching ~/.codex. */
 export function codexSnippet(cfg: SetupConfig): string {
+  const server = cfg.mcpServers.knitbrain;
+  const env = Object.fromEntries(Object.entries(server?.env ?? {}).filter(([key]) => key !== "KNITBRAIN_PROJECT_DIR"));
   return [
-    "# Add to ~/.codex/config.toml :",
+    `# Add to ${process.env["CODEX_HOME"]?.trim() || "~/.codex"}/config.toml :`,
     "[mcp_servers.knitbrain]",
-    'command = "knitbrain"',
+    `command = ${JSON.stringify(server?.command ?? "knitbrain")}`,
+    ...(Object.keys(env).length ? [`env = { ${Object.entries(env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`] : []),
     "",
     "# Optional proxy (Codex supports base-URL override):",
     `#   export OPENAI_BASE_URL=${cfg.proxyEnv["OPENAI_BASE_URL"]}`,
@@ -419,6 +425,31 @@ export function codexSnippet(cfg: SetupConfig): string {
     "#   create ~/.codex/prompts/goal-knitbrain.md with front-matter + this body, then type /goal-knitbrain:",
     "#   " + goalOrchestrationInstructions().replace(/\n/g, "\n#   "),
   ].join("\n");
+}
+
+/** Merge managed MCP server entries while preserving host-specific fields and env. */
+export function mergeMcpServerMap(
+  existing: Record<string, unknown>,
+  generated: SetupConfig["mcpServers"],
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [name, desired] of Object.entries(generated)) {
+    const priorValue = existing[name];
+    const prior = priorValue && typeof priorValue === "object" && !Array.isArray(priorValue)
+      ? priorValue as Record<string, unknown>
+      : {};
+    const priorEnv = prior["env"] && typeof prior["env"] === "object" && !Array.isArray(prior["env"])
+      ? prior["env"] as Record<string, unknown>
+      : {};
+    merged[name] = {
+      ...prior,
+      ...desired,
+      ...(desired.env || Object.keys(priorEnv).length
+        ? { env: { ...priorEnv, ...(desired.env ?? {}) } }
+        : {}),
+    };
+  }
+  return merged;
 }
 
 /**
@@ -474,7 +505,14 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
       }
       if (a.mode === "json-merge-mcp") {
         const key = mcpKeyFor(a.path);
-        const servers = { ...((parsed[key] as Record<string, unknown>) ?? {}), ...cfg.mcpServers };
+        const priorServers = parsed[key] && typeof parsed[key] === "object" && !Array.isArray(parsed[key])
+          ? parsed[key] as Record<string, unknown>
+          : {};
+        const cursorServer = cfg.mcpServers.knitbrain;
+        const generatedServers = a.path === ".cursor/mcp.json" && cursorServer
+          ? { ...cfg.mcpServers, knitbrain: { ...cursorServer, type: "stdio" } }
+          : cfg.mcpServers;
+        const servers = mergeMcpServerMap(priorServers, generatedServers);
         content = JSON.stringify({ ...parsed, [key]: servers }, null, 2) + "\n";
       } else if (a.mode === "json-merge-hooks") {
         // Merge our hook entries into existing hooks, deduped by command —
@@ -483,9 +521,20 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
         // existing callers are unaffected; Codex/Gemini pass their own map.
         const hookMap = a.hooksData ?? KNITBRAIN_HOOKS;
         const wrapped = a.hooksWrapped ?? true;
+        const legacyEventKeys = wrapped && a.path === ".codex/hooks.json" ? Object.keys(hookMap) : [];
+        const legacyEvents: Record<string, unknown[]> = {};
+        for (const event of legacyEventKeys) {
+          if (Array.isArray(parsed[event])) legacyEvents[event] = parsed[event] as unknown[];
+        }
+        const preservedRoot = { ...parsed };
+        for (const event of legacyEventKeys) delete preservedRoot[event];
         const base: Record<string, unknown[]> = wrapped
           ? { ...((parsed["hooks"] as Record<string, unknown[]>) ?? {}) }
           : { ...(parsed as unknown as Record<string, unknown[]>) };
+        for (const [event, legacy] of Object.entries(legacyEvents)) {
+          const current = base[event] ?? [];
+          base[event] = [...current, ...legacy.filter((entry) => !current.some((existing) => JSON.stringify(existing) === JSON.stringify(entry)))];
+        }
         for (const [event, entries] of Object.entries(hookMap)) {
           const existing = (base[event] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
           const ours = entries.filter(
@@ -494,7 +543,7 @@ export function applyArtifacts(root: string, artifacts: Artifact[], cfg: SetupCo
           base[event] = [...existing, ...ours];
         }
         content = wrapped
-          ? JSON.stringify({ ...parsed, hooks: base }, null, 2) + "\n"
+          ? JSON.stringify({ ...preservedRoot, hooks: base }, null, 2) + "\n"
           : JSON.stringify({ ...parsed, ...base }, null, 2) + "\n";
       } else {
         // Cursor's hooks.json: flat {command} entries (no matcher/type

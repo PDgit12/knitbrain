@@ -85,7 +85,7 @@
       "priority": "P1",
       "domain": "measurement",
       "owner": "meter/receipt",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "reproduced",
       "title": "Separate lifetime savings, session savings and live-window occupancy",
       "source": "src/engine/meter.ts",
@@ -94,28 +94,30 @@
       "acceptance": "A fresh session with no optimization reports zero session savings despite lifetime history; replayed requests and MCP-plus-proxy paths cannot double-count the same replacement.",
       "dependsOn": [
         "KB-008"
-      ]
+      ],
+      "progressNote": "Added distinct sessionSavedTokens and session percentages; lifetime receipt counter remains explicit. Local meter regressions pass; live host accounting not established."
     },
     {
       "id": "KB-007",
       "priority": "P1",
       "domain": "measurement",
       "owner": "meter/host",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "reproduced",
       "title": "Do not invent a larger context window when usage exceeds a configured limit",
       "source": "src/engine/meter.ts",
       "evidence": "probes.json#KB-007",
       "fix": "Respect explicit configuration and known model capacity. Surface overflow or unknown capacity instead of silently promoting a 200k window to 1M.",
       "acceptance": "210k observed in a configured 200k window stays overflow/handoff, not healthy at 21%; unknown models remain labelled unknown and host-specific capacities are tested.",
-      "dependsOn": []
+      "dependsOn": [],
+      "progressNote": "Removed reactive capacity expansion from observed token use; overflow warns/caps percentage. Static model mappings still require current provider validation."
     },
     {
       "id": "KB-008",
       "priority": "P1",
       "domain": "optimization",
       "owner": "optimizer/MCP",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "reproduced",
       "title": "Apply never-expand and savings accounting to the final emitted response",
       "source": "src/mcp/tools.ts",
@@ -124,7 +126,8 @@
       "acceptance": "The 86-token fixture no longer emits 108 tokens while reporting a saving; sweep boundary-sized payloads, long file paths and warnings for read, optimize, hooks and proxy.",
       "dependsOn": [
         "KB-002"
-      ]
+      ],
+      "progressNote": "Full emitted response, annotation and recall overhead are now measured; no positive net savings returns exact original. Structured hook outputs retain field shape. Focused regressions pass; task fidelity/end-to-end benefit remain unverified."
     },
     {
       "id": "KB-009",
@@ -191,14 +194,15 @@
       "priority": "P1",
       "domain": "project-scope",
       "owner": "server/paths",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "source-confirmed",
       "title": "Use one explicit project root for identity, queries and commands",
       "source": "src/server.ts",
       "evidence": "src/paths.ts; src/mcp/tools.ts",
       "fix": "Resolve and canonicalize root once; align KNITBRAIN_PROJECT_DIR, store IDs, knowledge scanning, file reads and verification cwd. Add startup diagnostics for the selected root.",
       "acceptance": "Server launched outside the overridden project searches and verifies the intended project; nested worktrees and two simultaneous projects cannot share the wrong state.",
-      "dependsOn": []
+      "dependsOn": [],
+      "progressNote": "Canonical project root now binds memory namespace, server graph, relative reads, code search and verify cwd; generated setup config includes project root. MCP regression covers launch/project mismatch and home-scan refusal."
     },
     {
       "id": "KB-014",
@@ -285,7 +289,7 @@
       "priority": "P1",
       "domain": "release",
       "owner": "release/maintainer",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "live-observed",
       "title": "Track source, installed binary, active MCP and npm as distinct artifacts",
       "source": "package.json",
@@ -296,21 +300,23 @@
         "KB-020",
         "KB-023",
         "KB-027"
-      ]
+      ],
+      "progressNote": "Read-only doctor distinguishes source/dist runtime, host/config discovery and unverified connection. Installed/running/npm promotion remains outside source validation."
     },
     {
       "id": "KB-020",
       "priority": "P1",
       "domain": "dependencies",
       "owner": "security/dependencies",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "registry-confirmed",
       "title": "Triage and remediate existing upstream runtime advisories",
       "source": "package-lock.json",
       "evidence": "runtime-dependencies.json",
       "fix": "Inventory direct/transitive advisories, establish reachable code paths and update compatible dependencies in a dedicated reviewed change. Do not use blind force upgrades.",
       "acceptance": "npm audit --omit=dev has zero critical/high, or a reviewed time-bounded exception with reachability evidence; lockfile install, full verify and packed-consumer tests pass. Current report is not an exploit demonstration.",
-      "dependsOn": []
+      "dependsOn": [],
+      "progressNote": "Compatible lockfile updates reduced npm audit --omit=dev from 9 affected runtime packages to 0 on 2026-10-31. Full audit still reports development-tool advisories; live reachability is not asserted."
     },
     {
       "id": "KB-021",
@@ -348,7 +354,7 @@
       "priority": "P1",
       "domain": "testing",
       "owner": "test/CI",
-      "status": "open",
+      "status": "partial_local",
       "confidence": "reproduced",
       "title": "Extend existing green tests with adversarial end-to-end contracts",
       "source": "tests/dispatch.test.ts",
@@ -357,7 +363,8 @@
       "acceptance": "Each P0/P1 fix has a red-before/green-after test; default strictness and error paths are exercised through stdio, not just direct handler calls; skipped live tests stay labelled.",
       "dependsOn": [
         "KB-003"
-      ]
+      ],
+      "progressNote": "Added office lifecycle, process, mailbox, project-root and host-detection regressions. Real-client and full fidelity evaluation remain open."
     },
     {
       "id": "KB-024",
@@ -418,7 +425,7 @@
       "priority": "P1",
       "domain": "installation",
       "owner": "setup/DX",
-      "status": "needs_evaluation",
+      "status": "partial_local",
       "confidence": "live-observed",
       "title": "Verify setup, upgrades, reconnect and removal without clobbering host config",
       "source": "src/setup.ts",
@@ -427,7 +434,8 @@
       "acceptance": "Fresh install and upgrade preserve unrelated settings; reconnect reports the expected binary/root and passes read/recall/search probes; no live configuration changed silently.",
       "dependsOn": [
         "KB-013"
-      ]
+      ],
+      "progressNote": "Host discovery/config generation covers Codex/Claude/Cursor and custom CODEX_HOME; metadata-preserving merges tested. No live user settings changed or cross-host reconnect acceptance claimed."
     },
     {
       "id": "KB-028",

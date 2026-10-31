@@ -18,8 +18,14 @@ export interface MeterReading {
   windowTokens: number;
   /** 0–100. */
   usedPct: number;
-  /** Tokens the optimizer saved this session (before − after). */
+  /** Lifetime tokens saved (before − after), retained across session resets. */
   savedTokens: number;
+  /** Tokens saved in the current session; used for session-relative percentages. */
+  sessionSavedTokens?: number;
+  /** Source of the denominator; unknown provider limits are never inferred. */
+  windowSource?: "environment" | "request_model" | "host_model" | "configured" | "default";
+  /** Usage exceeded the known/configured window; actual provider capacity is unknown. */
+  overflow?: boolean;
   /**
    * Optimization as a fraction of the LIVE conversation window:
    * `saved / (liveWindow + saved)` — i.e. how much smaller the live context is
@@ -76,7 +82,7 @@ export interface Meter {
   /** Proxy saw the request's model id — adopt its known window (env override still wins). */
   onModel(model: string): void;
   read(): MeterReading;
-  /** New session: reset usage (savings history is kept). */
+  /** New session: reset usage and session savings; lifetime savings are kept. */
   reset(): void;
 }
 
@@ -112,6 +118,7 @@ interface State {
   lastRequestTokens: number;
   toolTokens: number;
   savedTokens: number;
+  sessionSavedTokens: number;
   /** Window adopted from the request's model id (proxy path). */
   modelWindowTokens?: number;
   /** G5: last seen model NAME (proxy onModel / host probe) — receipt rates key off it. */
@@ -149,13 +156,9 @@ export function modelWindow(model: string): number | null {
   return null;
 }
 
-/** Standard context-window tiers (tokens). The smallest tier ≥ observed usage
- *  is the honest effective window when the configured one is stale. */
-const WINDOW_TIERS = [200_000, 1_000_000];
-
 export function createMeter(root: string, opts: MeterOptions = {}): Meter {
-  // Configured window: env override → option → 200k default. Hardcoding 200k
-  // pinned usedPct at 100% on bigger models (false handoff) — env + auto-heal fix it.
+  // Configured window: env override → option → 200k default. Use model metadata
+  // when available; observed usage alone never establishes provider capacity.
   const envWindow = Number(process.env["KNITBRAIN_WINDOW_TOKENS"]);
   const envSet = Number.isFinite(envWindow) && envWindow > 0;
   const windowTokens = (envSet ? envWindow : undefined) ?? opts.windowTokens ?? 200_000;
@@ -164,14 +167,15 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
   mkdirSync(root, { recursive: true });
   const path = join(root, "meter.json");
 
-  let state: State = { lastRequestTokens: 0, toolTokens: 0, savedTokens: 0 };
+  let state: State = { lastRequestTokens: 0, toolTokens: 0, savedTokens: 0, sessionSavedTokens: 0 };
 
   // Proxy, MCP server, and dashboard all share this store across processes —
   // re-read disk before every public operation so no reader serves stale state.
   const reload = (): void => {
     if (!existsSync(path)) return;
     try {
-      state = { ...state, ...(JSON.parse(readFileSync(path, "utf8")) as State) };
+      const persisted = JSON.parse(readFileSync(path, "utf8")) as Partial<State>;
+      state = { ...state, ...persisted, sessionSavedTokens: persisted.sessionSavedTokens ?? 0 };
     } catch {
       /* keep current in-memory state */
     }
@@ -188,6 +192,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       state.lastRequestTokens = optimizedTokens;
       state.toolTokens = 0; // request already contains prior tool outputs
       state.savedTokens += Math.max(0, originalTokens - optimizedTokens);
+      state.sessionSavedTokens += Math.max(0, originalTokens - optimizedTokens);
       state.lastActivityTs = (opts.now ?? Date.now)();
       save();
     },
@@ -200,6 +205,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
     onSaved(tokens) {
       reload();
       state.savedTokens += Math.max(0, tokens);
+      state.sessionSavedTokens += Math.max(0, tokens);
       save();
     },
     onModel(model) {
@@ -212,6 +218,9 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       }
       if (w !== null && state.modelWindowTokens !== w) {
         state.modelWindowTokens = w;
+        dirty = true;
+      } else if (w === null && state.modelWindowTokens !== undefined) {
+        delete state.modelWindowTokens;
         dirty = true;
       }
       if (dirty) save();
@@ -228,20 +237,17 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       const usedTokens = Math.max(state.lastRequestTokens + state.toolTokens, real) + (estimated ? opts.baselineTokens! : 0);
       // Window precedence: explicit env override > window from the request's
       // model id (proxy `onModel`) > window PROBED from the transcript model
-      // (Claude Code, proactive) > configured/default. The probe kills the
-      // false "clear now" that a stale 200k default fired near ~200k usage on a
-      // 1M-window model, before the reactive tier-heal could correct it.
+      // (Claude Code, proactive) > configured/default. Observed usage cannot
+      // establish a larger provider window, so overflow remains explicit.
       const probedWindow = opts.realModel ? modelWindow(opts.realModel() ?? "") : null;
-      const baseWindow = envSet ? windowTokens : state.modelWindowTokens ?? probedWindow ?? windowTokens;
-      // Auto-heal: if observed usage exceeds the configured window, the window
-      // is stale (large-context model) — use the smallest standard tier that
-      // actually fits, so usedPct/status are honest instead of pinned at 100%.
-      const effectiveWindow =
-        usedTokens > baseWindow
-          ? WINDOW_TIERS.find((t) => t >= usedTokens) ?? Math.ceil(usedTokens / 1_000_000) * 1_000_000
-          : baseWindow;
+      const windowSource: NonNullable<MeterReading["windowSource"]> = envSet ? "environment"
+        : state.modelWindowTokens !== undefined ? "request_model"
+        : probedWindow !== null ? "host_model"
+        : opts.windowTokens !== undefined ? "configured" : "default";
+      const effectiveWindow = envSet ? windowTokens : state.modelWindowTokens ?? probedWindow ?? windowTokens;
+      const overflow = usedTokens > effectiveWindow;
       const usedPct = Math.min(100, Math.round((usedTokens / effectiveWindow) * 1000) / 10);
-      const frac = usedTokens / effectiveWindow;
+      const frac = overflow ? 1 : usedTokens / effectiveWindow;
       const status: MeterReading["status"] =
         frac >= handoffAt ? "handoff" : frac >= warnAt ? "warn" : "ok";
       let advice =
@@ -251,6 +257,7 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
             ? `Context ${usedPct}% full — finish the current step, then consider knitbrain_save_handoff before starting anything large.`
             : `Context ${usedPct}% full — healthy.`;
       if (estimated) advice += " (estimate — knitbrain sees only its own traffic on this host; the proxy or Claude Code hooks give exact numbers)";
+      if (overflow) advice += ` Usage exceeds the ${effectiveWindow.toLocaleString()} token ${windowSource} window. Provider capacity is unknown; set KNITBRAIN_WINDOW_TOKENS or provide a trusted model window.`;
       // Cache-staleness: idle past the provider prompt-cache TTL means the next
       // turn re-reads the whole window at full price — cost signal, not capacity.
       const idleMs = state.lastActivityTs ? (opts.now ?? Date.now)() - state.lastActivityTs : 0;
@@ -262,19 +269,18 @@ export function createMeter(root: string, opts: MeterOptions = {}): Meter {
       // unoptimized counterfactual (liveWindow + saved). usedTokens is the live
       // window (realUsage probe or tracked throughput).
       const optimizationPct =
-        state.savedTokens > 0
-          ? Math.round((state.savedTokens / (usedTokens + state.savedTokens)) * 1000) / 10
+        state.sessionSavedTokens > 0
+          ? Math.round((state.sessionSavedTokens / (usedTokens + state.sessionSavedTokens)) * 1000) / 10
           : 0;
       // Gap 8: tailor the optimization guidance to the billing surface — only
       // when the window is under pressure (no point nagging a healthy window).
       const billingMode = detectBillingMode();
       if (status !== "ok") advice += billingHint(billingMode);
-      // Report the EFFECTIVE window so the dashboard/meter show the honest
-      // denominator (e.g. "420k / 1M"), not the stale configured 200k.
-      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, optimizationPct, estimated, cacheCold, status, advice, billingMode, ...(state.lastModel ? { model: state.lastModel } : {}) };
+      return { usedTokens, windowTokens: effectiveWindow, usedPct, savedTokens: state.savedTokens, sessionSavedTokens: state.sessionSavedTokens, windowSource, overflow, optimizationPct, estimated, cacheCold, status, advice, billingMode, ...(state.lastModel ? { model: state.lastModel } : {}) };
     },
     reset() {
-      state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens, ...(state.lastModel ? { lastModel: state.lastModel } : {}) };
+      reload();
+      state = { lastRequestTokens: 0, toolTokens: 0, savedTokens: state.savedTokens, sessionSavedTokens: 0, ...(state.modelWindowTokens !== undefined ? { modelWindowTokens: state.modelWindowTokens } : {}), ...(state.lastModel ? { lastModel: state.lastModel } : {}) };
       save();
     },
   };

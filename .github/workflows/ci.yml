@@ -30,6 +30,7 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: node scripts/verify-audit-map.mjs
+      - run: node scripts/verify-office.mjs
 
   # The live e2e + cold-start production-audit are NOT in `npm run verify`, so
   # marker/format drift (e.g. the optimizer's recall-marker rename) once slipped
@@ -48,4 +49,5 @@ jobs:
       - run: npm ci
       - run: npm run e2e
       - run: npm run e2e:tools
+      - run: node scripts/check-runtime-package.mjs
       - run: node scripts/production-audit.mjs

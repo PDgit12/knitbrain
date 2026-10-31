@@ -130,6 +130,7 @@ import { decidePostToolUse, POSTTOOL_MIN_CHARS } from "../src/hooks/posttooluse.
 import { createFileCCRStore } from "../src/ccr/store.js";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { countTokens } from "../src/tokenizer.js";
 
 // src/hooks/index.ts runs `main()` unconditionally at module top-level (it's the
 // knitbrain-hook CLI entrypoint) — importing it directly would trigger a real
@@ -171,14 +172,19 @@ describe("PostToolUse hook (subscription auto-compression of host tool output)",
       // A big, compressible build log (repeated lines → high redundancy).
       const original = Array.from({ length: 400 }, (_, i) => `  at frame ${i} module/path/file-${i}.ts:${i}:10`).join("\n");
       let saved = 0;
-      const d = decidePostToolUse({ tool_name: "Bash", tool_response: { stdout: original } }, ccr, (n) => (saved += n))!;
+      const response = { stdout: original, stderr: "warning: retained", interrupted: false, isImage: false };
+      const d = decidePostToolUse({ tool_name: "Bash", tool_response: response }, ccr, (n) => (saved += n))!;
       expect(d).not.toBeNull();
-      const out = (d["hookSpecificOutput"] as Record<string, string>)["updatedToolOutput"]!;
-      expect(out).toContain("knitbrain: Bash output");
-      expect(out).toContain("⟨recall:");
+      const out = (d["hookSpecificOutput"] as Record<string, unknown>)["updatedToolOutput"] as typeof response;
+      expect(typeof out).toBe("object");
+      expect(out.stderr).toBe(response.stderr);
+      expect(out.interrupted).toBe(false);
+      expect(out.isImage).toBe(false);
+      expect(out.stdout).toContain("knitbrain: Bash output");
+      expect(out.stdout).toContain("⟨recall:");
       expect(saved).toBeGreaterThan(0);
       // Lossless: the handle in the skeleton restores the exact original bytes.
-      const handle = out.match(/⟨recall:([a-f0-9]+)⟩/)![1]!;
+      const handle = out.stdout.match(/⟨recall:([a-f0-9]+)⟩/)![1]!;
       expect(ccr.get(handle)).toBe(original);
     });
   });
@@ -308,24 +314,28 @@ describe("adaptOutput — G1 receipt (non-blocking Stop systemMessage) per platf
 });
 
 describe("decidePostToolUse — onSaved info callback", () => {
-  it("passes {rawTokens, storedTokens} alongside the saved-tokens delta", () => {
+  it("counts the entire host response shape, including preserved flags and stderr", () => {
     const root = mkdtempSync(join(tmpdir(), "knitbrain-ccr-info-"));
     try {
       const ccr = createFileCCRStore(root);
       const original = Array.from({ length: 400 }, (_, i) => `  at frame ${i} module/path/file-${i}.ts:${i}:10`).join("\n");
       let capturedInfo: { rawTokens: number; storedTokens: number } | undefined;
       let capturedSaved = 0;
-      decidePostToolUse(
-        { tool_name: "Bash", tool_response: { stdout: original } },
+      const response = { stdout: original, stderr: "warning retained", interrupted: false, isImage: false };
+      const decision = decidePostToolUse(
+        { tool_name: "Bash", tool_response: response },
         ccr,
         (n, info) => {
           capturedSaved = n;
           capturedInfo = info;
         },
       );
+      const emitted = (decision!.hookSpecificOutput as Record<string, unknown>).updatedToolOutput;
       expect(capturedInfo).toBeDefined();
       expect(capturedInfo!.rawTokens).toBeGreaterThan(capturedInfo!.storedTokens);
       expect(capturedSaved).toBe(capturedInfo!.rawTokens - capturedInfo!.storedTokens);
+      expect(capturedInfo!.rawTokens).toBe(countTokens(JSON.stringify(response)));
+      expect(capturedInfo!.storedTokens).toBe(countTokens(JSON.stringify(emitted)));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

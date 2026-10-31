@@ -1,5 +1,6 @@
 import { compress } from "../optimizer/router.js";
 import type { CCRStore } from "../ccr/store.js";
+import { countTokens } from "../tokenizer.js";
 
 /**
  * PostToolUse hook logic (pure — store + meter injected for tests).
@@ -34,18 +35,19 @@ export const POSTTOOL_MIN_CHARS = 1000;
  * plain string, Bash's {stdout,stderr}, and {text}/{content} objects. Unknown
  * shapes return null so the hook leaves them untouched (never break the host).
  * ponytail: covers string + Bash + common text fields; exotic shapes pass through. */
-function extractText(resp: unknown): string | null {
-  if (typeof resp === "string") return resp;
+function textField(resp: unknown): { text: string; replace: (value: string) => unknown } | null {
+  if (typeof resp === "string") return { text: resp, replace: (value) => value };
   if (resp && typeof resp === "object") {
     const o = resp as Record<string, unknown>;
-    if (typeof o["stdout"] === "string") {
-      const err = typeof o["stderr"] === "string" && o["stderr"] ? `\n${o["stderr"]}` : "";
-      return (o["stdout"] as string) + err;
+    for (const key of ["stdout", "text", "content"]) {
+      if (typeof o[key] === "string") return { text: o[key] as string, replace: (value) => ({ ...o, [key]: value }) };
     }
-    if (typeof o["text"] === "string") return o["text"] as string;
-    if (typeof o["content"] === "string") return o["content"] as string;
   }
   return null;
+}
+
+function responseTokens(value: unknown): number {
+  return countTokens(typeof value === "string" ? value : JSON.stringify(value));
 }
 
 export function decidePostToolUse(
@@ -55,19 +57,25 @@ export function decidePostToolUse(
 ): Record<string, unknown> | null {
   if (!input.tool_name || !POSTTOOL_TARGETS.has(input.tool_name)) return null;
 
-  const text = extractText(input.tool_response);
-  if (text === null || text.length < POSTTOOL_MIN_CHARS) return null;
+  const field = textField(input.tool_response);
+  if (field === null || field.text.length < POSTTOOL_MIN_CHARS) return null;
+  const text = field.text;
   // Already carries a recall handle (e.g. nested knitbrain output) — don't re-compress.
   if (text.includes("⟨recall:")) return null;
 
   const r = compress(text, ccr, { allowProse: true });
   if (!r.compressed) return null; // not worth it → leave the original untouched
 
-  onSaved(r.originalTokens - r.skeletonTokens, { rawTokens: r.originalTokens, storedTokens: r.skeletonTokens });
+  const updatedText = `${r.skeleton}\n\n[knitbrain: ${input.tool_name} output · exact original: knitbrain_retrieve ⟨recall:${r.handle}⟩]`;
+  const updatedToolOutput = field.replace(updatedText);
+  const rawTokens = responseTokens(input.tool_response);
+  const storedTokens = responseTokens(updatedToolOutput);
+  if (storedTokens >= rawTokens) return null;
+  onSaved(rawTokens - storedTokens, { rawTokens, storedTokens });
   return {
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      updatedToolOutput: `${r.skeleton}\n\n[knitbrain: ${input.tool_name} output ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨recall:${r.handle}⟩]`,
+      updatedToolOutput,
     },
   };
 }

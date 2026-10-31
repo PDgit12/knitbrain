@@ -9,28 +9,28 @@ Generated from [findings.json](findings.json). States describe source/local evid
 | [KB-003](#kb-003) | P1 | input-contract | partial_local | regression-tested-local |
 | [KB-004](#kb-004) | P1 | retrieval | open | reproduced |
 | [KB-005](#kb-005) | P0 | claim-verification | open | reproduced |
-| [KB-006](#kb-006) | P1 | measurement | open | reproduced |
-| [KB-007](#kb-007) | P1 | measurement | open | reproduced |
-| [KB-008](#kb-008) | P1 | optimization | open | reproduced |
+| [KB-006](#kb-006) | P1 | measurement | partial_local | reproduced |
+| [KB-007](#kb-007) | P1 | measurement | partial_local | reproduced |
+| [KB-008](#kb-008) | P1 | optimization | partial_local | reproduced |
 | [KB-009](#kb-009) | P1 | routing | open | reproduced |
 | [KB-010](#kb-010) | P1 | routing | partial_local | reproduced |
 | [KB-011](#kb-011) | P1 | retrieval | verified_local_only | regression-tested |
 | [KB-012](#kb-012) | P1 | recall | open | policy-reproduced |
-| [KB-013](#kb-013) | P1 | project-scope | open | source-confirmed |
+| [KB-013](#kb-013) | P1 | project-scope | partial_local | source-confirmed |
 | [KB-014](#kb-014) | P1 | persistence | needs_reproduction | source-risk |
 | [KB-015](#kb-015) | P1 | workers | open | source-confirmed |
 | [KB-016](#kb-016) | P1 | completion | open | source-confirmed |
 | [KB-017](#kb-017) | P1 | completion | open | source-confirmed |
 | [KB-018](#kb-018) | P2 | documentation | partial_local | reproduced |
-| [KB-019](#kb-019) | P1 | release | open | live-observed |
-| [KB-020](#kb-020) | P1 | dependencies | open | registry-confirmed |
+| [KB-019](#kb-019) | P1 | release | partial_local | live-observed |
+| [KB-020](#kb-020) | P1 | dependencies | partial_local | registry-confirmed |
 | [KB-021](#kb-021) | P1 | github | open | live-observed |
 | [KB-022](#kb-022) | P2 | github | partial_local | source-confirmed |
-| [KB-023](#kb-023) | P1 | testing | open | reproduced |
+| [KB-023](#kb-023) | P1 | testing | partial_local | reproduced |
 | [KB-024](#kb-024) | P1 | optimization | needs_evaluation | coverage-gap |
 | [KB-025](#kb-025) | P2 | performance | needs_benchmark | source-risk |
 | [KB-026](#kb-026) | P1 | host-integration | needs_evaluation | coverage-gap |
-| [KB-027](#kb-027) | P1 | installation | needs_evaluation | live-observed |
+| [KB-027](#kb-027) | P1 | installation | partial_local | live-observed |
 | [KB-028](#kb-028) | P1 | privacy | needs_evaluation | source-risk |
 | [KB-029](#kb-029) | P1 | governance | needs_evaluation | source-confirmed |
 | [KB-030](#kb-030) | P2 | context-overhead | needs_benchmark | live-observed |
@@ -121,7 +121,7 @@ Dependencies: KB-004.
 
 ## KB-006 — Separate lifetime savings, session savings and live-window occupancy
 
-**P1 · open · reproduced**
+**P1 · partial_local · reproduced**
 
 Area: measurement. Proposed owner: meter/receipt.
 
@@ -131,13 +131,15 @@ Repair: Keep lifetime totals but calculate session deltas from a session boundar
 
 Acceptance: A fresh session with no optimization reports zero session savings despite lifetime history; replayed requests and MCP-plus-proxy paths cannot double-count the same replacement.
 
+Local progress (2026-10-31): Added distinct sessionSavedTokens and session percentages; lifetime receipt counter remains explicit. Local meter regressions pass; live host accounting not established.
+
 Dependencies: KB-008.
 
 <a id="kb-007"></a>
 
 ## KB-007 — Do not invent a larger context window when usage exceeds a configured limit
 
-**P1 · open · reproduced**
+**P1 · partial_local · reproduced**
 
 Area: measurement. Proposed owner: meter/host.
 
@@ -147,13 +149,15 @@ Repair: Respect explicit configuration and known model capacity. Surface overflo
 
 Acceptance: 210k observed in a configured 200k window stays overflow/handoff, not healthy at 21%; unknown models remain labelled unknown and host-specific capacities are tested.
 
+Local progress (2026-10-31): Removed reactive capacity expansion from observed token use; overflow warns/caps percentage. Static model mappings still require current provider validation.
+
 Dependencies: none.
 
 <a id="kb-008"></a>
 
 ## KB-008 — Apply never-expand and savings accounting to the final emitted response
 
-**P1 · open · reproduced**
+**P1 · partial_local · reproduced**
 
 Area: optimization. Proposed owner: optimizer/MCP.
 
@@ -162,6 +166,8 @@ Source: [src/mcp/tools.ts](../../../src/mcp/tools.ts). Evidence: probes.json#KB-
 Repair: Include wrapper text, handles and advisories in the final token budget; fall back when the full response expands. Measure emitted rather than internal skeleton tokens.
 
 Acceptance: The 86-token fixture no longer emits 108 tokens while reporting a saving; sweep boundary-sized payloads, long file paths and warnings for read, optimize, hooks and proxy.
+
+Local progress (2026-10-31): Full emitted response, annotation and recall overhead are now measured; no positive net savings returns exact original. Structured hook outputs retain field shape. Focused regressions pass; task fidelity/end-to-end benefit remain unverified.
 
 Dependencies: KB-002.
 
@@ -233,7 +239,7 @@ Dependencies: none.
 
 ## KB-013 — Use one explicit project root for identity, queries and commands
 
-**P1 · open · source-confirmed**
+**P1 · partial_local · source-confirmed**
 
 Area: project-scope. Proposed owner: server/paths.
 
@@ -242,6 +248,8 @@ Source: [src/server.ts](../../../src/server.ts). Evidence: src/paths.ts; src/mcp
 Repair: Resolve and canonicalize root once; align KNITBRAIN_PROJECT_DIR, store IDs, knowledge scanning, file reads and verification cwd. Add startup diagnostics for the selected root.
 
 Acceptance: Server launched outside the overridden project searches and verifies the intended project; nested worktrees and two simultaneous projects cannot share the wrong state.
+
+Local progress (2026-10-31): Canonical project root now binds memory namespace, server graph, relative reads, code search and verify cwd; generated setup config includes project root. MCP regression covers launch/project mismatch and home-scan refusal.
 
 Dependencies: none.
 
@@ -329,7 +337,7 @@ Dependencies: none.
 
 ## KB-019 — Track source, installed binary, active MCP and npm as distinct artifacts
 
-**P1 · open · live-observed**
+**P1 · partial_local · live-observed**
 
 Area: release. Proposed owner: release/maintainer.
 
@@ -339,13 +347,15 @@ Repair: Introduce provenance/doctor output: version, commit/build, module path, 
 
 Acceptance: Document npm 0.20.0 versus main 0.20.1; packed candidate and active-host smoke each attest their own artifact. Rollback/restart instructions tested separately.
 
+Local progress (2026-10-31): Read-only doctor distinguishes source/dist runtime, host/config discovery and unverified connection. Installed/running/npm promotion remains outside source validation.
+
 Dependencies: KB-020, KB-023, KB-027.
 
 <a id="kb-020"></a>
 
 ## KB-020 — Triage and remediate existing upstream runtime advisories
 
-**P1 · open · registry-confirmed**
+**P1 · partial_local · registry-confirmed**
 
 Area: dependencies. Proposed owner: security/dependencies.
 
@@ -354,6 +364,8 @@ Source: [package-lock.json](../../../package-lock.json). Evidence: runtime-depen
 Repair: Inventory direct/transitive advisories, establish reachable code paths and update compatible dependencies in a dedicated reviewed change. Do not use blind force upgrades.
 
 Acceptance: npm audit --omit=dev has zero critical/high, or a reviewed time-bounded exception with reachability evidence; lockfile install, full verify and packed-consumer tests pass. Current report is not an exploit demonstration.
+
+Local progress (2026-10-31): Compatible lockfile updates reduced npm audit --omit=dev from 9 affected runtime packages to 0 on 2026-10-31. Full audit still reports development-tool advisories; live reachability is not asserted.
 
 Dependencies: none.
 
@@ -393,7 +405,7 @@ Dependencies: none.
 
 ## KB-023 — Extend existing green tests with adversarial end-to-end contracts
 
-**P1 · open · reproduced**
+**P1 · partial_local · reproduced**
 
 Area: testing. Proposed owner: test/CI.
 
@@ -402,6 +414,8 @@ Source: [tests/dispatch.test.ts](../../../tests/dispatch.test.ts). Evidence: pro
 Repair: Convert each reproduced defect to a failing regression before its fix. Run schema/output/pressure/strictness and e2e:tools in CI, and verify the exact packed candidate commit.
 
 Acceptance: Each P0/P1 fix has a red-before/green-after test; default strictness and error paths are exercised through stdio, not just direct handler calls; skipped live tests stay labelled.
+
+Local progress (2026-10-31): Added office lifecycle, process, mailbox, project-root and host-detection regressions. Real-client and full fidelity evaluation remain open.
 
 Dependencies: KB-003.
 
@@ -457,7 +471,7 @@ Dependencies: KB-003, KB-027.
 
 ## KB-027 — Verify setup, upgrades, reconnect and removal without clobbering host config
 
-**P1 · needs_evaluation · live-observed**
+**P1 · partial_local · live-observed**
 
 Area: installation. Proposed owner: setup/DX.
 
@@ -466,6 +480,8 @@ Source: [src/setup.ts](../../../src/setup.ts). Evidence: src/global-config.ts; a
 Repair: Test idempotent config merge, scoped roots, executable resolution, backups and uninstall/rollback. Emit stale-server/build diagnostics instead of implying a rebuild changed the running process.
 
 Acceptance: Fresh install and upgrade preserve unrelated settings; reconnect reports the expected binary/root and passes read/recall/search probes; no live configuration changed silently.
+
+Local progress (2026-10-31): Host discovery/config generation covers Codex/Claude/Cursor and custom CODEX_HOME; metadata-preserving merges tested. No live user settings changed or cross-host reconnect acceptance claimed.
 
 Dependencies: KB-013.
 

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   applyArtifacts,
   claudeArtifacts,
@@ -15,8 +15,9 @@ import {
   windsurfSnippet,
   zedSnippet,
   copilotSnippet,
+  mergeMcpServerMap,
 } from "./platforms.js";
-import { applyGlobalConfig, type GlobalConfigKind } from "./global-config.js";
+import { applyGlobalConfig, applyProjectCodexConfig, type GlobalConfigKind } from "./global-config.js";
 import { scanHost, registerHostSkills } from "./engine/host-scan.js";
 import { createSkillsStore } from "./engine/skills.js";
 import { skillsRoot } from "./paths.js";
@@ -36,21 +37,39 @@ export interface DetectInputs {
   env: NodeJS.ProcessEnv;
   exists: (path: string) => boolean;
   home: string;
+  /** Current repository; host apps also support project-local config. */
+  cwd?: string;
 }
 
 /** Detect which coding platform(s) are present (pure — inputs injected). */
 export function detectPlatforms(inp: DetectInputs): Platform[] {
   const found: Platform[] = [];
+  const cwd = inp.cwd ?? process.cwd();
+  const claudeConfigDir = inp.env["CLAUDE_CONFIG_DIR"]?.trim();
+  const codexHome = inp.env["CODEX_HOME"]?.trim();
   if (
     inp.env["CLAUDECODE"] ||
     inp.env["CLAUDE_CODE"] ||
+    claudeConfigDir ||
     inp.exists(join(inp.home, ".claude.json")) ||
-    inp.exists(join(inp.home, ".claude"))
+    inp.exists(join(inp.home, ".claude")) ||
+    (claudeConfigDir ? inp.exists(claudeConfigDir) : false) ||
+    inp.exists(join(cwd, ".mcp.json"))
   ) {
     found.push("claude-code");
   }
-  if (inp.exists(join(inp.home, ".cursor"))) found.push("cursor");
-  if (inp.exists(join(inp.home, ".codex"))) found.push("codex");
+  if (
+    inp.env["CURSOR_TRACE_ID"] ||
+    inp.env["CURSOR_WORKSPACE"] ||
+    inp.exists(join(inp.home, ".cursor")) ||
+    inp.exists(join(cwd, ".cursor"))
+  ) found.push("cursor");
+  if (
+    inp.env["CODEX_SESSION_ID"] ||
+    codexHome ||
+    inp.exists(join(inp.home, ".codex")) ||
+    inp.exists(join(cwd, ".codex"))
+  ) found.push("codex");
   if (inp.exists(join(inp.home, ".vscode")) || inp.env["TERM_PROGRAM"] === "vscode") {
     found.push("vscode");
   }
@@ -62,16 +81,22 @@ export function detectPlatforms(inp: DetectInputs): Platform[] {
 }
 
 export interface SetupConfig {
-  mcpServers: Record<string, { command: string }>;
+  mcpServers: Record<string, { command: string; env?: Record<string, string>; [key: string]: unknown }>;
   proxyEnv: Record<string, string>;
   proxyPort: number;
 }
 
 /** The config knitbrain wires up: an MCP server entry + the proxy base URLs. */
-export function generateConfig(opts: { proxyPort?: number } = {}): SetupConfig {
+export function generateConfig(opts: { proxyPort?: number; projectDir?: string } = {}): SetupConfig {
   const port = opts.proxyPort ?? 8788;
+  const projectDir = opts.projectDir ? resolve(opts.projectDir) : undefined;
   return {
-    mcpServers: { knitbrain: { command: "knitbrain" } },
+    mcpServers: {
+      knitbrain: {
+        command: "knitbrain",
+        ...(projectDir ? { env: { KNITBRAIN_PROJECT_DIR: projectDir } } : {}),
+      },
+    },
     proxyEnv: {
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
       OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1`,
@@ -82,15 +107,21 @@ export function generateConfig(opts: { proxyPort?: number } = {}): SetupConfig {
 
 /** Merge knitbrain's MCP server into a project-local .mcp.json (safe, non-clobbering). */
 export function mergeMcpJson(existing: string | null, cfg: SetupConfig): string {
-  let parsed: { mcpServers?: Record<string, unknown> } = {};
+  let parsed: { mcpServers?: Record<string, unknown>; [key: string]: unknown } = {};
   if (existing) {
     try {
-      parsed = JSON.parse(existing) as { mcpServers?: Record<string, unknown> };
+      const value: unknown = JSON.parse(existing);
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        parsed = value as { mcpServers?: Record<string, unknown>; [key: string]: unknown };
+      }
     } catch {
       parsed = {};
     }
   }
-  const mcpServers = { ...(parsed.mcpServers ?? {}), ...cfg.mcpServers };
+  const prior = parsed.mcpServers && typeof parsed.mcpServers === "object" && !Array.isArray(parsed.mcpServers)
+    ? parsed.mcpServers
+    : {};
+  const mcpServers = mergeMcpServerMap(prior, cfg.mcpServers);
   return JSON.stringify({ ...parsed, mcpServers }, null, 2) + "\n";
 }
 
@@ -109,8 +140,9 @@ const GLOBAL_KIND: Partial<Record<Platform, GlobalConfigKind>> = {
 };
 
 export function runSetup(cwd: string = process.cwd(), argv: string[] = process.argv.slice(3)): number {
-  const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
-  const cfg = generateConfig();
+  const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir(), cwd });
+  const cfg = generateConfig({ projectDir: cwd });
+  const globalCfg = generateConfig();
   // --yes writes global configs (Codex/Windsurf/Zed/Copilot CLI) directly,
   // backed up + non-clobbering, instead of printing a snippet to paste.
   const writeGlobals = argv.includes("--yes") || argv.includes("-y");
@@ -130,6 +162,10 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   for (const path of applyArtifacts(cwd, artifacts, cfg)) console.log(`  ✓ wrote ${path}`);
   // Universal AGENTS.md (every setup; never clobbers an existing one).
   for (const path of applyArtifacts(cwd, universalArtifacts(), cfg)) console.log(`  ✓ wrote ${path}`);
+  if (platforms.includes("codex")) {
+    const { path, status } = applyProjectCodexConfig(cwd, cfg);
+    console.log(`  ✓ ${status} ${path}${status === "written" ? " (backed up)" : ""}`);
+  }
 
   // Legs 1+2: scan the project's existing .claude skills/agents so knitbrain
   // sees what the user already has — register skills into the store (deduped,
@@ -144,7 +180,7 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
   // Global-config platforms: with --yes we WRITE the config (backed up,
   // non-clobbering); otherwise we print the snippet to paste (safe default).
   const snippets: Partial<Record<Platform, () => string>> = {
-    codex: () => codexSnippet(cfg),
+    codex: () => codexSnippet(globalCfg),
     windsurf: windsurfSnippet,
     zed: zedSnippet,
     "copilot-cli": copilotSnippet,
@@ -154,7 +190,12 @@ export function runSetup(cwd: string = process.cwd(), argv: string[] = process.a
     if (!platforms.includes(platform)) continue;
     const kind = GLOBAL_KIND[platform]!;
     if (writeGlobals) {
-      const { path, status } = applyGlobalConfig(kind, homedir());
+      const { path, status } = applyGlobalConfig(kind, homedir(), undefined, {
+        config: globalCfg,
+        ...(platform === "codex" && process.env["CODEX_HOME"]?.trim()
+          ? { codexHome: resolve(process.env["CODEX_HOME"]!.trim()) }
+          : {}),
+      });
       console.log(`  ✓ ${status} ${path}${status === "written" ? " (backed up)" : ""}`);
     } else {
       console.log(`  ${platform} detected — its MCP config is global. Paste this, or re-run with --yes to write it:`);

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,7 +59,7 @@ describe("CLI statusline — loop badge (◎ goal iter N/M)", () => {
   const seedLoopState = (state: Record<string, unknown> | null) => {
     home = mkdtempSync(join(tmpdir(), "kb-statusline-home-"));
     projectDir = mkdtempSync(join(tmpdir(), "kb-statusline-proj-"));
-    const id = createHash("sha256").update(projectDir).digest("hex").slice(0, 16);
+    const id = createHash("sha256").update(realpathSync(projectDir)).digest("hex").slice(0, 16);
     if (state) {
       const projRoot = join(home, "projects", id);
       mkdirSync(projRoot, { recursive: true });

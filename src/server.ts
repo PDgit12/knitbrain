@@ -2,6 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  RootsListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createFileCCRStore, type CCRStore } from "./ccr/store.js";
 import { createMemory, type Memory } from "./engine/memory.js";
@@ -16,10 +17,15 @@ import { readSessionMark } from "./engine/receipt.js";
 import { createWikiStore, type WikiStore } from "./engine/wiki.js";
 import { currentContextTokens, currentContextModel } from "./engine/usage.js";
 import { agentLabel } from "./mcp/host.js";
-import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot, wikiRoot } from "./paths.js";
+import { activityRoot, calibrationRoot, ccrRoot, feedbackRoot, knowledgeRoot, memoryRoot, meterRoot, skillsRoot, teamRoot, wikiRoot, projectRoot } from "./paths.js";
 import { TOOLS, dispatch, validateToolArgs, type ToolContext } from "./mcp/tools.js";
 import { INSTRUCTIONS } from "./mcp/instructions.js";
 import { SERVER_NAME, VERSION } from "./version.js";
+import { homedir } from "node:os";
+import { realpathSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const ROOT_OPTIONAL = new Set(["knitbrain_ping", "knitbrain_read", "knitbrain_optimize", "knitbrain_retrieve"]);
 
 export { VERSION, SERVER_NAME } from "./version.js";
 
@@ -40,7 +46,7 @@ const DEFAULT_MAINTAIN = { hotMaxAgeMs: 7 * 24 * 60 * 60 * 1000, hotMaxEntries: 
 export function buildServer(
   ccr: CCRStore = createFileCCRStore(ccrRoot()),
   memory: Memory = createMemory(memoryRoot()),
-  knowledge: Knowledge = createKnowledge(process.cwd(), knowledgeRoot()),
+  knowledge: Knowledge = createKnowledge(projectRoot(), knowledgeRoot()),
   feedback: Feedback = createFeedback(feedbackRoot()),
   team: TeamBoard = createTeamBoard(teamRoot(), ccr),
   meter: Meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel(), baselineTokens: 20_000 }),
@@ -53,6 +59,7 @@ export function buildServer(
   }),
   wiki: WikiStore = createWikiStore(wikiRoot()),
 ): Server {
+  const automaticContext = arguments.length === 0;
   const server = new Server(
     { name: SERVER_NAME, version: VERSION },
     // instructions ride the MCP handshake: every connected agent gets the
@@ -61,7 +68,36 @@ export function buildServer(
   );
   // agentId is set per-call from the MCP handshake + env (zero-setup platform +
   // billing detection); see the CallTool handler below.
-  const ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, wiki };
+  let ctx: ToolContext = { ccr, memory, knowledge, feedback, team, meter, skills, calibration, activity, wiki, projectRoot: projectRoot() };
+  let rootReady: Promise<void> = Promise.resolve();
+  let rootError: string | undefined;
+  const discoverRoots = async () => {
+    const explicit = ["KNITBRAIN_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR"].some((key) => process.env[key]?.trim());
+    if (!automaticContext || explicit || !server.getClientCapabilities()?.roots) return;
+    try {
+      const result = await server.listRoots(undefined, { timeout: 5000 });
+      if (result.roots.length !== 1) {
+        rootError = "Project root required: client reported zero or multiple workspace roots. Set KNITBRAIN_PROJECT_DIR explicitly; no workspace was guessed.";
+        return;
+      }
+      const root = realpathSync(fileURLToPath(result.roots[0]!.uri));
+      if (!statSync(root).isDirectory()) throw new Error("workspace root is not a directory");
+      if (root === ctx.projectRoot) { rootError = undefined; return; }
+      // Rebind all typed stores together, without changing process-wide env.
+      const scopedMeter = createMeter(meterRoot(root), { baselineTokens: 20_000 });
+      ctx = { ...ctx,
+        projectRoot: root, memory: createMemory(memoryRoot(root)), knowledge: createKnowledge(root, knowledgeRoot(root)),
+        feedback: createFeedback(feedbackRoot(root)), team: createTeamBoard(teamRoot(root), ccr), meter: scopedMeter,
+        skills: createSkillsStore(skillsRoot(root)), calibration: createCalibration(calibrationRoot(root)),
+        activity: createActivityLog(activityRoot(root), { protectSince: () => readSessionMark(meterRoot(root))?.startTs ?? null }), wiki: createWikiStore(wikiRoot(root)),
+      };
+      rootError = undefined;
+    } catch {
+      rootError = "Project root discovery failed: configure KNITBRAIN_PROJECT_DIR explicitly and reconnect; no home-directory scan was attempted.";
+    }
+  };
+  server.oninitialized = () => { rootReady = discoverRoots(); };
+  server.setNotificationHandler(RootsListChangedNotificationSchema, () => { rootReady = rootReady.then(discoverRoots); });
 
   // H3: run the CCR janitor once at startup. Every tool output puts a permanent
   // file; without this the store grows without bound (maintain had no prod
@@ -80,7 +116,8 @@ export function buildServer(
     })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    await rootReady;
     const tool = TOOLS.find((t) => t.name === req.params.name);
     if (!tool) {
       return {
@@ -90,6 +127,9 @@ export function buildServer(
     }
     const invalid = validateToolArgs(tool, req.params.arguments ?? {});
     if (invalid) return { content: [{ type: "text", text: `Invalid arguments: ${invalid}` }], isError: true };
+    if (!ROOT_OPTIONAL.has(tool.name) && (rootError || ctx.projectRoot === realpathSync(homedir()))) {
+      return { content: [{ type: "text", text: rootError ?? "Project root required: refusing to scan your entire home directory. Run knitbrain setup from the intended repository, set KNITBRAIN_PROJECT_DIR in its MCP configuration, and reconnect the client. Direct absolute-path reads remain available." }], isError: true };
+    }
     try {
       // Zero-setup: label the agent by the connected client + its billing mode.
       ctx.agentId = agentLabel(server.getClientVersion()?.name, process.env);

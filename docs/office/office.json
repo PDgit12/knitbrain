@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "id": "knitbrain-domain-office",
+  "initializedOn": "2026-10-23",
+  "phase": "locally-verified-ci-pending",
+  "parent": {
+    "agent": "/root",
+    "goal": "Coordinate the audited Knitbrain improvements and reliable domain-agent orchestration with verified, integrated results.",
+    "responsibilities": [
+      "dispatch",
+      "shared-contract decisions",
+      "workspace ownership",
+      "integration",
+      "independent review",
+      "final acceptance"
+    ],
+    "integrationGate": "npm run verify && npm run e2e:tools && node scripts/verify-audit-map.mjs"
+  },
+  "capacity": {
+    "maxActiveSubagents": 3,
+    "initialWorkersPerDomain": 1,
+    "overflow": "queue-fairly",
+    "additionalWorkersInitialized": false
+  },
+  "runtime": {
+    "launched": false,
+    "implementationPaused": false,
+    "state": "locally-verified-source-not-launched",
+    "persistentDaemon": false
+  },
+  "teams": [
+    {
+      "id": "coordinator-state",
+      "name": "Coordinator & State",
+      "agent": "/root/orchestration_core",
+      "workers": 1,
+      "planningStatus": "complete",
+      "status": "locally-verified",
+      "boardPost": "e001eb7b",
+      "goal": "Validate and persist goal plans, task dependencies, run ownership, attempt evidence and safe recovery without false success.",
+      "ownedFiles": [
+        "src/orchestrator.ts",
+        "src/engine/meter.ts",
+        "src/evals.ts",
+        "tests/orchestrator.test.ts",
+        "tests/meter.test.ts",
+        "tests/evals.test.ts"
+      ],
+      "verifyCommand": "npx vitest run tests/orchestrator.test.ts tests/meter.test.ts tests/evals.test.ts",
+      "dependsOn": [],
+      "peers": [
+        "hooks-collaboration",
+        "execution-recovery"
+      ]
+    },
+    {
+      "id": "hooks-collaboration",
+      "name": "Hooks & Collaboration",
+      "agent": "/root/hooks_lifecycle",
+      "workers": 1,
+      "planningStatus": "complete",
+      "status": "locally-verified",
+      "boardPost": "673b0e28",
+      "goal": "Deliver scoped assignments and cross-domain messages; record supported hook observations while preserving runner-owned verification.",
+      "ownedFiles": [
+        "src/hooks/orchestration.ts",
+        "src/hooks/index.ts",
+        "src/hooks/posttooluse.ts",
+        "src/orchestration-mailbox.ts",
+        "src/mcp/tools.ts",
+        "tests/orchestration-hooks.test.ts",
+        "tests/orchestration-mailbox.test.ts",
+        "tests/emitted-optimization.test.ts",
+        "tests/dispatch.test.ts",
+        "tests/hooks.test.ts"
+      ],
+      "verifyCommand": "npx vitest run tests/hooks.test.ts tests/orchestration-hooks.test.ts tests/orchestration-mailbox.test.ts tests/emitted-optimization.test.ts tests/dispatch.test.ts",
+      "dependsOn": [],
+      "peers": [
+        "coordinator-state",
+        "execution-recovery"
+      ]
+    },
+    {
+      "id": "execution-recovery",
+      "name": "Execution & Recovery",
+      "agent": "/root/host_adapters",
+      "workers": 1,
+      "planningStatus": "complete",
+      "status": "locally-verified",
+      "boardPost": "21b99630",
+      "goal": "Launch, observe and stop external workers with bounded commands, truthful termination evidence, explicit fallback and workspace quarantine.",
+      "ownedFiles": [
+        "src/orchestration-process.ts",
+        "src/setup.ts",
+        "src/global-config.ts",
+        "src/platforms.ts",
+        "src/doctor.ts",
+        "tests/orchestration-process.test.ts",
+        "tests/setup.test.ts",
+        "tests/global-config.test.ts",
+        "tests/platforms.test.ts",
+        "tests/doctor.test.ts"
+      ],
+      "verifyCommand": "npx vitest run tests/orchestration-process.test.ts tests/setup.test.ts tests/global-config.test.ts tests/platforms.test.ts tests/doctor.test.ts",
+      "dependsOn": [],
+      "peers": [
+        "coordinator-state",
+        "hooks-collaboration"
+      ]
+    }
+  ],
+  "sharedContract": {
+    "identity": [
+      "runId",
+      "taskId",
+      "domainId",
+      "attempt"
+    ],
+    "optionalHostIdentity": [
+      "workerId"
+    ],
+    "recipients": [
+      "task:<id>",
+      "domain:<id>",
+      "all"
+    ],
+    "messageTypes": [
+      "request",
+      "result",
+      "blocker",
+      "handoff",
+      "decision",
+      "ack"
+    ],
+    "successAuthority": "runner-gates-and-parent-integration",
+    "hooksAuthority": "observations-only",
+    "unconfirmedTermination": "quarantine-no-retry-no-reuse",
+    "isolationFailure": "block-no-silent-shared-cwd",
+    "peerAgreement": "confirmed-by-all-three-leads"
+  },
+  "workOrder": [
+    {
+      "id": "contracts",
+      "owner": "/root",
+      "dependsOn": [],
+      "goal": "Record domain charters, peer agreements, fallback policy and full audit ownership.",
+      "state": "complete"
+    },
+    {
+      "id": "foundation-review",
+      "owner": "coordinator-state",
+      "dependsOn": [
+        "contracts"
+      ],
+      "goal": "Reconcile canonical identity, recovery and success semantics across existing drafts.",
+      "state": "complete"
+    },
+    {
+      "id": "scheduler-mailbox",
+      "owner": "/root",
+      "dependsOn": [
+        "foundation-review"
+      ],
+      "goal": "Integrate fair scheduling, dependencies, message acknowledgements, fallback and workspace policy.",
+      "state": "complete"
+    },
+    {
+      "id": "cli-hooks",
+      "owner": "hooks-collaboration",
+      "dependsOn": [
+        "scheduler-mailbox"
+      ],
+      "goal": "Integrate start/status/message/cancel/resume and supported lifecycle hooks.",
+      "state": "complete"
+    },
+    {
+      "id": "recovery-acceptance",
+      "owner": "execution-recovery",
+      "dependsOn": [
+        "cli-hooks"
+      ],
+      "goal": "Prove failure isolation, cancellation, interrupted-parent recovery and no false parent success.",
+      "state": "complete"
+    },
+    {
+      "id": "integrated-review",
+      "owner": "/root",
+      "dependsOn": [
+        "recovery-acceptance"
+      ],
+      "goal": "Run clean-build project gates and CI, update PR with verified limits.",
+      "state": "ci-pending"
+    }
+  ],
+  "updatedOn": "2026-10-31"
+}

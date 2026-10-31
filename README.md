@@ -218,6 +218,8 @@ is a terminal command (`knitbrain loop`), documented in its always-on rules.
 |---|---|
 | `knitbrain` *(no args)* | Start the MCP server on stdio — what your editor invokes. |
 | `knitbrain setup` | Wire into your agent(s): MCP config, hooks, rules, slash commands, `AGENTS.md`. |
+| `knitbrain doctor` | Read-only app, MCP config, hook binding and runtime diagnostics; connection verification remains separate. |
+| `knitbrain orchestrate` | Run a domain office with per-worker goals, message handoffs, bounded concurrency, verify gates and explicit recovery. See [office operating plan](docs/office/README.md) and [running an office](docs/office/RUNNING.md). |
 | `knitbrain onboard` | Scan the repo + import past sessions into the brain; start the charter interview. |
 | `knitbrain profile` | Measure compression on your real transcripts. |
 | `knitbrain evals` | Answer-preservation gates on your transcripts (exit 1 on failure). |
