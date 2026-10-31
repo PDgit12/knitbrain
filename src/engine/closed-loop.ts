@@ -88,10 +88,10 @@ export function defaultJudge(goalText: string, hasGate = false): { clear: boolea
   return { clear: false, reason: "goal too vague to attempt (no verify gate)" };
 }
 
-/** Grade = run the verify command (real). Empty verify → vacuously passes. */
+/** Grade = run the verify command (real). Missing/blank verify always fails. */
 export function makeGrade(verifyCmd: string, run: (cmd: string) => boolean): () => { pass: boolean; detail: string } {
   return () => {
-    if (!verifyCmd) return { pass: true, detail: "no verify command (vacuous pass)" };
+    if (!verifyCmd.trim()) return { pass: false, detail: "verify command is required" };
     const pass = run(verifyCmd);
     return { pass, detail: pass ? `verify passed: ${verifyCmd}` : `verify FAILED: ${verifyCmd}` };
   };

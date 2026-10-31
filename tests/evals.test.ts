@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileCCRStore, type CCRStore } from "../src/ccr/store.js";
-import { evalBlock, emptyReport, gate } from "../src/evals.js";
+import { evalBlock, emptyReport, gate, runEvals } from "../src/evals.js";
 import { ensureAst } from "../src/optimizer/ast.js";
 
 describe("fidelity evals (deterministic judging)", () => {
@@ -55,6 +55,7 @@ describe("fidelity evals (deterministic judging)", () => {
 
   it("gate enforces the published thresholds", () => {
     const rep = emptyReport();
+    rep.blocks = 1;
     rep.errorLines = { total: 10, preserved: 10 };
     rep.identifiers = { total: 100, preserved: 99 };
     rep.summaryLines = { total: 20, preserved: 19 };
@@ -63,5 +64,18 @@ describe("fidelity evals (deterministic judging)", () => {
     expect(gate(rep)).toBe(true);
     rep.errorLines = { total: 10, preserved: 9 }; // one lost error ⇒ FAIL
     expect(gate(rep)).toBe(false);
+  });
+
+  it("does not pass an empty report or a run with no transcripts", async () => {
+    expect(gate(emptyReport())).toBe(false);
+    const logs: string[] = [];
+    const rep = await runEvals([join(root, "missing")], (line) => logs.push(line));
+    expect(rep.blocks).toBe(0);
+    expect(rep.pass).toBe(false);
+    expect(logs.join("\n")).toContain("no evaluations ran");
+  });
+  it("does not pass when every eligible block passed through without exercising compression", () => {
+    const report = emptyReport(); report.blocks = 1; report.neverExpand = { ok: 1, total: 1 };
+    expect(gate(report)).toBe(false);
   });
 });

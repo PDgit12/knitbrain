@@ -8,6 +8,9 @@ import { defineConfig } from "vitest/config";
 // that test + the e2e/production-audit harnesses.
 export default defineConfig({
   test: {
+    // Process-tree fixtures and persistence stress tests share CPU/disk.
+    // Bound test workers rather than relaxing their correctness/time gates.
+    maxWorkers: 4,
     setupFiles: ["./tests/_setup-env.ts"],
   },
 });

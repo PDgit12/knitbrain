@@ -23,11 +23,12 @@ import { createActivityLog } from "../engine/activity.js";
 import { createFeedback } from "../engine/feedback.js";
 import { markSessionStart, readSessionMark, recordRead, recordRedirect, buildReceipt } from "../engine/receipt.js";
 import { currentContextTokens, currentContextModel, readProjectUsage, readTranscriptUsage } from "../engine/usage.js";
-import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot } from "../paths.js";
+import { ccrRoot, memoryRoot, meterRoot, wikiRoot, loopStatePath, activityRoot, feedbackRoot, projectRoot } from "../paths.js";
 import { decideLoopStop } from "./stop.js";
 import { decidePostToolUse, type PostToolUseInput } from "./posttooluse.js";
 import { decidePreToolUse, defaultPreToolUseIo, type PreToolUseInput } from "./pretooluse.js";
 import { sessionStartOutput } from "./sessionstart.js";
+import { orchestrationContext, recordOrchestrationHookEvent } from "./orchestration.js";
 import { mineNewTranscripts } from "../learn.js";
 import { GOAL_LOOP_NUDGE, GOAL_FRAME } from "../platforms.js";
 import { join } from "node:path";
@@ -44,7 +45,11 @@ function readStdin(): Promise<string> {
 
 /** additionalContext string for the subagentstart hook — exported for unit tests. */
 export function subagentStartContext(): string {
-  return `${GOAL_FRAME} Coordinate findings via knitbrain_team_post; verify before claiming done.`;
+  const assignment = orchestrationContext();
+  return [
+    `${GOAL_FRAME} Coordinate findings via knitbrain_team_post; verify before claiming done.`,
+    ...(assignment ? [assignment] : []),
+  ].join("\n\n");
 }
 
 async function main(): Promise<number | void> {
@@ -56,6 +61,13 @@ async function main(): Promise<number | void> {
       payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     } catch {
       payload = {}; // malformed payload — fall through to CLI-arg mode, empty fields
+    }
+    // Hooks can be launched from the host's home rather than the workspace.
+    // An explicit setup binding wins; otherwise use the hook's real cwd field.
+    const roots = payload["workspace_roots"];
+    const hookRoot = typeof payload["cwd"] === "string" ? payload["cwd"] : Array.isArray(roots) && roots.length === 1 && typeof roots[0] === "string" ? roots[0] : undefined;
+    if (!process.env["KNITBRAIN_PROJECT_DIR"] && hookRoot && existsSync(hookRoot) && statSync(hookRoot).isDirectory()) {
+      process.env["KNITBRAIN_PROJECT_DIR"] = hookRoot;
     }
 
     const platform = detectHookPlatform(payload);
@@ -155,6 +167,11 @@ async function main(): Promise<number | void> {
       // updatedToolOutput; the exact original lands in the shared CCR store so
       // knitbrain_retrieve restores it. The subscription auto-compression path.
       const ccr = createFileCCRStore(ccrRoot());
+      // Cursor's output rewrite is limited to MCP tool results; this hook
+      // cannot safely distinguish those from native Shell results. Gemini
+      // and Windsurf also lack output replacement. Do not count a rewrite the
+      // host cannot apply.
+      if (platform !== "claude" && platform !== "codex" && platform !== "vscode") return;
       const meter = createMeter(meterRoot(), { realUsage: () => currentContextTokens(), realModel: () => currentContextModel() });
       const toolName = typeof (input as PostToolUseInput).tool_name === "string" ? (input as PostToolUseInput).tool_name! : "unknown";
       const decision = decidePostToolUse(input as PostToolUseInput, ccr, (n, info) => {
@@ -198,7 +215,7 @@ async function main(): Promise<number | void> {
         GOAL_LOOP_NUDGE;
       // Live conversation-relative optimization (gap #2): how much smaller the
       // live window is than its unoptimized counterfactual.
-      if (r.optimizationPct > 0) out += ` · optimized ${r.optimizationPct}% of the live window (saved ${r.savedTokens.toLocaleString()} tok)`;
+      if (r.optimizationPct > 0) out += ` · optimized ${r.optimizationPct}% of the live window (saved ${(r.sessionSavedTokens ?? 0).toLocaleString()} tok)`;
       if (r.status !== "ok") out += `\n[context ${r.usedPct}%] ${r.advice}`;
       // Non-claude/codex hosts that support context injection get the same
       // text via their native shape; plain stdout still works as a fallback.
@@ -218,17 +235,25 @@ async function main(): Promise<number | void> {
       // loop's first step no longer depends on the agent calling load_session.
       const memory = createMemory(memoryRoot());
       const sessionText = sessionStartOutput(memory.loadSession());
+      const assignment = orchestrationContext();
+      let sessionOutput = sessionText;
+      if (assignment) {
+        const parsed = JSON.parse(sessionText) as { hookSpecificOutput: { additionalContext: string } };
+        parsed.hookSpecificOutput.additionalContext += `\n\n${assignment}`;
+        sessionOutput = JSON.stringify(parsed);
+      }
+      recordOrchestrationHookEvent("session_start");
       if (platform === "claude" || platform === "codex") {
-        process.stdout.write(sessionText);
+        process.stdout.write(sessionOutput);
       } else {
-        const adapted = adaptOutput(platform, "sessionstart", { hookSpecificOutput: { additionalContext: sessionText } });
-        process.stdout.write(adapted ? JSON.stringify(adapted) : sessionText);
+        const adapted = adaptOutput(platform, "sessionstart", { hookSpecificOutput: { additionalContext: sessionOutput } });
+        process.stdout.write(adapted ? JSON.stringify(adapted) : sessionOutput);
       }
       // Ingestion-gap closer: on subscription hosts assistant prose is
       // uncapturable live but IS in the on-disk transcripts — incrementally
       // mine new/changed ones (state-keyed, capped) into the brain.
       try {
-        const mined = await mineNewTranscripts(process.cwd(), join(memoryRoot(), "learn-state.json"), 2);
+        const mined = await mineNewTranscripts(projectRoot(), join(memoryRoot(), "learn-state.json"), 2);
         for (const l of mined.slice(0, 5)) {
           memory.recordLearning({ summary: l.text.slice(0, 120), lesson: l.text, tags: ["mined:transcript", l.category] });
         }
@@ -245,7 +270,7 @@ async function main(): Promise<number | void> {
         const retrievals = createFeedback(feedbackRoot())
           .stats()
           .reduce((sum, s) => sum + s.retrievals, 0);
-        const outputTokens = readProjectUsage(process.cwd())?.outputTokens;
+        const outputTokens = readProjectUsage(projectRoot())?.outputTokens;
         markSessionStart(meterRoot(), {
           savedTokens: r.savedTokens,
           usedTokens: r.usedTokens,
@@ -267,6 +292,7 @@ async function main(): Promise<number | void> {
       return;
     }
     if (mode === "stop") {
+      recordOrchestrationHookEvent("stop_observed");
       // Gap 6b — ENFORCE the loop (not just steer): block the FIRST stop when a
       // goal is still in progress, then fall through to the normal handoff.
       const stopDecision = decideLoopStop(loopStatePath());
@@ -299,7 +325,7 @@ async function main(): Promise<number | void> {
           .reduce((sum, s) => sum + s.retrievals, 0);
         // Output-side proof: actual tokens written + terse-active detection
         // (env or the project's terse rules file) — shown, never counted.
-        const outputTokensNow = readProjectUsage(process.cwd())?.outputTokens;
+        const outputTokensNow = readProjectUsage(projectRoot())?.outputTokens;
         const terseActive =
           (process.env["KNITBRAIN_TERSE"] ?? "") !== "" ||
           existsSync(".claude/rules/knitbrain.md");
@@ -322,6 +348,7 @@ async function main(): Promise<number | void> {
     if (mode === "subagentstart") {
       // Steer a freshly-spawned subagent the same way sessionstart steers the
       // top-level session — goal frame + team coordination reminder.
+      recordOrchestrationHookEvent("subagent_start", { agentType: payload["agent_type"] });
       const out = adaptOutput(platform, "subagentstart", {
         hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: subagentStartContext() },
       });
@@ -331,6 +358,7 @@ async function main(): Promise<number | void> {
     if (mode === "subagentstop") {
       // Attribution only — never blocks. Record what the subagent consumed
       // (if a transcript is resolvable) to the shared activity ledger.
+      recordOrchestrationHookEvent("subagent_stop", { agentType: payload["agent_type"] });
       try {
         const u = readTranscriptUsage(String(payload["transcript_path"] ?? ""));
         createActivityLog(activityRoot(), { protectSince: () => readSessionMark(meterRoot())?.startTs ?? null }).record({

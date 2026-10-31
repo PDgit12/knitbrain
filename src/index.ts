@@ -10,7 +10,7 @@ const KNOWN_COMMANDS = new Set([
   "version", "-v", "--version", "help", "-h", "--help",
   "setup", "hub", "join", "profile", "wrap", "prompt", "statusline",
   "terse", "evals", "compress", "loop", "fan", "learn",
-  "onboard", "dashboard",
+  "onboard", "dashboard", "orchestrate", "doctor",
 ]);
 
 /** Compact token count for the statusline: 12.4k / 1.2M. */
@@ -82,6 +82,8 @@ usage: knitbrain <command>
   compress <f> terse-rewrite a memory file (CLAUDE.md) to cut input tokens; keeps <f>.original
   loop <goal>  autonomous loop: drive an agent through a checkbox goal file until done (--max, --verify, --reviewer, --for, --interactive)
   fan <goal>   PARALLEL loop: N workers drain a checkbox queue concurrently, isolated in git worktrees (--workers, --verify, --max)
+  orchestrate  domain office: validate/start/resume a goal plan; status, cancel and cross-domain messages
+  doctor       read-only host/config/runtime diagnostics; does not claim a live MCP connection
   dashboard    live local dashboard (127.0.0.1:8790)
   prompt       print the full operating prompt (for platforms without MCP instructions)
   terse [lvl]  print terse-output instruction (lite|full|ultra) — paste, or /terse in Claude Code
@@ -155,6 +157,15 @@ usage: knitbrain <command>
   if (process.argv[2] === "fan") {
     const { runFan } = await import("./fan.js");
     process.exit(await runFan(process.argv.slice(3)));
+  }
+  if (process.argv[2] === "orchestrate") {
+    const { runOrchestrate } = await import("./orchestration-cli.js");
+    process.exit(await runOrchestrate(process.argv.slice(3)));
+  }
+  if (process.argv[2] === "doctor") {
+    const { diagnoseSetup } = await import("./doctor.js");
+    console.log(JSON.stringify(diagnoseSetup(), null, 2));
+    return;
   }
   if (process.argv[2] === "learn") {
     const { runLearn } = await import("./learn.js");

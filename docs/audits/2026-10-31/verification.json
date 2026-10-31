@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-31",
+  "scope": "Source and packaged-artifact acceptance; live app reconnection and npm release are separate.",
+  "localChecks": {
+    "verify": {
+      "exitCode": 0,
+      "passedTests": 723,
+      "skippedTests": 1
+    },
+    "e2eTools": {
+      "exitCode": 0,
+      "tools": 37
+    },
+    "e2e": {
+      "exitCode": 0
+    },
+    "officeMap": {
+      "exitCode": 0,
+      "teams": 3,
+      "findingsOwned": 32
+    },
+    "runtimeDependencies": {
+      "exitCode": 0,
+      "advisories": 0
+    }
+  },
+  "packageInspection": {
+    "result": "PASS",
+    "sha256": "7c772fb5d81a709983b63190a3d0220fffb07e429a4b5fdef331f3b8bca8792c",
+    "packageFiles": 213,
+    "javascriptFiles": 70,
+    "claim": "No packaged test/mock fixture paths, transcript files, secrets filenames or test/mock imports found. Static package inspection does not prove live-host behavior or arbitrary runtime data provenance.",
+    "version": "0.20.1",
+    "artifact": "/var/folders/q4/900gvm555cs0ht1zzqjl52rc0000gn/T/knitbrain-package-audit-nAGzhg/knitbrain-0.20.1.tgz",
+    "packedDoctorSmoke": "PASS with existing lockfile dependencies",
+    "liveConnectionVerified": false
+  },
+  "allDependencies": {
+    "exitCode": 1,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 14,
+      "high": 0,
+      "critical": 0,
+      "total": 14
+    }
+  },
+  "runtimeAcceptance": false,
+  "remaining": [
+    "Real Codex/Claude/Cursor reconnect and hook-delivery verification",
+    "Real-model office goals and task-fidelity optimization evaluation",
+    "Development-tool dependency advisories",
+    "Remaining 32-item audit backlog; partial_local is not closure"
+  ],
+  "ciInitial": {
+    "runId": 41244879382,
+    "commit": "fdecb6125770d6c0141ff4bd02377fdb89e04348",
+    "result": "failure",
+    "reason": "mailbox timestamp ties and Windows path/escaping/POSIX-mode test assumptions",
+    "correctedCandidate": "pending"
+  }
+}

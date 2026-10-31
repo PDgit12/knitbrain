@@ -1,0 +1,33 @@
+name: Reproducible bug
+description: Report a concrete behavior with artifact and reproduction evidence.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: "For security vulnerabilities, use the private reporting route in SECURITY.md. Do not post credentials, private transcripts or unfixed vulnerability details."
+  - type: input
+    id: finding
+    attributes:
+      label: Existing repair-map ID
+      description: "For example KB-004; leave blank if this is new."
+  - type: textarea
+    id: environment
+    attributes:
+      label: Tested artifact and environment
+      description: Version/commit, installed binary path, Node/OS, host/version, project root and integration mode.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction, expected and actual behavior
+      description: Use synthetic shareable inputs; include command exit codes or the exact tool result.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance check
+      description: What observable check should pass after the fix?
+    validations:
+      required: true

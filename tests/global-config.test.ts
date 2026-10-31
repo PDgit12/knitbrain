@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeGlobalConfig, applyGlobalConfig, GLOBAL_CONFIG_PATHS } from "../src/global-config.js";
+import { mergeGlobalConfig, applyGlobalConfig, applyProjectCodexConfig, GLOBAL_CONFIG_PATHS } from "../src/global-config.js";
 
 describe("global-config merge (pure, non-clobbering)", () => {
   it("codex TOML: appends the table block, preserves existing config", () => {
@@ -17,6 +17,25 @@ describe("global-config merge (pure, non-clobbering)", () => {
   it("codex TOML: idempotent when knitbrain already present", () => {
     const withKnit = '[mcp_servers.knitbrain]\ncommand = "knitbrain"\n';
     expect(mergeGlobalConfig("codex", withKnit).changed).toBe(false);
+  });
+
+  it("Codex updates only managed project root and preserves existing fields/env", () => {
+    const existing = '[mcp_servers.knitbrain]\ncommand = "knitbrain"\nargs = ["--keep"]\nenv = { KEEP = "yes", KNITBRAIN_PROJECT_DIR = "/old" }\n';
+    const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: "/new" } } }, proxyEnv: {}, proxyPort: 8788 };
+    const merged = mergeGlobalConfig("codex", existing, config);
+    expect(merged.changed).toBe(true);
+    expect(merged.content).toContain('args = ["--keep"]');
+    expect(merged.content).toContain('KEEP = "yes"');
+    expect(merged.content).toContain('KNITBRAIN_PROJECT_DIR = "/new"');
+  });
+
+  it("Codex updates a nested env table without creating a duplicate env key", () => {
+    const existing = '[mcp_servers.knitbrain]\ncommand = "knitbrain"\n[mcp_servers.knitbrain.env]\nKEEP = "yes"\nKNITBRAIN_PROJECT_DIR = "/old"\n';
+    const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: "/new" } } }, proxyEnv: {}, proxyPort: 8788 };
+    const merged = mergeGlobalConfig("codex", existing, config);
+    expect(merged.content).toContain('KNITBRAIN_PROJECT_DIR = "/new"');
+    expect(merged.content.match(/KNITBRAIN_PROJECT_DIR\s*=/g)).toHaveLength(1);
+    expect(merged.content).not.toContain("env = {");
   });
 
   it("windsurf/copilot JSON: merges into mcpServers without dropping others", () => {
@@ -75,5 +94,20 @@ describe("applyGlobalConfig (IO, backup)", () => {
   it("is idempotent — second apply is a no-op (status=present)", () => {
     applyGlobalConfig("zed", home);
     expect(applyGlobalConfig("zed", home).status).toBe("present");
+  });
+
+  it("honors CODEX_HOME as the config directory", () => {
+    const codexHome = join(home, "alternate-codex");
+    const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: home } } }, proxyEnv: {}, proxyPort: 8788 };
+    const result = applyGlobalConfig("codex", home, undefined, { codexHome, config });
+    expect(result.path).toBe(join(codexHome, "config.toml"));
+    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = ${JSON.stringify(home)}`);
+  });
+
+  it("writes project-specific root binding to project Codex config", () => {
+    const config = { mcpServers: { knitbrain: { command: "knitbrain", env: { KNITBRAIN_PROJECT_DIR: home } } }, proxyEnv: {}, proxyPort: 8788 };
+    const result = applyProjectCodexConfig(home, config);
+    expect(result.path).toBe(join(home, ".codex", "config.toml"));
+    expect(readFileSync(result.path, "utf8")).toContain(`KNITBRAIN_PROJECT_DIR = ${JSON.stringify(home)}`);
   });
 });

@@ -82,7 +82,7 @@ describe("platform adapter matrix (rung 16)", () => {
       applyArtifacts(root, cursorArtifacts(), cfg);
       const parsed = JSON.parse(readFileSync(join(root, ".cursor/mcp.json"), "utf8"));
       expect(parsed.mcpServers.other).toEqual({ command: "x" });
-      expect(parsed.mcpServers.knitbrain).toEqual({ command: "knitbrain" });
+      expect(parsed.mcpServers.knitbrain).toEqual({ command: "knitbrain", type: "stdio" });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -128,6 +128,11 @@ describe("platform adapter matrix (rung 16)", () => {
     expect(snip).toContain("[mcp_servers.knitbrain]");
     expect(snip).toContain("OPENAI_BASE_URL");
   });
+
+  it("Codex global snippet stays root-neutral", () => {
+    const snip = codexSnippet(generateConfig({ projectDir: "/repo/target" }));
+    expect(snip).not.toContain("KNITBRAIN_PROJECT_DIR");
+  });
 });
 
 describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber, .bak)", () => {
@@ -136,7 +141,26 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
     try {
       applyArtifacts(root, codexArtifacts(), cfg);
       const parsed = JSON.parse(readFileSync(join(root, ".codex/hooks.json"), "utf8"));
-      expect(parsed.PreToolUse[0].hooks[0].command).toBe("knitbrain-hook pretooluse");
+      expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe("knitbrain-hook pretooluse");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates legacy unwrapped Codex events into hooks without duplicate handlers", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-codex-legacy-"));
+    try {
+      mkdirSync(join(root, ".codex"), { recursive: true });
+      const legacyEvent = { hooks: [{ type: "command", command: "knitbrain-hook pretooluse" }] };
+      writeFileSync(join(root, ".codex/hooks.json"), JSON.stringify({ PreToolUse: [legacyEvent], custom: "keep" }));
+      applyArtifacts(root, codexArtifacts(), cfg);
+      const parsed = JSON.parse(readFileSync(join(root, ".codex/hooks.json"), "utf8"));
+      expect(parsed.custom).toBe("keep");
+      expect(parsed.PreToolUse).toBeUndefined();
+      expect(parsed.hooks.PreToolUse.filter((entry: { hooks?: Array<{ command?: string }> }) => entry.hooks?.some((hook) => hook.command === "knitbrain-hook pretooluse"))).toHaveLength(1);
+      applyArtifacts(root, codexArtifacts(), cfg);
+      const reapplied = JSON.parse(readFileSync(join(root, ".codex/hooks.json"), "utf8"));
+      expect(reapplied.hooks.PreToolUse).toHaveLength(parsed.hooks.PreToolUse.length);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -162,6 +186,9 @@ describe("cross-platform hook config emitters (Tier-1.1 — merge, never clobber
       applyArtifacts(root, cursorArtifacts(), cfg);
       let parsed = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
       expect(parsed.hooks.beforeShellExecution.some((h: { command: string }) => h.command === "knitbrain-hook pretooluse")).toBe(true);
+      expect(parsed.hooks.subagentStart[0].command).toBe("knitbrain-hook subagentstart");
+      expect(parsed.hooks.subagentStop[0].command).toBe("knitbrain-hook subagentstop");
+      expect(parsed.hooks.preCompact[0].command).toBe("knitbrain-hook precompact");
       // user adds their own hook entry to the same event
       parsed.hooks.beforeShellExecution.push({ command: "my-own-hook" });
       writeFileSync(join(root, ".cursor/hooks.json"), JSON.stringify(parsed));

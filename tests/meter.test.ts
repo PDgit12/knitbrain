@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMeter, modelWindow, detectBillingMode } from "../src/engine/meter.js";
@@ -56,6 +56,8 @@ describe("context meter (rung 15)", () => {
     const r = m.read();
     expect(r.usedTokens).toBe(0);
     expect(r.savedTokens).toBe(500);
+    expect(r.sessionSavedTokens).toBe(0);
+    expect(r.optimizationPct).toBe(0);
   });
 
   // Gap #2: optimization as a fraction of the LIVE window: saved / (live + saved).
@@ -66,16 +68,25 @@ describe("context meter (rung 15)", () => {
     expect(m.read().optimizationPct).toBe(66.7); // 2000 / (1000 + 2000)
   });
 
-  // Honest window: a large-context model (415k observed) must NOT pin to 100% /
-  // handoff on the stale 200k default — auto-heal to the next standard tier (1M).
-  it("auto-heals the effective window when observed usage exceeds the configured one", () => {
+  // Usage cannot establish provider capacity; preserve known denominator and warn.
+  it("does not infer a larger provider window from observed usage", () => {
     const m = createMeter(join(root, "m"), { realUsage: () => 415_000 }); // default 200k window
     const r = m.read();
     expect(r.usedTokens).toBe(415_000);
-    expect(r.windowTokens).toBe(1_000_000); // healed to the tier that fits
-    expect(r.usedPct).toBe(41.5); // 415k / 1M, not capped 100
-    expect(r.status).toBe("ok"); // NOT a false handoff
-    expect(r.advice).toContain("healthy");
+    expect(r.windowTokens).toBe(200_000);
+    expect(r.usedPct).toBe(100);
+    expect(r.overflow).toBe(true);
+    expect(r.status).toBe("handoff");
+    expect(r.advice).toContain("Provider capacity is unknown");
+    expect(r.windowSource).toBe("default");
+  });
+
+  it("does not invent a multi-million token window for large overflows", () => {
+    const m = createMeter(join(root, "large"), { realUsage: () => 1_500_000 });
+    const r = m.read();
+    expect(r.windowTokens).toBe(200_000);
+    expect(r.overflow).toBe(true);
+    expect(r.usedPct).toBe(100);
   });
 
   it("respects KNITBRAIN_WINDOW_TOKENS env override", () => {
@@ -134,7 +145,23 @@ describe("MCP-side savings accounting (dashboard tokens-saved tile)", () => {
     a.onSaved(1200);
     a.onSaved(800);
     expect(createMeter(join(root, "m")).read().savedTokens).toBe(2000);
+    expect(createMeter(join(root, "m")).read().sessionSavedTokens).toBe(2000);
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("treats old persisted savings as lifetime baseline, not current-session savings", () => {
+    const root = mkdtempSync(join(tmpdir(), "knitbrain-meter-legacy-"));
+    try {
+      const dir = join(root, "m");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "meter.json"), JSON.stringify({ lastRequestTokens: 0, toolTokens: 0, savedTokens: 9000 }));
+      const r = createMeter(dir).read();
+      expect(r.savedTokens).toBe(9000);
+      expect(r.sessionSavedTokens).toBe(0);
+      expect(r.optimizationPct).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

@@ -129,6 +129,10 @@ export async function runLoop(args: string[]): Promise<number> {
   }
   const verify = o.verify ?? (goalVerify(o.goalFile) || (existsSync("package.json") ? "npm test" : ""));
   const reviewer = o.reviewer ?? (goalReviewer(o.goalFile) || "");
+  if (!verify.trim()) {
+    console.error("[loop] no verify gate found — pass --verify, add a VERIFY: line, or run from a project with package.json. No tasks were run.");
+    return 1;
+  }
   const progressFile = `${o.goalFile}.progress`;
   const rl = o.interactive ? createInterface({ input: process.stdin, output: process.stdout }) : null;
   let done = 0;

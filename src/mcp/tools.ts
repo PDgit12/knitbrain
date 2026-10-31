@@ -11,7 +11,7 @@ import type { Calibration } from "../engine/calibration.js";
 import type { ActivityLog } from "../engine/activity.js";
 import { proposeAgents, writeAgent } from "../engine/agents.js";
 import { scanHost, composeSkill, scanHostAll, buildHostIndex, saveHostIndex, loadHostIndex, countBySource, scanContextHygiene } from "../engine/host-scan.js";
-import { hostIndexPath, workflowPath, loopStatePath, meterRoot } from "../paths.js";
+import { hostIndexPath, workflowPath, loopStatePath, meterRoot, projectRoot } from "../paths.js";
 import { buildReceipt, readSessionMark, markSessionStart } from "../engine/receipt.js";
 import type { WikiStore } from "../engine/wiki.js";
 import { logSpine } from "../engine/wiki.js";
@@ -46,6 +46,8 @@ const PLAN_GATE =
 
 /** Runtime context handed to every tool. */
 export interface ToolContext {
+  /** Bound server project, independent of the launch working directory. */
+  projectRoot?: string;
   ccr: CCRStore;
   memory: Memory;
   knowledge: Knowledge;
@@ -187,6 +189,23 @@ function sessionOf(ctx: ToolContext): SessionState {
   }
   return s;
 }
+
+/** Count the complete emitted text, including read/optimize annotations. */
+function netOptimization(original: string, skeleton: string, annotation: string): {
+  output: string; rawTokens: number; emittedTokens: number; saved: number;
+} {
+  const rawTokens = countTokens(original);
+  if (!skeleton.includes("⟨recall:")) {
+    return { output: original, rawTokens, emittedTokens: rawTokens, saved: 0 };
+  }
+  const output = `${skeleton}\n\n${annotation}`;
+  const emittedTokens = countTokens(output);
+  if (emittedTokens >= rawTokens) {
+    return { output: original, rawTokens, emittedTokens: rawTokens, saved: 0 };
+  }
+  return { output, rawTokens, emittedTokens, saved: rawTokens - emittedTokens };
+}
+
 interface GateDecision {
   blocked: boolean;
   message: string;
@@ -230,12 +249,14 @@ export const TOOLS: readonly ToolDef[] = [
       const text = typeof args["text"] === "string" ? args["text"] : "";
       const r = compress(text, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return text;
+      const emitted = netOptimization(text, r.skeleton,
+        "[knitbrain optimized · exact original available via the recall marker above]");
+      if (emitted.saved <= 0) return text;
       ctx.feedback.onCompress(r.contentType, r.handle);
-      const saved = r.originalTokens - r.skeletonTokens;
-      ctx.meter.onSaved(saved);
+      ctx.meter.onSaved(emitted.saved);
       const optimizeSession = sessionOf(ctx);
-      (optimizeSession.pendingLedger ??= []).push({ rawTokens: r.originalTokens, storedTokens: r.skeletonTokens, saved });
-      return `${r.skeleton}\n\n[optimized: ${r.originalTokens}→${r.skeletonTokens} tokens, saved ${r.savedPct}% · retrieve the ⟨recall:…⟩ handle for the exact original]`;
+      (optimizeSession.pendingLedger ??= []).push({ rawTokens: emitted.rawTokens, storedTokens: emitted.emittedTokens, saved: emitted.saved });
+      return emitted.output;
     },
   },
   {
@@ -273,17 +294,19 @@ export const TOOLS: readonly ToolDef[] = [
       // has full file read via the host's raw Read, so scoping here adds no
       // security — it only broke the "use INSTEAD of raw Read" use case.
       const requested = str(args, "path");
-      const full = isAbsolute(requested) ? requested : resolve(process.cwd(), requested);
+      const full = isAbsolute(requested) ? requested : resolve((ctx.projectRoot ?? projectRoot()), requested);
       if (!existsSync(full)) return `no such file: ${requested}`;
       const original = readFileSync(full, "utf8");
       const r = compress(original, ctx.ccr, { allowProse: !ctx.feedback.shouldSkip("prose") });
       if (!r.compressed) return original; // small/incompressible → exact content
+      const emitted = netOptimization(original, r.skeleton,
+        `[knitbrain_read: ${requested} · exact original available via the recall marker above]`);
+      if (emitted.saved <= 0) return original;
       ctx.feedback.onCompress(r.contentType, r.handle);
-      const saved = r.originalTokens - r.skeletonTokens;
-      ctx.meter.onSaved(saved);
+      ctx.meter.onSaved(emitted.saved);
       const readSession = sessionOf(ctx);
-      (readSession.pendingLedger ??= []).push({ file: requested, rawTokens: r.originalTokens, storedTokens: r.skeletonTokens, saved });
-      return `${r.skeleton}\n\n[knitbrain_read: ${requested} · ${r.originalTokens}→${r.skeletonTokens} tokens (saved ${r.savedPct}%) · exact original: knitbrain_retrieve ⟨recall:${r.handle}⟩]`;
+      (readSession.pendingLedger ??= []).push({ file: requested, rawTokens: emitted.rawTokens, storedTokens: emitted.emittedTokens, saved: emitted.saved });
+      return emitted.output;
     },
   },
   {
@@ -391,7 +414,7 @@ export const TOOLS: readonly ToolDef[] = [
       try {
         const snap = ctx.meter.read();
         const retrievals = ctx.feedback.stats().reduce((a, s) => a + s.retrievals, 0);
-        markSessionStart(meterRoot(), { savedTokens: snap.savedTokens, usedTokens: snap.usedTokens, retrievals });
+        markSessionStart(meterRoot(ctx.projectRoot), { savedTokens: snap.savedTokens, usedTokens: snap.usedTokens, retrievals });
       } catch {
         // non-fatal
       }
@@ -405,7 +428,7 @@ export const TOOLS: readonly ToolDef[] = [
       const wikiRecent = ctx.wiki ? ctx.wiki.recentLog(8) : [];
       // Gap D: re-surface the standing workflow every session (drift-proof) so
       // nothing needs re-explaining. Null until onboard has composed one.
-      const workflow = loadWorkflow(workflowPath());
+      const workflow = loadWorkflow(workflowPath(ctx.projectRoot));
       // Clear-detection: reset() zeroed knitbrain's own tracking, but the
       // realUsage probe reads the live transcript. If it's still large right
       // after a "fresh" load, the host session did NOT actually clear — a
@@ -428,7 +451,7 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (_args, ctx) => {
       const meter = ctx.meter.read();
-      const mark = readSessionMark(meterRoot());
+      const mark = readSessionMark(meterRoot(ctx.projectRoot));
       const since = mark ? ctx.activity?.since(mark.startTs) : undefined;
       const events = since?.events ?? [];
       const eventsTrimmed = since?.trimmed ?? false;
@@ -456,7 +479,7 @@ export const TOOLS: readonly ToolDef[] = [
     output: "data",
     run: (args, ctx) => {
       const k = typeof args["k"] === "number" ? (args["k"] as number) : undefined;
-      const hits = searchCode(str(args, "query"), { knowledge: ctx.knowledge, projectRoot: process.cwd() }, k !== undefined ? { k } : {});
+      const hits = searchCode(str(args, "query"), { knowledge: ctx.knowledge, projectRoot: (ctx.projectRoot ?? projectRoot()) }, k !== undefined ? { k } : {});
       return JSON.stringify(
         {
           hits,
@@ -610,9 +633,9 @@ export const TOOLS: readonly ToolDef[] = [
     output: "verbatim",
     run: (args, ctx) => {
       // Style-match: generated agents mirror the user's existing .claude/agents.
-      const style = scanHost(join(process.cwd(), ".claude")).style;
+      const style = scanHost(join((ctx.projectRoot ?? projectRoot()), ".claude")).style;
       const path = writeAgent(
-        process.cwd(),
+        (ctx.projectRoot ?? projectRoot()),
         {
           name: str(args, "name"),
           ...(typeof args["description"] === "string" ? { description: args["description"] } : {}),
@@ -654,7 +677,7 @@ export const TOOLS: readonly ToolDef[] = [
 
       // Legs 1+2: see what the user already has, so we dedupe (never re-propose
       // an agent they already wrote) and can compose in their style.
-      const host = scanHost(join(process.cwd(), ".claude"));
+      const host = scanHost(join((ctx.projectRoot ?? projectRoot()), ".claude"));
       const hostAgentNames = new Set(host.agents.map((a) => a.name.toLowerCase()));
 
       // SKILL: find-or-draft (skills made on-demand, persist, compound).
@@ -691,7 +714,7 @@ export const TOOLS: readonly ToolDef[] = [
               .filter((p) => !hostAgentNames.has(p.name.toLowerCase()))
               .slice(0, 4)
               .map((p) => {
-              const file = writeAgent(process.cwd(), {
+              const file = writeAgent((ctx.projectRoot ?? projectRoot()), {
                 name: p.name,
                 scope: p.scope,
                 tools: p.tools,
@@ -725,7 +748,7 @@ export const TOOLS: readonly ToolDef[] = [
       // user's whole toolkit into orchestration, not just knitbrain's).
       const platforms = detectPlatforms({ env: process.env, exists: existsSync, home: homedir() });
       const commands = platforms.flatMap((p) => slashCommands(p));
-      const idx = loadHostIndex(hostIndexPath());
+      const idx = loadHostIndex(hostIndexPath(ctx.projectRoot));
       // `?? []` forward-migrates a legacy index written before commands/hooks
       // existed (the fields are absent, not empty) — never throw on old data.
       const userCommands = (idx?.commands ?? []).map((c) => ({ name: c.name, source: c.source, description: c.description }));
@@ -754,7 +777,7 @@ export const TOOLS: readonly ToolDef[] = [
           // surfaced per task so the loop works in the owning domain instead
           // of only seeing routing at load_session.
           workflow_routing: (() => {
-            const wf = loadWorkflow(workflowPath());
+            const wf = loadWorkflow(workflowPath(ctx.projectRoot));
             if (!wf) return "no workflow yet — run knitbrain_onboard to compose the driver";
             const lines = wf.split("\n").filter((l) => l.startsWith("- ") && l.includes("→"));
             return lines.length > 0 ? lines : "workflow present (pre-routing version) — re-run onboard answers to add ROUTING";
@@ -791,7 +814,7 @@ export const TOOLS: readonly ToolDef[] = [
       const lessons = Array.isArray(args["lessons"])
         ? (args["lessons"] as string[])
         : ctx.memory.searchLearnings(task, 3).map((h) => h.summary);
-      const style = scanHost(join(process.cwd(), ".claude")).style;
+      const style = scanHost(join((ctx.projectRoot ?? projectRoot()), ".claude")).style;
       const s = composeSkill(task, style, lessons, ctx.skills);
       wikiLog(ctx, "skill", s.name);
       return `composed skill "${s.name}" (${s.body.length} chars${style.terse ? ", style-matched terse" : ""}) — refine the body, then knitbrain_skill_save to update.`;
@@ -998,7 +1021,7 @@ export const TOOLS: readonly ToolDef[] = [
 
       // Gap B: act on the user's YES answers — create only what they approved.
       if (create && create.length > 0) {
-        const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        const host = scanHostAll(join((ctx.projectRoot ?? projectRoot()), ".claude"), homedir());
         const gaps = computeOnboardGaps(
           detectDomains(ctx.knowledge.listFiles()),
           { skills: host.skills, agents: host.agents },
@@ -1014,11 +1037,11 @@ export const TOOLS: readonly ToolDef[] = [
         }
         const created = gaps
           .filter((g) => wanted.has(g.name.toLowerCase()))
-          .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: process.cwd(), files: ctx.knowledge.listFiles() }));
+          .map((g) => resolveOnboardGap(g, { skills: ctx.skills, style: host.style, projectRoot: (ctx.projectRoot ?? projectRoot()), files: ctx.knowledge.listFiles() }));
         // Just-created agents/skills must be visible immediately — refresh the
         // host index now, not on the next full onboard scan.
-        const rescanned = scanHostAll(join(process.cwd(), ".claude"), homedir());
-        saveHostIndex(buildHostIndex(rescanned), hostIndexPath());
+        const rescanned = scanHostAll(join((ctx.projectRoot ?? projectRoot()), ".claude"), homedir());
+        saveHostIndex(buildHostIndex(rescanned), hostIndexPath(ctx.projectRoot));
         return JSON.stringify({ created }, null, 2);
       }
 
@@ -1027,7 +1050,7 @@ export const TOOLS: readonly ToolDef[] = [
         const r = persistIntent(answers, { wiki: ctx.wiki, memory: ctx.memory, skills: ctx.skills });
         // Gap D: compose the standing workflow from charter + style + domains and
         // persist it as THE driver load_session re-surfaces every session.
-        const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
+        const host = scanHostAll(join((ctx.projectRoot ?? projectRoot()), ".claude"), homedir());
         // Domains: detected from code when it exists; else the user's DECLARED
         // parts (greenfield 6th answer) — the plan seeds routing before code.
         const detected = detectDomains(ctx.knowledge.listFiles());
@@ -1062,7 +1085,7 @@ export const TOOLS: readonly ToolDef[] = [
             return { domain: d, ...(agent ? { agent: agent.name } : {}), ...(skill ? { skill: skill.name } : {}) };
           }),
         });
-        saveWorkflow(workflow, workflowPath());
+        saveWorkflow(workflow, workflowPath(ctx.projectRoot));
         const uncovered = domains.filter((d) => {
           const dl = d.toLowerCase();
           return !host.agents.some((a2) => a2.name.toLowerCase() === dl || a2.name.toLowerCase().includes(dl));
@@ -1075,7 +1098,7 @@ export const TOOLS: readonly ToolDef[] = [
         // one checkbox per part, DoD + verify inline) so `knitbrain loop goal.md`
         // and knitbrain_run_loop can drive to met=true immediately. Never clobber
         // an existing goal file.
-        const goalPath = join(process.cwd(), "goal.md");
+        const goalPath = join((ctx.projectRoot ?? projectRoot()), "goal.md");
         let goalNote = "";
         if (!existsSync(goalPath)) {
           const tasks = goalCheckboxes(r.charter.goal, domains);
@@ -1099,11 +1122,11 @@ export const TOOLS: readonly ToolDef[] = [
         return `Onboarding complete — Project Charter ("${r.page}") + constraints skill ("${r.skill}") + workflow written (ROUTING covers: ${domains.join(", ") || "none"}). knitbrain_load_session now surfaces your intent + workflow every session.${gapHint}${goalNote}`;
       }
       if (!ctx.wiki) return "wiki unavailable — onboard needs the wiki store.";
-      const imp = scanAndIngest(process.cwd(), { knowledge: ctx.knowledge, wiki: ctx.wiki });
+      const imp = scanAndIngest((ctx.projectRoot ?? projectRoot()), { knowledge: ctx.knowledge, wiki: ctx.wiki });
       // Global scan (Gap A): see the user's WHOLE toolkit — project + ~/.claude +
       // plugins — and persist a lightweight index so the brain stays aware of it.
-      const host = scanHostAll(join(process.cwd(), ".claude"), homedir());
-      saveHostIndex(buildHostIndex(host), hostIndexPath());
+      const host = scanHostAll(join((ctx.projectRoot ?? projectRoot()), ".claude"), homedir());
+      saveHostIndex(buildHostIndex(host), hostIndexPath(ctx.projectRoot));
       const sk = countBySource(host.skills);
       const ag = countBySource(host.agents);
       const cm = countBySource(host.commands);
@@ -1125,7 +1148,7 @@ export const TOOLS: readonly ToolDef[] = [
           : [...INTENT_QUESTIONS];
       // Gap 5: detect where the work stands (git + goal.md + last intent) so a
       // resumed session CONTINUES instead of re-running the intent interview.
-      const resume = detectResumeState(process.cwd());
+      const resume = detectResumeState((ctx.projectRoot ?? projectRoot()));
       const brief = resumeBrief(resume);
       return JSON.stringify(
         {
@@ -1174,7 +1197,7 @@ export const TOOLS: readonly ToolDef[] = [
       const rubric = Array.isArray(args["rubric"]) ? (args["rubric"] as string[]) : [];
       const maxIters = typeof args["max_iters"] === "number" && args["max_iters"] > 0 ? Math.floor(args["max_iters"]) : 6;
       const deadlineMs = typeof args["deadline_ms"] === "number" && args["deadline_ms"] > 0 ? args["deadline_ms"] : undefined;
-      const statePath = loopStatePath();
+      const statePath = loopStatePath(ctx.projectRoot);
 
       const prev = loadLoopState(statePath);
       // M3: compare on a NORMALIZED goal so a whitespace/wording tweak can't
@@ -1214,7 +1237,7 @@ export const TOOLS: readonly ToolDef[] = [
         deadlineMs !== undefined ? Math.max(1_000, deadlineMs - (Date.now() - startedAt)) : 120_000;
       const shellRun = (cmd: string): boolean => {
         try {
-          execSync(cmd, { stdio: "ignore", timeout: verifyTimeoutMs, killSignal: "SIGKILL" });
+          execSync(cmd, { cwd: ctx.projectRoot ?? projectRoot(), stdio: "ignore", timeout: verifyTimeoutMs, killSignal: "SIGKILL" });
           return true;
         } catch {
           return false;
@@ -1302,7 +1325,7 @@ export const TOOLS: readonly ToolDef[] = [
         wikiContradictionsAfter = ctx.wiki.lint().contradictions.length;
       }
       // anti-drift (Gap D): a stored workflow that load_session surfaces.
-      const workflowExists = loadWorkflow(workflowPath()) !== null;
+      const workflowExists = loadWorkflow(workflowPath(ctx.projectRoot)) !== null;
       // adherence + anti-sycophancy: this session's signals.
       const s = sessionOf(ctx);
       const report = runSelfCheck({
@@ -1319,7 +1342,7 @@ export const TOOLS: readonly ToolDef[] = [
         // anti-drift: domains that exist in code but not in the stored ROUTING
         // — the workflow went stale as the project grew.
         routingStaleDomains: (() => {
-          const wf = loadWorkflow(workflowPath());
+          const wf = loadWorkflow(workflowPath(ctx.projectRoot));
           if (!wf || !/^ROUTING/m.test(wf)) return undefined; // no routed workflow yet — the workflow invariant covers absence
           return detectDomains(ctx.knowledge.listFiles()).filter((d) => !wf.includes(`- ${d} →`));
         })(),
@@ -1442,6 +1465,8 @@ export function dispatch(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): string {
+  const invalid = validateToolArgs(tool, args);
+  if (invalid) return `refused: ${invalid}`;
   // PROTECT: hard-gate the brain boundary before the tool runs.
   const gate = protectGate(tool, ctx);
   if (gate.blocked) return gate.message;
@@ -1460,10 +1485,12 @@ export function dispatch(
   // contract is losslessness, and the meter tool itself.
   const reading = ctx.meter.read();
   const EXACT_OUTPUT = tool.name === "knitbrain_retrieve" || tool.name === "knitbrain_team_get";
-  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT) {
+  const jsonOutput = isJsonPayload(raw);
+  const SELF_ACCOUNTED_OUTPUT = tool.name === "knitbrain_optimize" || tool.name === "knitbrain_read";
+  if (reading.status !== "ok" && tool.name !== "knitbrain_context_meter" && !EXACT_OUTPUT && !jsonOutput && !SELF_ACCOUNTED_OUTPUT) {
     out += `\n\n[knitbrain context-meter] ${reading.advice}`;
   }
-  if (gate.warn) {
+  if (gate.warn && !jsonOutput && !SELF_ACCOUNTED_OUTPUT) {
     out += `\n\n[knitbrain] protocol nudge: classify_task/run wasn't called this session — run it so writes are classified (KNITBRAIN_STRICTNESS=warn).`;
   }
 
@@ -1497,4 +1524,46 @@ export function dispatch(
     sessionOf(ctx).pendingLedger = [];
   }
   return out;
+}
+
+/** Validate the advertised JSON Schema subset at the server boundary. The SDK
+ * validates the schema for clients, but does not enforce it on incoming calls. */
+export function validateToolArgs(tool: ToolDef, args: unknown): string | null {
+  const schema = tool.inputSchema;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return `${tool.name} arguments must be an object`;
+  const value = args as Record<string, unknown>;
+  const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const required = Array.isArray(schema.required) ? schema.required as string[] : [];
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) return `${tool.name} requires argument \`${key}\``;
+  }
+  if (schema.additionalProperties === false) {
+    const extra = Object.keys(value).find((key) => !Object.hasOwn(properties, key));
+    if (extra) return `${tool.name} does not accept argument \`${extra}\``;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (!Object.hasOwn(properties, key)) continue;
+    const rule = properties[key];
+    if (!rule) continue;
+    const type = rule.type;
+    const valid = type === "string" ? typeof item === "string"
+      : type === "number" ? typeof item === "number" && Number.isFinite(item)
+      : type === "integer" ? typeof item === "number" && Number.isInteger(item)
+      : type === "boolean" ? typeof item === "boolean"
+      : type === "array" ? Array.isArray(item)
+      : type === "object" ? !!item && typeof item === "object" && !Array.isArray(item)
+      : true;
+    if (!valid) return `${tool.name} argument \`${key}\` must be ${String(type)}`;
+    if (Array.isArray(rule.enum) && !(rule.enum as unknown[]).includes(item)) {
+      return `${tool.name} argument \`${key}\` must be one of ${(rule.enum as unknown[]).join(", ")}`;
+    }
+    if (type === "array" && rule.items && Array.isArray(item)) {
+      const itemType = (rule.items as Record<string, unknown>).type;
+      const wrongIndex = item.findIndex((entry) => itemType === "string" ? typeof entry !== "string"
+        : itemType === "number" ? typeof entry !== "number" || !Number.isFinite(entry)
+        : itemType === "boolean" ? typeof entry !== "boolean" : false);
+      if (wrongIndex >= 0) return `${tool.name} argument \`${key}\` item ${wrongIndex} must be ${String(itemType)}`;
+    }
+  }
+  return null;
 }

@@ -1,0 +1,387 @@
+{
+  "schemaVersion": 1,
+  "source": "docs/audits/2026-10-22/findings.json",
+  "note": "Ownership only. Source status and acceptance remain authoritative; no fix is claimed by assignment.",
+  "items": [
+    {
+      "id": "KB-001",
+      "owner": "coordinator-state",
+      "priority": "P0",
+      "title": "Fail closed on missing verification gates",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "Blank and whitespace-only gates return not-met; CLI refuses to run tasks when it cannot derive a gate; valid exit-zero commands can pass.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-002",
+      "owner": "coordinator-state",
+      "priority": "P0",
+      "title": "Keep JSON parseable under meter pressure and protocol warnings",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-003"
+      ],
+      "acceptance": "JSON.parse remains valid for parseable JSON tool results during meter warn/handoff; exact retrieval remains byte-identical. Non-JSON advisories retain current behavior.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-003",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Enforce advertised input schemas at runtime",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "SDK calls with omitted required fields, wrong primitive types, unknown properties, invalid enums and wrong array item types are rejected before handler execution; valid requests still work.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-004",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Invalidate graph facts after edits, additions and deletions",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-011"
+      ],
+      "acceptance": "Same-process and reopened-cache tests observe modified exports/imports, new files and deleted nodes without a manual rescan; reindex cost measured on a declared corpus.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-005",
+      "owner": "coordinator-state",
+      "priority": "P0",
+      "title": "Stop substring matches from verifying false claims",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-004"
+      ],
+      "acceptance": "A file exporting foobar contradicts exports foo; similarly named files/imports cannot verify each other; aliases, NodeNext paths and ambiguous module tails have explicit tests.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-006",
+      "owner": "hooks-collaboration",
+      "priority": "P1",
+      "title": "Separate lifetime savings, session savings and live-window occupancy",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-008"
+      ],
+      "acceptance": "A fresh session with no optimization reports zero session savings despite lifetime history; replayed requests and MCP-plus-proxy paths cannot double-count the same replacement.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-007",
+      "owner": "hooks-collaboration",
+      "priority": "P1",
+      "title": "Do not invent a larger context window when usage exceeds a configured limit",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "210k observed in a configured 200k window stays overflow/handoff, not healthy at 21%; unknown models remain labelled unknown and host-specific capacities are tested.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-008",
+      "owner": "hooks-collaboration",
+      "priority": "P1",
+      "title": "Apply never-expand and savings accounting to the final emitted response",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-002"
+      ],
+      "acceptance": "The 86-token fixture no longer emits 108 tokens while reporting a saving; sweep boundary-sized payloads, long file paths and warnings for read, optimize, hooks and proxy.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-009",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Classify polite action requests and inflected write verbs correctly",
+      "sourceStatus": "open",
+      "dependsOn": [],
+      "acceptance": "Can you fix the bug? and Create a complete audit report and map needed fixes are actionable; explain the architecture remains inquiry. Report confusion matrix on a versioned task corpus.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-010",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Use domain relevance and abstention for skill selection",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-009"
+      ],
+      "acceptance": "Local resume regressions remain green; payments-discovery no longer wins an MCP audit via map/evidence alone; domain-labelled corpus and healthy/unhealthy skill cases pass.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-011",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Promote resilient bounded scanning from local checkout to reviewed delivery",
+      "sourceStatus": "verified_local_only",
+      "dependsOn": [
+        "KB-013"
+      ],
+      "acceptance": "EPERM/EACCES/disappearing children preserve readable siblings; inaccessible root and EIO still fail; symlink cycles stop; active-host root and coverage diagnostics verified after restart.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-012",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Make recall lifetime and purge policy explicit",
+      "sourceStatus": "open",
+      "dependsOn": [],
+      "acceptance": "Hot/cold round trips and corruption checks pass; eviction cannot silently remove pinned live handles; missing/expired handles return actionable errors; docs match server startup maintenance.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-013",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Use one explicit project root for identity, queries and commands",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "Server launched outside the overridden project searches and verifies the intended project; nested worktrees and two simultaneous projects cannot share the wrong state.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-014",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Prove concurrent read-modify-write safety and crash recovery",
+      "sourceStatus": "needs_reproduction",
+      "dependsOn": [
+        "KB-006",
+        "KB-012"
+      ],
+      "acceptance": "Multiprocess increments preserve exact expected totals; interleaved manifest writes preserve all handles; injected crash and corrupt-state recovery is deterministic and observable.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-015",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Fail closed when requested worker isolation cannot be created",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-001"
+      ],
+      "acceptance": "Injected worktree creation failure runs zero agent commands in the shared checkout; independent-worker results cannot mark integrated acceptance met before reconciliation.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-016",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Enforce deadlines inside subprocesses and surface incomplete exit semantics",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-001"
+      ],
+      "acceptance": "Hanging child cannot outlive the declared deadline beyond bounded teardown; max/time-budget stops with unfinished tasks are machine-distinguishable from goal-met across MCP, CLI and fan.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-017",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Return useful verification failure evidence and scope success to the actual command",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-001",
+        "KB-003"
+      ],
+      "acceptance": "Distinct compile/test/timeout failures retain differentiating evidence without credentials; a passing trivial command cannot be described as full task/rubric acceptance.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-018",
+      "owner": "/root",
+      "priority": "P2",
+      "title": "Fix the published library quickstart",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "A fresh consumer copies the README example and recovers the exact original; no missing method or undocumented option is required.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-019",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Track source, installed binary, active MCP and npm as distinct artifacts",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-020",
+        "KB-023",
+        "KB-027"
+      ],
+      "acceptance": "Document npm 0.20.0 versus main 0.20.1; packed candidate and active-host smoke each attest their own artifact. Rollback/restart instructions tested separately.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-020",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Triage and remediate existing upstream runtime advisories",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "npm audit --omit=dev has zero critical/high, or a reviewed time-bounded exception with reachability evidence; lockfile install, full verify and packed-consumer tests pass. Current report is not an exploit demonstration.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-021",
+      "owner": "/root",
+      "priority": "P1",
+      "title": "Require review and status checks on main",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-022",
+        "KB-023"
+      ],
+      "acceptance": "GitHub API proves the active rule targets main and requires the intended checks/review; a failing PR cannot merge via the normal path. No organization/admin settings changed by this map.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-022",
+      "owner": "execution-recovery",
+      "priority": "P2",
+      "title": "Harden CI supply chain and reproducibility",
+      "sourceStatus": "partial_local",
+      "dependsOn": [],
+      "acceptance": "Every external action has an attested revision; untrusted PR jobs have no write token/secrets; timed-out builds terminate; required-check names are stable.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-023",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Extend existing green tests with adversarial end-to-end contracts",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-003"
+      ],
+      "acceptance": "Each P0/P1 fix has a red-before/green-after test; default strictness and error paths are exercised through stdio, not just direct handler calls; skipped live tests stay labelled.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-024",
+      "owner": "coordinator-state",
+      "priority": "P1",
+      "title": "Measure task fidelity and net session benefit, not just round-trip availability",
+      "sourceStatus": "needs_evaluation",
+      "dependsOn": [
+        "KB-005",
+        "KB-008",
+        "KB-006",
+        "KB-012",
+        "KB-025"
+      ],
+      "acceptance": "Report raw/emitted/recall/retry/tool-schema tokens, correctness, completion rate, latency and cost on the same tasks; no claimed universal answer preservation or provider-billed savings from token heuristics alone.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-025",
+      "owner": "coordinator-state",
+      "priority": "P2",
+      "title": "Bound full scans, repeated reads, tokenization and deep-parse work",
+      "sourceStatus": "needs_benchmark",
+      "dependsOn": [
+        "KB-004",
+        "KB-011"
+      ],
+      "acceptance": "Publish dataset sizes, machine/runtime, cold/warm p50/p95, memory and event-loop delay; no tuning accepted if task fidelity regresses. Budgets set from measurements, not invented speedups.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-026",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Prove enforcement in actual supported hosts",
+      "sourceStatus": "needs_evaluation",
+      "dependsOn": [
+        "KB-003",
+        "KB-027"
+      ],
+      "acceptance": "For every claimed platform, record version and real lifecycle evidence or label unverified/advisory; OAuth tool-surface savings remain separate from API-proxy measurements.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-027",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Verify setup, upgrades, reconnect and removal without clobbering host config",
+      "sourceStatus": "partial_local",
+      "dependsOn": [
+        "KB-013"
+      ],
+      "acceptance": "Fresh install and upgrade preserve unrelated settings; reconnect reports the expected binary/root and passes read/recall/search probes; no live configuration changed silently.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-028",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Review sensitive local retention and optional network boundaries",
+      "sourceStatus": "needs_evaluation",
+      "dependsOn": [
+        "KB-012",
+        "KB-013",
+        "KB-020"
+      ],
+      "acceptance": "Synthetic secret canaries prove intended redaction and isolation; raw exact-recall storage is disclosed accurately; permissions and hub/proxy access controls tested. Novel vulnerability details stay private under SECURITY.md.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-029",
+      "owner": "execution-recovery",
+      "priority": "P1",
+      "title": "Bound enforcement claims to the actual permission mechanism",
+      "sourceStatus": "needs_evaluation",
+      "dependsOn": [
+        "KB-003",
+        "KB-026"
+      ],
+      "acceptance": "A versioned command/host matrix tests direct and equivalent command forms plus missing/broken hooks; unsupported constraints are labelled unenforced rather than advertised as physically guaranteed.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-030",
+      "owner": "hooks-collaboration",
+      "priority": "P2",
+      "title": "Measure standing protocol/tool-schema overhead and response verbosity",
+      "sourceStatus": "needs_benchmark",
+      "dependsOn": [
+        "KB-006",
+        "KB-024"
+      ],
+      "acceptance": "Record cold session overhead plus per-task tool/result tokens before/after; retain required operating guidance and do not attribute host-added repetition to source without measurement.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-031",
+      "owner": "/root",
+      "priority": "P2",
+      "title": "Keep one traceable public repair backlog and review workflow",
+      "sourceStatus": "mapped_this_change",
+      "dependsOn": [],
+      "acceptance": "All IDs, sources, evidence fragments and dependencies validate; tool inventory covers all 37 tools; the public branch/PR identifies implemented versus open work and preserves private security disclosure.",
+      "state": "backlog"
+    },
+    {
+      "id": "KB-032",
+      "owner": "execution-recovery",
+      "priority": "P2",
+      "title": "Align declared Node support and actual CI coverage",
+      "sourceStatus": "open",
+      "dependsOn": [
+        "KB-020",
+        "KB-022"
+      ],
+      "acceptance": "Declared minimum can install/run the packed artifact; CI matrix matches policy; compatibility changes get explicit release notes, not an untested engine claim.",
+      "state": "backlog"
+    }
+  ]
+}

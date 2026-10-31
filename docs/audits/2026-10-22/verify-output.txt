@@ -1,0 +1,61 @@
+
+> knitbrain@0.20.1 verify
+> npm run typecheck && npm run lint && npm run build && npm run test && npm run consistency && npm run bench
+
+
+> knitbrain@0.20.1 typecheck
+> tsc --noEmit
+
+
+> knitbrain@0.20.1 lint
+> eslint .
+
+
+> knitbrain@0.20.1 build
+> tsc -p tsconfig.build.json && node -e "['dist/index.js','dist/proxy/index.js','dist/hooks/index.js'].forEach(f=>require('fs').chmodSync(f,0o755))"
+
+
+> knitbrain@0.20.1 test
+> vitest run
+
+
+ RUN  v4.1.8 <checkout>
+
+
+ Test Files  67 passed | 1 skipped (68)
+      Tests  626 passed | 1 skipped (627)
+   Start at  02:20:26
+   Duration  6.27s (transform 1.96s, setup 500ms, import 9.97s, tests 23.37s, environment 5ms)
+
+
+> knitbrain@0.20.1 consistency
+> node scripts/consistency.mjs
+
+[consistency] truth from code: 37 tools · v0.20.1
+  ✓ package.json version (0.20.1) === src/version.ts (0.20.1)
+  ✓ README tool mentions [37] all equal 37
+  ✓ production-audit asserted counts [37] equal 37
+  ✓ bin "knitbrain" → dist/index.js exists in dist
+  ✓ bin "knitbrain-proxy" → dist/proxy/index.js exists in dist
+  ✓ bin "knitbrain-hook" → dist/hooks/index.js exists in dist
+[consistency] PASS
+
+> knitbrain@0.20.1 bench
+> tsx scripts/bench.ts
+
+[bench] tokenizer = o200k_base
+[bench] ── real-shape suite (mix mirrors the profiled distribution; floors below measured real numbers) ──
+[bench] code             1396 →  458 tokens  saved=67.2%  (floor 50%)  lossless=✓
+[bench] repetitive-log   4829 →  123 tokens  saved=97.5%  (floor 60%)  lossless=✓
+[bench] short-prose       114 →   88 tokens  saved=22.8%  (floor 8%)  lossless=✓
+[bench] long-prose       1176 →  231 tokens  saved=80.4%  (floor 40%)  lossless=✓
+[bench] test-output      1302 →  216 tokens  saved=83.4%  (floor 35%)  lossless=✓
+[bench] json             4043 →  115 tokens  saved=97.2%  (floor 55%)  lossless=✓
+[bench] diff              475 →  138 tokens  saved=70.9%  (floor 40%)  lossless=✓
+[bench] WEIGHTED (real-burn mix) saved=68.0%  (gate ≥45%)
+[bench] ── best-case suite (synthetic upper bounds — NOT real-world numbers) ──
+[bench] imports-120     10341 →  111 tokens  saved=98.9%  lossless=✓
+[bench] config            143 →   78 tokens  saved=45.5%  lossless=✓
+[bench] code-20fns       1499 →  426 tokens  saved=71.6%  lossless=✓
+[bench] best-case TOTAL 11983 → 615 tokens  saved=94.9% (upper bound, never quoted as real-world)
+[bench] PASS — real-shape floors held, fidelity held, byte-for-byte recovery

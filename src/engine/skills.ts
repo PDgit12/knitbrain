@@ -52,6 +52,15 @@ export interface SkillsStore {
 const tokenize = (s: string): string[] =>
   s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
 
+// Generic task wording is not evidence that a domain-specific playbook applies.
+const GENERIC_TERMS = new Set([
+  "the", "and", "for", "with", "from", "this", "that", "into", "using",
+  "fix", "build", "create", "update", "review", "test", "tests", "code",
+  "project", "task", "work", "proper", "existing", "current", "implement",
+  "verify", "data", "workflow", "system", "generation",
+]);
+const matchingTerms = (s: string): string[] => tokenize(s).filter((t) => !GENERIC_TERMS.has(t));
+
 export function createSkillsStore(root: string): SkillsStore {
   mkdirSync(root, { recursive: true });
   const path = join(root, "skills.json");
@@ -77,14 +86,14 @@ export function createSkillsStore(root: string): SkillsStore {
 
   return {
     find(task) {
-      const terms = new Set(tokenize(task));
+      const terms = new Set(matchingTerms(task));
       let best: Skill | null = null;
       let bestScore = 0;
       const all = load();
       for (const s of all) {
         let score = 0;
-        for (const t of s.triggers) if (terms.has(t)) score += 2;
-        for (const t of tokenize(s.name)) if (terms.has(t)) score += 1;
+        for (const t of new Set(s.triggers.flatMap(matchingTerms))) if (terms.has(t)) score += 2;
+        for (const t of new Set(matchingTerms(s.name))) if (terms.has(t)) score += 1;
         if (score > bestScore) {
           best = s;
           bestScore = score;

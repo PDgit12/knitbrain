@@ -138,7 +138,14 @@ export function normalizeEventName(platform: HookPlatform, rawEvent: string): Ho
       case "beforeReadFile":
         return "pretooluse";
       case "afterFileEdit":
+      case "postToolUse":
         return "posttooluse";
+      case "subagentStart":
+        return "subagentstart";
+      case "subagentStop":
+        return "subagentstop";
+      case "preCompact":
+        return "precompact";
       case "stop":
         return "stop";
       case "beforeSubmitPrompt":
@@ -278,7 +285,9 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
   const updatedToolOutput = hso?.["updatedToolOutput"] as string | undefined;
 
   if (platform === "cursor") {
-    if (mode === "subagentstart" || mode === "subagentstop") return null; // no cursor equivalent
+    // Cursor supports these observations, but neither schema accepts Claude's
+    // additionalContext shape. SessionStart carries assignment context.
+    if (mode === "subagentstart" || mode === "subagentstop") return null;
     if (mode === "pretooluse" && permissionDecision === "deny") {
       return { permission: "deny", user_message: reason, agent_message: reason };
     }
@@ -296,9 +305,10 @@ export function adaptOutput(platform: HookPlatform, mode: HookMode, decision: Re
       return { additional_context: additionalContext };
     }
     if (mode === "posttooluse" && updatedToolOutput) {
-      // Rewrite only works for MCP tool outputs on cursor; degrade to a
-      // context pointer otherwise rather than silently dropping the skeleton.
-      return { updated_mcp_tool_output: updatedToolOutput, additional_context: updatedToolOutput };
+      // Cursor only accepts structured MCP output replacement. This adapter
+      // does not have a reliable MCP/native-tool discriminator, so never claim
+      // that a native Shell result was replaced when it may be ignored.
+      return null;
     }
     if (mode === "userpromptsubmit" && additionalContext) {
       // beforeSubmitPrompt CANNOT inject context — degrade to a user_message.

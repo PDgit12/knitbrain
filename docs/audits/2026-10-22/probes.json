@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-22T06:16:23.544Z",
+  "note": "Diagnostic execution succeeded. defectPresent=true identifies an OPEN defect or documented policy limitation; this is NOT product green.",
+  "observations": [
+    {
+      "id": "KB-001",
+      "defectPresent": true,
+      "observed": {
+        "met": true,
+        "detail": "no verify command (vacuous pass)"
+      }
+    },
+    {
+      "id": "KB-004",
+      "defectPresent": true,
+      "observed": {
+        "before": [
+          "alpha"
+        ],
+        "after": [
+          "alpha"
+        ],
+        "expected": [
+          "beta"
+        ]
+      }
+    },
+    {
+      "id": "KB-005",
+      "defectPresent": true,
+      "observed": {
+        "verdict": "verified",
+        "claim": "substring.ts exports foo",
+        "detail": "substring.ts exports foo"
+      }
+    },
+    {
+      "id": "KB-002",
+      "defectPresent": true,
+      "observed": {
+        "parseable": false,
+        "advisoryAppended": true
+      }
+    },
+    {
+      "id": "KB-006",
+      "defectPresent": true,
+      "observed": {
+        "beforeResetPct": 90.9,
+        "freshSessionPct": 90.9,
+        "lifetimeSaved": 10000
+      }
+    },
+    {
+      "id": "KB-007",
+      "defectPresent": true,
+      "observed": {
+        "configuredWindow": 200000,
+        "reportedWindow": 1000000,
+        "status": "ok"
+      }
+    },
+    {
+      "id": "KB-009",
+      "defectPresent": true,
+      "observed": [
+        {
+          "task": "Can you fix the bug?",
+          "tier": "inquiry"
+        },
+        {
+          "task": "Create a complete audit report and map needed fixes.",
+          "tier": "inquiry"
+        }
+      ]
+    },
+    {
+      "id": "KB-010",
+      "defectPresent": true,
+      "observed": {
+        "selected": "payments-discovery"
+      }
+    },
+    {
+      "id": "KB-008",
+      "defectPresent": true,
+      "observed": {
+        "inputTokens": 86,
+        "routerTokens": 73,
+        "emittedTokens": 108,
+        "reportedSaved": 13
+      }
+    },
+    {
+      "id": "KB-018",
+      "defectPresent": false,
+      "observed": {
+        "documentedMethod": "compress",
+        "documentedMethodAvailable": true,
+        "exactRecovery": true
+      }
+    },
+    {
+      "id": "KB-012",
+      "defectPresent": true,
+      "observed": {
+        "recoverableAfterExplicitPurge": false,
+        "note": "Policy intentionally purges; default server also sets a cold cap."
+      }
+    },
+    {
+      "id": "KB-003",
+      "defectPresent": true,
+      "observed": {
+        "invalidRequiredArgumentRejected": false,
+        "content": [
+          {
+            "type": "text",
+            "text": ""
+          }
+        ]
+      }
+    }
+  ]
+}

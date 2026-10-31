@@ -145,6 +145,8 @@ const pct = (p: number, t: number): string => (t === 0 ? "n/a" : `${((p / t) * 1
 export function gate(rep: EvalReport): boolean {
   const ratio = (p: number, t: number): number => (t === 0 ? 1 : p / t);
   return (
+    rep.blocks > 0 &&
+    rep.roundTrip.total > 0 &&
     ratio(rep.errorLines.preserved, rep.errorLines.total) === 1 &&
     ratio(rep.roundTrip.ok, rep.roundTrip.total) === 1 &&
     ratio(rep.neverExpand.ok, rep.neverExpand.total) === 1 &&
@@ -172,8 +174,7 @@ export async function runEvals(args: string[], log: (line: string) => void = con
   log(`[evals] transcripts: ${files.length}`);
   const rep = emptyReport();
   if (files.length === 0) {
-    log("[evals] nothing to scan — pass a directory or .jsonl path (default: ~/.claude/projects)");
-    rep.pass = true; // nothing to judge is not a failure (don't break CI on an empty corpus)
+    log("[evals] no transcripts found — no evaluations ran; acceptance gate is not passed");
     return rep;
   }
   await ensureAst();

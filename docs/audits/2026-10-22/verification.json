@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-22",
+  "baseCommit": "957e5b1e88cf74856cb85e8ef61a4b6244308eee",
+  "scope": "Working tree includes inherited October21 scanning/skill patches. These results do not close the remaining findings or establish installed-host/npm behavior.",
+  "productAcceptance": false,
+  "commands": [
+    {
+      "command": "npm run verify",
+      "exitCode": 0,
+      "environment": "localhost-enabled macOS, Node v25.5.0",
+      "testsPassed": 626,
+      "testsSkipped": 1,
+      "testFilesPassed": 67,
+      "testFilesSkipped": 1,
+      "gates": [
+        "typecheck",
+        "lint",
+        "build",
+        "test",
+        "consistency",
+        "bench"
+      ],
+      "weightedSyntheticBenchmarkSavingPct": 68.0
+    },
+    {
+      "command": "npm run e2e:tools",
+      "exitCode": 0,
+      "registeredTools": 37,
+      "note": "Existing harness PASS; full edge-case coverage is not established."
+    },
+    {
+      "command": "node scripts/audit-probes.mjs docs/audits/2026-10-22/probes.json",
+      "exitCode": 0,
+      "observations": 12,
+      "note": "Ten functional defects and one intentional retention limitation remain; README method/exact recovery probe now passes after the documentation fix."
+    },
+    {
+      "command": "npm audit --omit=dev --json",
+      "exitCode": 1,
+      "runtimeAffectedPackages": 8,
+      "critical": 1,
+      "high": 3,
+      "moderate": 3,
+      "low": 1,
+      "note": "Existing upstream advisories; application reachability/exploitability not established."
+    },
+    {
+      "command": "node scripts/verify-audit-map.mjs",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "freshBuildFinalGate": "passed: prior dist moved aside, npm run verify exited 0",
+  "auditMapValidation": "passed: 32 findings, acyclic dependencies, 37 tools, 12 observations",
+  "candidateCI": "not yet created"
+}
